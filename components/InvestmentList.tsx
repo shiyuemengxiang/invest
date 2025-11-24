@@ -44,8 +44,8 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit }) => {
         onCancel={() => setDeleteId(null)}
       />
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white/80 backdrop-blur-sm p-2 rounded-2xl sticky top-2 z-10 border border-white/50 shadow-sm">
+      {/* Filters - Mobile: Static, Desktop: Sticky */}
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white/80 backdrop-blur-sm p-2 rounded-2xl relative md:sticky md:top-4 z-10 border border-white/50 shadow-sm">
         <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl w-full sm:w-auto">
             {(['all', 'active', 'completed'] as FilterType[]).map(f => (
                 <button

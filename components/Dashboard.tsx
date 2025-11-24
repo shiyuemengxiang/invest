@@ -67,8 +67,8 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
-      {/* Controls */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white/80 backdrop-blur-md p-4 rounded-3xl shadow-sm border border-white/50 sticky top-2 z-20">
+      {/* Controls - Mobile: Static/Relative, Desktop: Sticky. Remove blur on mobile to reduce jitter */}
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white md:bg-white/80 md:backdrop-blur-md p-4 rounded-3xl shadow-sm border border-white/50 relative md:sticky md:top-2 z-20">
          <div className="flex items-center gap-3">
              <span className="text-sm font-bold text-slate-400 uppercase tracking-wider">Currency View</span>
              <div className="flex gap-1 p-1.5 bg-slate-100 rounded-xl">
@@ -97,7 +97,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       </div>
 
       {/* Global Net Worth Card */}
-      <div className={`bg-gradient-to-br ${themeConfig.accent} p-8 rounded-[2rem] shadow-xl text-white relative overflow-hidden`}>
+      <div className={`bg-gradient-to-br ${themeConfig.accent} p-8 rounded-[2rem] shadow-xl text-white relative overflow-hidden transform-gpu`}>
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
         
@@ -194,17 +194,17 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             </div>
          </div>
          
-         {/* Asset Distribution */}
-         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 lg:col-span-2 flex flex-col md:flex-row gap-8">
-            <div className="flex-1">
+         {/* Asset Distribution & Upcoming - Use Grid for stability instead of Flex */}
+         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8 overflow-hidden">
+            <div className="w-full">
                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                     <span className="w-1.5 h-6 bg-blue-500 rounded-full"></span>
                     资金状态分布
                 </h3>
-                {/* Fixed height to prevent jitter in Recharts ResponsiveContainer on mobile */}
-                <div className="h-[250px] w-full relative">
+                {/* Fixed height container. Using width=99% in Recharts prevents rounding error loops */}
+                <div className="h-[250px] w-full relative overflow-hidden" style={{ transform: 'translate3d(0,0,0)' }}>
                     {pieData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="99%" height="100%">
                             <PieChart>
                                 <Pie
                                     data={pieData}
@@ -223,7 +223,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                                 </Pie>
                                 <Tooltip 
                                     formatter={(val: number) => formatCurrency(val, selectedCurrency)} 
-                                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', padding: '12px 16px' }}
+                                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', padding: '12px 16px', zIndex: 100 }}
                                     itemStyle={{ fontWeight: 600, color: '#1e293b' }}
                                 />
                             </PieChart>
@@ -234,10 +234,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                 </div>
             </div>
             
-            <div className="w-px bg-slate-100 hidden md:block"></div>
-            
-            {/* Upcoming List */}
-            <div className="flex-1">
+            <div className="w-full relative md:border-l md:border-slate-100 md:pl-8">
                  <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                     <span className="w-1.5 h-6 bg-emerald-500 rounded-full"></span>
                     近期到期 ({selectedCurrency})

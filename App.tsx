@@ -152,7 +152,7 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 flex flex-col md:flex-row font-sans">
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans">
       
       {/* --- Mobile Header --- */}
       <div className={`${themeConfig.sidebar} md:hidden p-4 flex justify-between items-center sticky top-0 z-50 shadow-md`}>
@@ -244,7 +244,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-y-auto md:h-screen">
+      <div className="flex-1 md:overflow-y-auto md:h-screen">
          <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 md:pb-8">
             {view === 'dashboard' && <Dashboard items={items} rates={rates} theme={theme} />}
             {view === 'list' && <InvestmentList items={items} onDelete={handleDelete} onEdit={(item) => { setEditingItem(item); setView('add'); }} />}
