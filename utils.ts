@@ -1,80 +1,159 @@
 
 
+
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption } from './types';
 
 export const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
+interface ThemeConfig {
+    sidebar: string;
+    accent: string;
+    button: string;
+    text: string;
+    icon: string;
+    navActive: string;
+    navHover: string;
+}
+
 // Theme Configuration Map
-export const THEMES: Record<ThemeOption, { sidebar: string, accent: string, button: string, text: string, icon: string }> = {
+export const THEMES: Record<ThemeOption, ThemeConfig> = {
+    // --- Dark Themes ---
     slate: {
         sidebar: 'bg-slate-900 text-slate-300',
         accent: 'from-slate-700 to-slate-900',
         button: 'bg-slate-900 hover:bg-slate-800',
         text: 'text-slate-600',
-        icon: 'text-slate-400'
+        icon: 'text-slate-400',
+        navActive: 'bg-white/10 text-white font-bold',
+        navHover: 'hover:bg-white/5 opacity-80'
     },
     midnight: {
         sidebar: 'bg-black text-gray-400',
         accent: 'from-gray-800 to-black',
         button: 'bg-black hover:bg-gray-900',
         text: 'text-gray-600',
-        icon: 'text-gray-400'
+        icon: 'text-gray-400',
+        navActive: 'bg-white/10 text-white font-bold',
+        navHover: 'hover:bg-white/5 opacity-80'
     },
     ocean: {
         sidebar: 'bg-blue-900 text-blue-200',
         accent: 'from-blue-600 to-blue-800',
         button: 'bg-blue-600 hover:bg-blue-700',
         text: 'text-blue-600',
-        icon: 'text-blue-400'
+        icon: 'text-blue-400',
+        navActive: 'bg-white/10 text-white font-bold',
+        navHover: 'hover:bg-white/5 opacity-80'
     },
     forest: {
         sidebar: 'bg-emerald-900 text-emerald-100',
         accent: 'from-emerald-600 to-emerald-800',
         button: 'bg-emerald-600 hover:bg-emerald-700',
         text: 'text-emerald-600',
-        icon: 'text-emerald-400'
+        icon: 'text-emerald-400',
+        navActive: 'bg-white/10 text-white font-bold',
+        navHover: 'hover:bg-white/5 opacity-80'
     },
     sunset: {
         sidebar: 'bg-rose-900 text-rose-100',
         accent: 'from-rose-600 to-rose-800',
         button: 'bg-rose-600 hover:bg-rose-700',
         text: 'text-rose-600',
-        icon: 'text-rose-400'
+        icon: 'text-rose-400',
+        navActive: 'bg-white/10 text-white font-bold',
+        navHover: 'hover:bg-white/5 opacity-80'
     },
     royal: {
         sidebar: 'bg-indigo-950 text-indigo-100',
         accent: 'from-indigo-600 to-purple-800',
         button: 'bg-indigo-700 hover:bg-indigo-800',
         text: 'text-indigo-700',
-        icon: 'text-indigo-400'
+        icon: 'text-indigo-400',
+        navActive: 'bg-white/10 text-white font-bold',
+        navHover: 'hover:bg-white/5 opacity-80'
     },
     teal: {
         sidebar: 'bg-teal-900 text-teal-100',
         accent: 'from-teal-600 to-cyan-800',
         button: 'bg-teal-700 hover:bg-teal-800',
         text: 'text-teal-700',
-        icon: 'text-teal-500'
+        icon: 'text-teal-500',
+        navActive: 'bg-white/10 text-white font-bold',
+        navHover: 'hover:bg-white/5 opacity-80'
     },
     amber: {
         sidebar: 'bg-amber-950 text-amber-100',
         accent: 'from-amber-500 to-orange-700',
         button: 'bg-amber-700 hover:bg-amber-800',
         text: 'text-amber-700',
-        icon: 'text-amber-500'
+        icon: 'text-amber-500',
+        navActive: 'bg-white/10 text-white font-bold',
+        navHover: 'hover:bg-white/5 opacity-80'
     },
     crimson: {
         sidebar: 'bg-red-950 text-red-100',
         accent: 'from-red-700 to-red-900',
         button: 'bg-red-800 hover:bg-red-900',
         text: 'text-red-800',
-        icon: 'text-red-500'
+        icon: 'text-red-500',
+        navActive: 'bg-white/10 text-white font-bold',
+        navHover: 'hover:bg-white/5 opacity-80'
     },
     pink: {
         sidebar: 'bg-fuchsia-900 text-fuchsia-100',
         accent: 'from-fuchsia-500 to-pink-700',
         button: 'bg-fuchsia-700 hover:bg-fuchsia-800',
         text: 'text-fuchsia-700',
-        icon: 'text-fuchsia-400'
+        icon: 'text-fuchsia-400',
+        navActive: 'bg-white/10 text-white font-bold',
+        navHover: 'hover:bg-white/5 opacity-80'
+    },
+    
+    // --- Light Themes ---
+    lavender: {
+        sidebar: 'bg-violet-50 text-violet-900 border-r border-violet-100',
+        accent: 'from-violet-400 to-violet-600',
+        button: 'bg-violet-500 hover:bg-violet-600',
+        text: 'text-violet-600',
+        icon: 'text-violet-400',
+        navActive: 'bg-violet-200 text-violet-900 font-bold shadow-sm',
+        navHover: 'hover:bg-violet-100 text-violet-700'
+    },
+    mint: {
+        sidebar: 'bg-emerald-50 text-emerald-900 border-r border-emerald-100',
+        accent: 'from-emerald-400 to-teal-500',
+        button: 'bg-emerald-500 hover:bg-emerald-600',
+        text: 'text-emerald-600',
+        icon: 'text-emerald-500',
+        navActive: 'bg-emerald-200 text-emerald-900 font-bold shadow-sm',
+        navHover: 'hover:bg-emerald-100 text-emerald-700'
+    },
+    sky: {
+        sidebar: 'bg-sky-50 text-sky-900 border-r border-sky-100',
+        accent: 'from-sky-400 to-blue-500',
+        button: 'bg-sky-500 hover:bg-sky-600',
+        text: 'text-sky-600',
+        icon: 'text-sky-500',
+        navActive: 'bg-sky-200 text-sky-900 font-bold shadow-sm',
+        navHover: 'hover:bg-sky-100 text-sky-700'
+    },
+    sakura: {
+        sidebar: 'bg-pink-50 text-pink-900 border-r border-pink-100',
+        accent: 'from-pink-400 to-rose-500',
+        button: 'bg-pink-500 hover:bg-pink-600',
+        text: 'text-pink-600',
+        icon: 'text-pink-400',
+        navActive: 'bg-pink-200 text-pink-900 font-bold shadow-sm',
+        navHover: 'hover:bg-pink-100 text-pink-700'
+    },
+    ivory: {
+        sidebar: 'bg-white text-slate-800 border-r border-slate-200',
+        accent: 'from-slate-400 to-slate-600',
+        button: 'bg-slate-700 hover:bg-slate-800',
+        text: 'text-slate-700',
+        icon: 'text-slate-400',
+        navActive: 'bg-slate-100 text-slate-900 font-bold shadow-sm',
+        navHover: 'hover:bg-slate-50 text-slate-600'
     }
 };
 

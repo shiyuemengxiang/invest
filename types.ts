@@ -12,7 +12,7 @@ export const CATEGORY_LABELS: Record<InvestmentCategory, string> = {
     Other: '其他'
 };
 
-export type ThemeOption = 'slate' | 'midnight' | 'forest' | 'ocean' | 'sunset' | 'royal' | 'amber' | 'teal' | 'crimson' | 'pink';
+export type ThemeOption = 'slate' | 'midnight' | 'forest' | 'ocean' | 'sunset' | 'royal' | 'amber' | 'teal' | 'crimson' | 'pink' | 'lavender' | 'mint' | 'sky' | 'sakura' | 'ivory';
 
 export interface User {
     id: string;
