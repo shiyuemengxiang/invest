@@ -3,13 +3,13 @@ import { createClient } from '@vercel/postgres';
 import crypto from 'crypto';
 
 export default async function handler(request: any, response: any) {
-  // Check for environment variable existence, but let createClient() read it directly
   if (!process.env.POSTGRES_URL) {
       return response.status(500).json({ error: 'Database configuration missing (POSTGRES_URL).' });
   }
 
-  // Initialize client without arguments to use default environment variable parsing
-  const client = createClient();
+  const client = createClient({
+    connectionString: process.env.POSTGRES_URL,
+  });
 
   try {
     await client.connect();

@@ -6,8 +6,9 @@ export default async function handler(request: any, response: any) {
       return response.status(500).json({ error: 'Database configuration missing.' });
   }
 
-  // Initialize client without arguments to use default environment variable parsing
-  const client = createClient();
+  const client = createClient({
+    connectionString: process.env.POSTGRES_URL,
+  });
 
   try {
     await client.connect();
