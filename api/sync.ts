@@ -1,3 +1,4 @@
+
 import pg from 'pg';
 
 const { Pool } = pg;
@@ -17,7 +18,9 @@ export default async function handler(request: any, response: any) {
   const client = await pool.connect();
 
   try {
-    const { userId, data } = request.body;
+    // Robust parsing of body (handle both object and string cases)
+    const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
+    const { userId, data } = body;
     
     if (!userId) {
         return response.status(400).json({ error: 'Missing userId' });
@@ -32,16 +35,15 @@ export default async function handler(request: any, response: any) {
       );
     `);
 
-    // Upsert data using ON CONFLICT and Parameterized Query
-    // pg will automatically handle the JSONB stringification if passed correctly, 
-    // but stringifying explicitly ensures format.
+    // Upsert data using ON CONFLICT
+    // Explicitly cast to jsonb to avoid type issues with stringified input
     const jsonData = JSON.stringify(data);
 
     await client.query(`
         INSERT INTO ledgers (user_id, data, updated_at) 
-        VALUES ($1, $2, CURRENT_TIMESTAMP) 
+        VALUES ($1, $2::jsonb, CURRENT_TIMESTAMP) 
         ON CONFLICT (user_id) 
-        DO UPDATE SET data = $2, updated_at = CURRENT_TIMESTAMP
+        DO UPDATE SET data = $2::jsonb, updated_at = CURRENT_TIMESTAMP
     `, [userId, jsonData]);
 
     return response.status(200).json({ success: true });

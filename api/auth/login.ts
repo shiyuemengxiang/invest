@@ -1,3 +1,4 @@
+
 import pg from 'pg';
 import crypto from 'crypto';
 
@@ -15,7 +16,8 @@ export default async function handler(request: any, response: any) {
   const client = await pool.connect();
   
   try {
-    const { email, password, type } = request.body;
+    const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
+    const { email, password, type } = body;
 
     if (!email || !password) {
         return response.status(400).json({ error: 'Email and password are required.' });

@@ -1,3 +1,4 @@
+
 import pg from 'pg';
 
 const { Pool } = pg;
@@ -13,13 +14,13 @@ export default async function handler(request: any, response: any) {
   const client = await pool.connect();
   
   try {
-    const { userId } = request.query;
+    const { userId } = request.query || {};
 
     if (!userId) {
         return response.status(400).json({ error: 'Missing userId' });
     }
 
-    // Check if table exists
+    // Check if table exists first to avoid errors on fresh deploy
     const { rows: tableCheck } = await client.query(`
         SELECT EXISTS (
             SELECT FROM information_schema.tables 
@@ -38,6 +39,7 @@ export default async function handler(request: any, response: any) {
     );
     
     if (rows.length > 0) {
+        // PG driver automatically parses JSONB columns
         return response.status(200).json(rows[0].data);
     } else {
         return response.status(200).json([]);

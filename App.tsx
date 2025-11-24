@@ -32,8 +32,7 @@ const App: React.FC = () => {
     setUser(currentUser);
     setTheme(currentTheme);
 
-    // If logged in, we would ideally fetch fresh from DB here. 
-    // For now, we load local cache. In production: if(currentUser) await storageService.syncDown()
+    // Initial Load from Local Cache
     if (localData) {
         setItems(localData);
     } else if (!currentUser) {
@@ -43,6 +42,16 @@ const App: React.FC = () => {
             { id: '2', name: '稳健季季红', category: 'Deposit', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期' },
         ];
         setItems(seed);
+    }
+
+    // Cloud Sync: If logged in, fetch fresh data from DB
+    if (currentUser) {
+        storageService.syncDown(currentUser.id).then(cloudData => {
+            if (cloudData && Array.isArray(cloudData)) {
+                 console.log("Cloud data synced:", cloudData.length, "items");
+                 setItems(cloudData);
+            }
+        });
     }
   }, []);
 
@@ -70,13 +79,20 @@ const App: React.FC = () => {
 
   const handleLogin = (loggedInUser: User) => {
       setUser(loggedInUser);
+      
+      // IMPORTANT: Load the fresh data that was synced to localStorage during the login process
+      const freshData = storageService.getLocalData();
+      if (freshData) {
+          setItems(freshData);
+      }
+
       setView('dashboard');
-      // In a real app, trigger a DB fetch here to merge/overwrite local data
   };
 
   const handleLogout = () => {
       storageService.logout();
       setUser(null);
+      // Optional: Clear items or revert to seed? For now keep viewing but as guest.
       setView('auth');
   };
 
@@ -137,7 +153,7 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans">
+    <div className="min-h-[100dvh] bg-slate-50 flex flex-col md:flex-row font-sans">
       
       {/* --- Mobile Header --- */}
       <div className={`${themeConfig.sidebar} md:hidden p-4 flex justify-between items-center sticky top-0 z-50 shadow-md`}>
@@ -229,7 +245,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-y-auto h-screen">
+      <div className="flex-1 overflow-y-auto md:h-screen">
          <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 md:pb-8">
             {view === 'dashboard' && <Dashboard items={items} rates={rates} theme={theme} />}
             {view === 'list' && <InvestmentList items={items} onDelete={handleDelete} onEdit={(item) => { setEditingItem(item); setView('add'); }} />}
