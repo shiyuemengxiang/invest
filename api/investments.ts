@@ -1,8 +1,10 @@
 
-import { sql } from '@vercel/postgres';
+import { createClient } from '@vercel/postgres';
 
 export default async function handler(request: any, response: any) {
+  const client = createClient();
   try {
+    await client.connect();
     const { userId } = request.query;
 
     if (!userId) {
@@ -10,7 +12,7 @@ export default async function handler(request: any, response: any) {
     }
 
     // Check if table exists
-    const { rows: tableCheck } = await sql`
+    const { rows: tableCheck } = await client.sql`
         SELECT EXISTS (
             SELECT FROM information_schema.tables 
             WHERE  table_schema = 'public'
@@ -22,7 +24,7 @@ export default async function handler(request: any, response: any) {
         return response.status(200).json([]);
     }
 
-    const { rows } = await sql`SELECT data FROM ledgers WHERE user_id=${userId}`;
+    const { rows } = await client.sql`SELECT data FROM ledgers WHERE user_id=${userId}`;
     
     if (rows.length > 0) {
         return response.status(200).json(rows[0].data);
@@ -32,5 +34,7 @@ export default async function handler(request: any, response: any) {
   } catch (error: any) {
     console.error("Investments API Error:", error);
     return response.status(500).json({ error: 'Fetch failed', details: error.message });
+  } finally {
+    await client.end();
   }
 }
