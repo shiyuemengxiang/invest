@@ -1,8 +1,14 @@
 
-import { sql } from '@vercel/postgres';
+import { createClient } from '@vercel/postgres';
 
 export default async function handler(request: any, response: any) {
+  const client = createClient({
+    connectionString: process.env.POSTGRES_URL,
+  });
+
   try {
+    await client.connect();
+
     const { userId } = request.query;
 
     if (!userId) {
@@ -10,7 +16,7 @@ export default async function handler(request: any, response: any) {
     }
 
     try {
-        const { rows } = await sql`SELECT data FROM ledgers WHERE user_id=${userId}`;
+        const { rows } = await client.query(`SELECT data FROM ledgers WHERE user_id=$1`, [userId]);
         if (rows.length > 0) {
             return response.status(200).json(rows[0].data);
         } else {
@@ -26,5 +32,7 @@ export default async function handler(request: any, response: any) {
   } catch (error) {
     console.error("Investments API Error:", error);
     return response.status(500).json({ error: String(error) });
+  } finally {
+    await client.end();
   }
 }

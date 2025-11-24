@@ -1,12 +1,18 @@
 
-import { sql } from '@vercel/postgres';
+import { createClient } from '@vercel/postgres';
 
 export default async function handler(request: any, response: any) {
   if (request.method !== 'POST') {
       return response.status(405).json({ error: 'Method not allowed' });
   }
 
+  const client = createClient({
+    connectionString: process.env.POSTGRES_URL,
+  });
+
   try {
+    await client.connect();
+
     const { userId, data } = request.body;
     
     if (!userId) {
@@ -14,21 +20,25 @@ export default async function handler(request: any, response: any) {
     }
 
     // Ensure table exists
-    await sql`CREATE TABLE IF NOT EXISTS ledgers (user_id TEXT PRIMARY KEY, data JSONB, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`;
+    await client.query(`CREATE TABLE IF NOT EXISTS ledgers (user_id TEXT PRIMARY KEY, data JSONB, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
 
     const jsonStr = JSON.stringify(data);
 
-    // Upsert data
-    await sql`
+    // Upsert data using standard parameterized query
+    const query = `
         INSERT INTO ledgers (user_id, data, updated_at) 
-        VALUES (${userId}, ${jsonStr}::jsonb, CURRENT_TIMESTAMP) 
+        VALUES ($1, $2, CURRENT_TIMESTAMP) 
         ON CONFLICT (user_id) 
-        DO UPDATE SET data = ${jsonStr}::jsonb, updated_at = CURRENT_TIMESTAMP;
+        DO UPDATE SET data = $2, updated_at = CURRENT_TIMESTAMP;
     `;
+    
+    await client.query(query, [userId, jsonStr]);
 
     return response.status(200).json({ success: true });
   } catch (error) {
     console.error("Sync Error:", error);
     return response.status(500).json({ error: String(error) });
+  } finally {
+    await client.end();
   }
 }
