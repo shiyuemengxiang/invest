@@ -58,12 +58,11 @@ export const storageService = {
         // 2. Cloud Sync
         if (user) {
             try {
-                // Expects an API route at /api/sync
                 fetch(`${API_BASE}/sync`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: user.id, data: items })
-                }).catch(e => console.warn("Background sync failed (API might not be ready):", e));
+                }).catch(e => console.warn("Background sync failed:", e));
             } catch (e) {
                 // Silently fail for API issues, UI remains responsive
             }
@@ -71,16 +70,16 @@ export const storageService = {
     },
 
     // Login: Tries Vercel API, falls back to Mock for demo/offline
-    async login(email: string, password: string): Promise<User> {
+    async login(email: string, password: string, isRegister: boolean = false): Promise<User> {
         // 1. Try Real API Login
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout for API check
+            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout for API check (cold start)
 
             const res = await fetch(`${API_BASE}/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password }),
+                body: JSON.stringify({ email, password, type: isRegister ? 'register' : 'login' }),
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
@@ -89,23 +88,17 @@ export const storageService = {
                 const user = await res.json();
                 this.saveLocalUser(user);
                 
-                // Fetch latest cloud data
-                this.syncDown(user.id);
+                // Fetch latest cloud data immediately
+                await this.syncDown(user.id);
                 
                 return user;
+            } else {
+                throw new Error('Auth failed');
             }
         } catch (e) {
-            console.warn("API Login failed/unavailable, falling back to Local Mock.", e);
+            console.warn("API Login failed, throwing error to UI.", e);
+            throw e; 
         }
-
-        // 2. Fallback Mock Login (For Guest/Demo or when API is down)
-        return new Promise<User>(resolve => {
-            setTimeout(() => {
-                const mockUser = { id: 'u_' + Math.floor(Math.random()*10000), email, name: email.split('@')[0] };
-                this.saveLocalUser(mockUser);
-                resolve(mockUser);
-            }, 800);
-        });
     },
 
     // Pull data from Vercel PG
@@ -113,7 +106,10 @@ export const storageService = {
         try {
             const res = await fetch(`${API_BASE}/investments?userId=${userId}`);
             if (res.ok) {
-                const data = await res.json();
+                const json = await res.json();
+                // API returns { data: [...] } or just [...]
+                const data = Array.isArray(json) ? json : (json.data || []);
+                
                 if (Array.isArray(data)) {
                     this.saveLocalData(data);
                     return data;

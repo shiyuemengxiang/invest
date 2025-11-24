@@ -18,11 +18,11 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel }) => {
         e.preventDefault();
         setLoading(true);
         try {
-            // In a real app, distinguish register vs login API calls
-            const user = await storageService.login(email, password);
+            // Pass the isRegister flag to the service
+            const user = await storageService.login(email, password, isRegister);
             onLogin(user);
         } catch (error) {
-            alert('Authentication failed');
+            alert(isRegister ? '注册失败: 可能邮箱已被占用' : '登录失败: 邮箱或密码错误');
         } finally {
             setLoading(false);
         }
