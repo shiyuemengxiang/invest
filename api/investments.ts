@@ -3,9 +3,9 @@ import { sql } from '@vercel/postgres';
 
 export default async function handler(request: any, response: any) {
   try {
+    // --- MOCK MODE (When DB is not connected) ---
     if (!process.env.POSTGRES_URL) {
-        // Return empty array if no DB configured to allow offline mode to work smoothly
-        console.warn("POSTGRES_URL missing, returning empty list");
+        console.warn("MOCK MODE: Returning empty list (POSTGRES_URL missing)");
         return response.status(200).json([]);
     }
 
@@ -25,7 +25,7 @@ export default async function handler(request: any, response: any) {
         }
     } catch (e: any) {
         // If table doesn't exist yet, return empty list
-        if (e.message.includes('does not exist')) {
+        if (e.message && e.message.includes('does not exist')) {
              return response.status(200).json([]);
         }
         throw e;

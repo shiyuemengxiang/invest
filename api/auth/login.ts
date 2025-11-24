@@ -4,16 +4,22 @@ import crypto from 'crypto';
 
 export default async function handler(request: any, response: any) {
   try {
-    if (!process.env.POSTGRES_URL) {
-      return response.status(500).json({ error: 'Database not configured (POSTGRES_URL missing)' });
-    }
-
     const { email, password, type } = request.body;
 
     if (!email || !password) {
         return response.status(400).json({ error: 'Missing credentials' });
     }
 
+    // --- MOCK MODE (When DB is not connected) ---
+    if (!process.env.POSTGRES_URL) {
+      console.warn("MOCK MODE: Simulating auth success (POSTGRES_URL missing)");
+      // Deterministic mock ID for consistency in dev
+      const mockId = 'mock-user-' + crypto.createHash('md5').update(email).digest('hex').substring(0, 8);
+      return response.status(200).json({ id: mockId, email });
+    }
+
+    // --- REAL DB MODE ---
+    
     // Ensure table exists (Lazy setup)
     try {
         await sql`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT);`;

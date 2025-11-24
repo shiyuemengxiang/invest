@@ -6,8 +6,10 @@ export default async function handler(request: any, response: any) {
       return response.status(405).json({ error: 'Method not allowed' });
   }
 
+  // --- MOCK MODE (When DB is not connected) ---
   if (!process.env.POSTGRES_URL) {
-    return response.status(500).json({ error: 'Database not configured (POSTGRES_URL missing)' });
+    console.warn("MOCK MODE: Skipping cloud sync (POSTGRES_URL missing)");
+    return response.status(200).json({ success: true, mode: 'mock' });
   }
 
   try {
