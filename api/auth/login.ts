@@ -3,19 +3,13 @@ import { createClient } from '@vercel/postgres';
 import crypto from 'crypto';
 
 export default async function handler(request: any, response: any) {
-  // 1. Validate Environment
-  let connectionString = process.env.POSTGRES_URL;
-  if (!connectionString) {
+  // Check for environment variable existence, but let createClient() read it directly
+  if (!process.env.POSTGRES_URL) {
       return response.status(500).json({ error: 'Database configuration missing (POSTGRES_URL).' });
   }
 
-  // Ensure SSL mode is set for Vercel Postgres
-  if (!connectionString.includes('sslmode=')) {
-      const separator = connectionString.includes('?') ? '&' : '?';
-      connectionString += `${separator}sslmode=require`;
-  }
-
-  const client = createClient({ connectionString });
+  // Initialize client without arguments to use default environment variable parsing
+  const client = createClient();
 
   try {
     await client.connect();
@@ -26,7 +20,7 @@ export default async function handler(request: any, response: any) {
         return response.status(400).json({ error: 'Email and password are required.' });
     }
 
-    // 2. Ensure Schema Exists
+    // Ensure Schema Exists
     await client.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT);`);
 
     if (type === 'register') {
@@ -57,13 +51,11 @@ export default async function handler(request: any, response: any) {
     }
   } catch (error: any) {
     console.error("Database Login Error:", error);
-    // Explicitly return the error so the user knows DB is down/configured wrong
     return response.status(500).json({ 
         error: 'Database connection failed.', 
         details: error.message || String(error) 
     });
   } finally {
-    // Always close the client
     try { await client.end(); } catch(e) {}
   }
 }

@@ -2,16 +2,12 @@
 import { createClient } from '@vercel/postgres';
 
 export default async function handler(request: any, response: any) {
-  let connectionString = process.env.POSTGRES_URL;
-  if (!connectionString) {
+  if (!process.env.POSTGRES_URL) {
       return response.status(500).json({ error: 'Database configuration missing.' });
   }
-  if (!connectionString.includes('sslmode=')) {
-      const separator = connectionString.includes('?') ? '&' : '?';
-      connectionString += `${separator}sslmode=require`;
-  }
 
-  const client = createClient({ connectionString });
+  // Initialize client without arguments to use default environment variable parsing
+  const client = createClient();
 
   try {
     await client.connect();
@@ -22,7 +18,7 @@ export default async function handler(request: any, response: any) {
         return response.status(400).json({ error: 'Missing userId' });
     }
 
-    // Check if table exists first to avoid crashing on first run
+    // Check if table exists first
     const checkTable = await client.query(`
         SELECT EXISTS (
             SELECT FROM information_schema.tables 

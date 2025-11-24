@@ -6,16 +6,12 @@ export default async function handler(request: any, response: any) {
       return response.status(405).json({ error: 'Method not allowed' });
   }
 
-  let connectionString = process.env.POSTGRES_URL;
-  if (!connectionString) {
+  if (!process.env.POSTGRES_URL) {
       return response.status(500).json({ error: 'Database configuration missing.' });
   }
-  if (!connectionString.includes('sslmode=')) {
-      const separator = connectionString.includes('?') ? '&' : '?';
-      connectionString += `${separator}sslmode=require`;
-  }
 
-  const client = createClient({ connectionString });
+  // Initialize client without arguments to use default environment variable parsing
+  const client = createClient();
 
   try {
     await client.connect();
