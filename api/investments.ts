@@ -3,6 +3,12 @@ import { sql } from '@vercel/postgres';
 
 export default async function handler(request: any, response: any) {
   try {
+    if (!process.env.POSTGRES_URL) {
+        // Return empty array if no DB configured to allow offline mode to work smoothly
+        console.warn("POSTGRES_URL missing, returning empty list");
+        return response.status(200).json([]);
+    }
+
     const { userId } = request.query;
 
     if (!userId) {

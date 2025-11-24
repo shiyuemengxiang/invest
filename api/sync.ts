@@ -6,6 +6,10 @@ export default async function handler(request: any, response: any) {
       return response.status(405).json({ error: 'Method not allowed' });
   }
 
+  if (!process.env.POSTGRES_URL) {
+    return response.status(500).json({ error: 'Database not configured (POSTGRES_URL missing)' });
+  }
+
   try {
     const { userId, data } = request.body;
     
