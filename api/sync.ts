@@ -12,7 +12,9 @@ export default async function handler(request: any, response: any) {
     return response.status(200).json({ success: true, mode: 'mock' });
   }
 
-  const client = createClient();
+  const client = createClient({
+    connectionString: process.env.POSTGRES_URL,
+  });
   await client.connect();
 
   try {

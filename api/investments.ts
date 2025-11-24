@@ -15,7 +15,9 @@ export default async function handler(request: any, response: any) {
         return response.status(400).json({ error: 'Missing userId' });
     }
 
-    const client = createClient();
+    const client = createClient({
+        connectionString: process.env.POSTGRES_URL,
+    });
     await client.connect();
 
     try {
