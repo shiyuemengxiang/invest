@@ -107,7 +107,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                     <svg className="w-5 h-5 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                     全货币持仓估值 (Global Net Worth)
                 </p>
-                <h2 className="text-5xl font-bold tracking-tight text-white mb-2">
+                <h2 className="text-5xl font-bold tracking-tight text-white mb-2 tabular-nums">
                     {formatCurrency(globalValuation, selectedCurrency)}
                 </h2>
                 <p className="text-sm text-white/60">
@@ -135,7 +135,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
           </div>
           <p className="text-slate-500 text-sm font-medium">在途本金</p>
-          <p className="text-2xl font-bold text-slate-800 mt-1">{formatCurrency(stats.activePrincipal, selectedCurrency)}</p>
+          <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.activePrincipal, selectedCurrency)}</p>
           <div className="w-full bg-slate-100 h-1.5 mt-4 rounded-full overflow-hidden">
              <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000" style={{ width: `${stats.totalInvested ? (stats.activePrincipal / stats.totalInvested) * 100 : 0}%` }}></div>
           </div>
@@ -149,7 +149,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
              <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
           </div>
           <p className="text-slate-500 text-sm font-medium">已落袋收益</p>
-          <p className="text-2xl font-bold text-slate-800 mt-1">{formatCurrency(stats.realizedInterest, selectedCurrency)}</p>
+          <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.realizedInterest, selectedCurrency)}</p>
         </div>
 
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group">
@@ -160,7 +160,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
              <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Weighted</span>
           </div>
           <p className="text-slate-500 text-sm font-medium">综合年化收益率</p>
-          <p className="text-2xl font-bold text-slate-800 mt-1">{formatPercent(stats.comprehensiveYield)}</p>
+          <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatPercent(stats.comprehensiveYield)}</p>
         </div>
       </div>
 
@@ -174,7 +174,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             <div className="space-y-6">
                  <div className="flex justify-between items-end">
                     <span className="text-slate-500 text-sm font-medium">总返利金额</span>
-                    <span className="font-bold text-xl text-slate-800 font-mono">{formatCurrency(stats.totalRebate, selectedCurrency)}</span>
+                    <span className="font-bold text-xl text-slate-800 font-mono tabular-nums">{formatCurrency(stats.totalRebate, selectedCurrency)}</span>
                  </div>
                  <div className="h-px bg-slate-100 w-full"></div>
                  <div className="flex justify-between items-center">
@@ -182,26 +182,27 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                         <div className="w-2 h-2 rounded-full bg-emerald-400 ring-4 ring-emerald-50"></div>
                         <span className="text-slate-600 text-sm">已到账</span>
                     </div>
-                    <span className="font-semibold text-emerald-600 font-mono">{formatCurrency(stats.receivedRebate, selectedCurrency)}</span>
+                    <span className="font-semibold text-emerald-600 font-mono tabular-nums">{formatCurrency(stats.receivedRebate, selectedCurrency)}</span>
                  </div>
                  <div className="flex justify-between items-center">
                     <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-amber-400 ring-4 ring-amber-50"></div>
                         <span className="text-slate-600 text-sm">待返利</span>
                     </div>
-                    <span className="font-semibold text-amber-500 font-mono">{formatCurrency(stats.pendingRebate, selectedCurrency)}</span>
+                    <span className="font-semibold text-amber-500 font-mono tabular-nums">{formatCurrency(stats.pendingRebate, selectedCurrency)}</span>
                  </div>
             </div>
          </div>
          
          {/* Asset Distribution */}
          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 lg:col-span-2 flex flex-col md:flex-row gap-8">
-            <div className="flex-1 min-h-[240px]">
+            <div className="flex-1">
                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                     <span className="w-1.5 h-6 bg-blue-500 rounded-full"></span>
                     资金状态分布
                 </h3>
-                <div className="h-full w-full relative">
+                {/* Fixed height to prevent jitter in Recharts ResponsiveContainer on mobile */}
+                <div className="h-[250px] w-full relative">
                     {pieData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
@@ -241,7 +242,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                     <span className="w-1.5 h-6 bg-emerald-500 rounded-full"></span>
                     近期到期 ({selectedCurrency})
                 </h3>
-                <div className="space-y-3 overflow-y-auto max-h-[240px] pr-2 custom-scrollbar">
+                <div className="space-y-3 overflow-y-auto max-h-[250px] pr-2 custom-scrollbar">
                     {upcoming.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-40 text-slate-300 border-2 border-dashed border-slate-100 rounded-2xl">
                             <p className="text-sm">无近期到期项目</p>
@@ -254,7 +255,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                                     <p className="text-xs text-slate-400 mt-0.5">{item.maturityDate}</p>
                                 </div>
                                 <div className="text-right whitespace-nowrap pl-4">
-                                     <p className="font-bold text-slate-700 text-sm font-mono">{formatCurrency(item.principal, selectedCurrency)}</p>
+                                     <p className="font-bold text-slate-700 text-sm font-mono tabular-nums">{formatCurrency(item.principal, selectedCurrency)}</p>
                                      <p className={`text-xs font-bold mt-0.5 ${item.daysRemaining < 0 ? 'text-red-500' : item.daysRemaining <= 7 ? 'text-orange-500' : 'text-emerald-600'}`}>
                                         {item.daysRemaining < 0 ? `逾期 ${Math.abs(item.daysRemaining)} 天` : 
                                          item.daysRemaining === 0 ? '今天到期' : 
