@@ -40,21 +40,30 @@ export default async function handler(request: any, response: any) {
          return response.status(200).json({ id, email });
        } catch (e: any) {
          if (e.code === '23505') { // Unique violation
-            return response.status(400).json({ error: 'This email is already registered.' });
+            return response.status(400).json({ error: 'EMAIL_EXISTS' });
          }
          throw e;
        }
     } else {
-       // Login
-       const { rows } = await client.query(
-         'SELECT * FROM users WHERE email=$1 AND password=$2',
-         [email, password]
-       );
+       // Login Logic
        
-       if (rows.length > 0) {
-           return response.status(200).json({ id: rows[0].id, email: rows[0].email });
+       // 1. Check if user exists
+       const { rows: userRows } = await client.query(
+         'SELECT * FROM users WHERE email=$1',
+         [email]
+       );
+
+       if (userRows.length === 0) {
+           return response.status(404).json({ error: 'USER_NOT_FOUND' });
        }
-       return response.status(401).json({ error: 'Invalid email or password.' });
+       
+       // 2. Check password
+       const user = userRows[0];
+       if (user.password !== password) {
+            return response.status(401).json({ error: 'INVALID_PASSWORD' });
+       }
+       
+       return response.status(200).json({ id: user.id, email: user.email });
     }
   } catch (error: any) {
     console.error("Database Login Error:", error);

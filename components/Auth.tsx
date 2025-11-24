@@ -24,8 +24,19 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel }) => {
             const user = await storageService.login(email, password, isRegister);
             onLogin(user);
         } catch (err: any) {
-            // Display explicit error from backend if available
-            const msg = err.message || (isRegister ? '注册失败' : '登录失败');
+            let msg = err.message;
+
+            // Translate backend error codes to Chinese
+            if (msg === 'USER_NOT_FOUND') {
+                msg = '账号不存在，请先注册';
+            } else if (msg === 'INVALID_PASSWORD') {
+                msg = '账号或密码错误';
+            } else if (msg === 'EMAIL_EXISTS' || msg === 'This email is already registered.') {
+                msg = '该邮箱已被注册，请直接登录';
+            } else if (!msg || msg === 'Authentication failed') {
+                msg = isRegister ? '注册失败，请稍后重试' : '登录失败，请稍后重试';
+            }
+
             setError(msg);
         } finally {
             setLoading(false);

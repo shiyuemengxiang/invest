@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Investment, CATEGORY_LABELS } from '../types';
 import { calculateItemMetrics, formatCurrency, formatDate, formatPercent } from '../utils';
+import ConfirmModal from './ConfirmModal';
 
 interface Props {
   items: Investment[];
@@ -13,6 +14,7 @@ type FilterType = 'all' | 'active' | 'completed';
 
 const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit }) => {
   const [filter, setFilter] = useState<FilterType>('all');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -22,8 +24,26 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit }) => {
     }).sort((a, b) => new Date(b.depositDate).getTime() - new Date(a.depositDate).getTime());
   }, [items, filter]);
 
+  const handleDeleteConfirm = () => {
+    if (deleteId) {
+        onDelete(deleteId);
+        setDeleteId(null);
+    }
+  };
+
   return (
     <div className="space-y-8 animate-fade-in pb-12">
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal 
+        isOpen={!!deleteId}
+        title="确认删除"
+        message="删除后该资产记录将无法恢复。您确定要继续吗？"
+        confirmText="彻底删除"
+        isDanger={true}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteId(null)}
+      />
+
       {/* Filters */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white/80 backdrop-blur-sm p-2 rounded-2xl sticky top-2 z-10 border border-white/50 shadow-sm">
         <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl w-full sm:w-auto">
@@ -105,7 +125,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit }) => {
                             </svg>
                         </button>
                         <button 
-                            onClick={() => { if(window.confirm('确定删除吗?')) onDelete(item.id); }}
+                            onClick={() => setDeleteId(item.id)}
                             className="p-2 text-slate-400 hover:text-red-600 bg-slate-50 hover:bg-red-50 rounded-xl border border-slate-200 hover:border-red-200 transition"
                             title="删除"
                         >
