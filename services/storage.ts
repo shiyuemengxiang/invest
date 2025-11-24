@@ -8,22 +8,10 @@ const STORAGE_KEYS = {
     THEME: 'smart_ledger_theme'
 };
 
-// Mock API endpoints - In a real Vercel setup, these would be fetch('/api/...')
-// For this demo, we simulate the API delay and storage
-const mockApi = {
-    async sync(userId: string, data: any) {
-        // In production: await fetch('/api/sync', { method: 'POST', body: JSON.stringify({ userId, data }) })
-        console.log(`[DB] Syncing data for user ${userId} to Postgres...`);
-        return new Promise(resolve => setTimeout(resolve, 500));
-    },
-    async login(email: string) {
-        // In production: await fetch('/api/auth/login', ...)
-        return new Promise<User>(resolve => setTimeout(() => resolve({ id: 'u_123', email, name: email.split('@')[0] }), 800));
-    }
-};
+const API_BASE = '/api';
 
 export const storageService = {
-    // --- Local Storage (Guest) ---
+    // --- Local Storage Helpers (Guest / Cache) ---
     getLocalData: (): Investment[] | null => {
         const saved = localStorage.getItem(STORAGE_KEYS.DATA);
         return saved ? JSON.parse(saved) : null;
@@ -60,28 +48,85 @@ export const storageService = {
         localStorage.setItem(STORAGE_KEYS.THEME, theme);
     },
 
-    // --- Hybrid Logic ---
+    // --- Hybrid Cloud / Local Logic ---
+
+    // Sync Data: Uploads to Vercel PG if logged in, always saves to LocalStorage
     async saveData(user: User | null, items: Investment[]) {
+        // 1. Optimistic Local Save
+        this.saveLocalData(items);
+
+        // 2. Cloud Sync
         if (user) {
-            // If logged in, save to "DB" AND update local cache
-            await mockApi.sync(user.id, items);
-            this.saveLocalData(items); 
-        } else {
-            // Guest mode
-            this.saveLocalData(items);
+            try {
+                // Expects an API route at /api/sync
+                fetch(`${API_BASE}/sync`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: user.id, data: items })
+                }).catch(e => console.warn("Background sync failed (API might not be ready):", e));
+            } catch (e) {
+                // Silently fail for API issues, UI remains responsive
+            }
         }
     },
 
+    // Login: Tries Vercel API, falls back to Mock for demo/offline
     async login(email: string, password: string): Promise<User> {
-        // Simulating API login
-        const user = await mockApi.login(email);
-        this.saveLocalUser(user);
-        return user;
+        // 1. Try Real API Login
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout for API check
+
+            const res = await fetch(`${API_BASE}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password }),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            if (res.ok) {
+                const user = await res.json();
+                this.saveLocalUser(user);
+                
+                // Fetch latest cloud data
+                this.syncDown(user.id);
+                
+                return user;
+            }
+        } catch (e) {
+            console.warn("API Login failed/unavailable, falling back to Local Mock.", e);
+        }
+
+        // 2. Fallback Mock Login (For Guest/Demo or when API is down)
+        return new Promise<User>(resolve => {
+            setTimeout(() => {
+                const mockUser = { id: 'u_' + Math.floor(Math.random()*10000), email, name: email.split('@')[0] };
+                this.saveLocalUser(mockUser);
+                resolve(mockUser);
+            }, 800);
+        });
+    },
+
+    // Pull data from Vercel PG
+    async syncDown(userId: string) {
+        try {
+            const res = await fetch(`${API_BASE}/investments?userId=${userId}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    this.saveLocalData(data);
+                    return data;
+                }
+            }
+        } catch (e) {
+            console.warn("Could not sync down data:", e);
+        }
+        return null;
     },
 
     logout() {
         this.saveLocalUser(null);
-        // Optional: Clear data or keep it? Typically keep for cache or clear for security.
-        // For this hybrid app, we might keep it or clear it. Let's keep rates/theme.
+        // Optionally clear data, but keeping it for cache is often better UX
     }
 };
