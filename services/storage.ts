@@ -58,22 +58,26 @@ export const storageService = {
         // 2. Cloud Sync
         if (user) {
             try {
-                fetch(`${API_BASE}/sync`, {
+                await fetch(`${API_BASE}/sync`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: user.id, data: items })
-                }).catch(e => console.warn("Background sync failed:", e));
+                });
             } catch (e) {
+                console.warn("Background sync failed:", e);
                 // Silently fail for API issues, UI remains responsive
             }
         }
     },
 
     // Login: Tries Vercel API
-    async login(email: string, password: string, isRegister: boolean = false): Promise<User> {
+    // Modified to accept currentItems. 
+    // If Registering: Upload currentItems to cloud.
+    // If Logging in: Download from cloud.
+    async login(email: string, password: string, isRegister: boolean, currentItems: Investment[]): Promise<User> {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout for cold starts
 
             const res = await fetch(`${API_BASE}/auth/login`, {
                 method: 'POST',
@@ -85,8 +89,7 @@ export const storageService = {
 
             const contentType = res.headers.get('content-type');
             if (!contentType || !contentType.includes('application/json')) {
-                // This usually happens when the API is not running and Vite returns index.html (200 OK)
-                throw new Error('Backend service unavailable. Please ensure you are running "vercel dev" or deployed to Vercel.');
+                throw new Error('Backend service unavailable. Please check your database connection.');
             }
 
             const data = await res.json();
@@ -95,8 +98,15 @@ export const storageService = {
                 const user = data;
                 this.saveLocalUser(user);
                 
-                // Fetch latest cloud data immediately
-                await this.syncDown(user.id);
+                if (isRegister && currentItems.length > 0) {
+                    // SCENARIO 1: New Registration with existing Guest Data.
+                    // Action: Push Guest Data to Cloud immediately.
+                    await this.saveData(user, currentItems);
+                } else {
+                    // SCENARIO 2: Login or Registration without data.
+                    // Action: Pull Data from Cloud.
+                    await this.syncDown(user.id);
+                }
                 
                 return user;
             } else {
@@ -117,6 +127,7 @@ export const storageService = {
             const contentType = res.headers.get('content-type');
             if (res.ok && contentType && contentType.includes('application/json')) {
                 const json = await res.json();
+                // Check if it's wrapped in {data: ...} or direct array
                 const data = Array.isArray(json) ? json : (json.data || []);
                 
                 if (Array.isArray(data)) {

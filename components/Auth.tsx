@@ -1,14 +1,15 @@
 
 import React, { useState } from 'react';
 import { storageService } from '../services/storage';
-import { User } from '../types';
+import { User, Investment } from '../types';
 
 interface Props {
     onLogin: (user: User) => void;
     onCancel: () => void;
+    currentItems: Investment[];
 }
 
-const Auth: React.FC<Props> = ({ onLogin, onCancel }) => {
+const Auth: React.FC<Props> = ({ onLogin, onCancel, currentItems }) => {
     const [isRegister, setIsRegister] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -21,7 +22,8 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel }) => {
         setError(null);
         
         try {
-            const user = await storageService.login(email, password, isRegister);
+            // Pass currentItems to login to handle "Guest -> Cloud" data migration
+            const user = await storageService.login(email, password, isRegister, currentItems);
             onLogin(user);
         } catch (err: any) {
             let msg = err.message;
@@ -50,7 +52,7 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel }) => {
                     <div className="w-16 h-16 bg-slate-900 text-white rounded-2xl mx-auto flex items-center justify-center text-2xl font-bold mb-4">SL</div>
                     <h2 className="text-2xl font-bold text-slate-800">{isRegister ? '注册账户' : '登录账户'}</h2>
                     <p className="text-slate-400 text-sm mt-2">
-                        {isRegister ? '创建您的云端账本 (Vercel Postgres)' : '同步您的云端数据'}
+                        {isRegister ? '注册后，您当前的账本将同步至云端' : '登录后，将从云端拉取您的数据'}
                     </p>
                 </div>
 
@@ -90,7 +92,7 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel }) => {
                         disabled={loading}
                         className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold shadow-lg transition transform active:scale-95 disabled:opacity-70 mt-4"
                     >
-                        {loading ? '处理中...' : (isRegister ? '立即注册' : '登 录')}
+                        {loading ? '处理中...' : (isRegister ? '立即注册并同步' : '登 录')}
                     </button>
                 </form>
 

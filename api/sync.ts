@@ -18,8 +18,16 @@ export default async function handler(request: any, response: any) {
   const client = await pool.connect();
 
   try {
-    // Robust parsing of body (handle both object and string cases)
-    const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
+    // Robust parsing: handle object or string body
+    let body = request.body;
+    if (typeof body === 'string') {
+        try {
+            body = JSON.parse(body);
+        } catch (e) {
+            // console.warn('Failed to parse body', e);
+        }
+    }
+    
     const { userId, data } = body;
     
     if (!userId) {
@@ -36,8 +44,8 @@ export default async function handler(request: any, response: any) {
     `);
 
     // Upsert data using ON CONFLICT
-    // Explicitly cast to jsonb to avoid type issues with stringified input
-    const jsonData = JSON.stringify(data);
+    // IMPORTANT: Use JSON.stringify for the data param and explicit ::jsonb cast
+    const jsonData = JSON.stringify(data || []);
 
     await client.query(`
         INSERT INTO ledgers (user_id, data, updated_at) 

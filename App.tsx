@@ -92,7 +92,6 @@ const App: React.FC = () => {
   const handleLogout = () => {
       storageService.logout();
       setUser(null);
-      // Optional: Clear items or revert to seed? For now keep viewing but as guest.
       setView('auth');
   };
 
@@ -116,7 +115,7 @@ const App: React.FC = () => {
   const themeConfig = THEMES[theme];
 
   if (view === 'auth' && !user) {
-      return <Auth onLogin={handleLogin} onCancel={() => setView('dashboard')} />;
+      return <Auth onLogin={handleLogin} onCancel={() => setView('dashboard')} currentItems={items} />;
   }
 
   const NavItems = () => (

@@ -14,7 +14,14 @@ export default async function handler(request: any, response: any) {
   const client = await pool.connect();
   
   try {
-    const { userId } = request.query || {};
+    // Robust query parsing
+    // In some envs query is an object, in others we might need to parse URL
+    let userId = request.query?.userId;
+    
+    if (!userId && request.url.includes('?')) {
+        const searchParams = new URLSearchParams(request.url.split('?')[1]);
+        userId = searchParams.get('userId');
+    }
 
     if (!userId) {
         return response.status(400).json({ error: 'Missing userId' });
@@ -40,7 +47,8 @@ export default async function handler(request: any, response: any) {
     
     if (rows.length > 0) {
         // PG driver automatically parses JSONB columns
-        return response.status(200).json(rows[0].data);
+        const result = rows[0].data;
+        return response.status(200).json(result || []);
     } else {
         return response.status(200).json([]);
     }
