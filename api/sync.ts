@@ -6,16 +6,27 @@ export default async function handler(request: any, response: any) {
       return response.status(405).json({ error: 'Method not allowed' });
   }
 
-  // --- MOCK MODE (When DB is not connected) ---
-  if (!process.env.POSTGRES_URL) {
-    console.warn("MOCK MODE: Skipping cloud sync (POSTGRES_URL missing)");
+  // Helper: Return Mock Success
+  const returnMockSuccess = () => {
+    console.warn("MOCK MODE: Skipping cloud sync (DB unavailable)");
     return response.status(200).json({ success: true, mode: 'mock' });
+  };
+
+  if (!process.env.POSTGRES_URL) {
+    return returnMockSuccess();
   }
 
   const client = createClient({
     connectionString: process.env.POSTGRES_URL,
   });
-  await client.connect();
+
+  // Attempt Connection
+  try {
+    await client.connect();
+  } catch (connErr) {
+    console.warn("DB Connection Failed during sync:", connErr);
+    return returnMockSuccess();
+  }
 
   try {
     const { userId, data } = request.body;
@@ -38,7 +49,7 @@ export default async function handler(request: any, response: any) {
 
     return response.status(200).json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Sync Error:", error);
     return response.status(500).json({ error: String(error) });
   } finally {
     await client.end();

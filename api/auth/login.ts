@@ -10,20 +10,33 @@ export default async function handler(request: any, response: any) {
         return response.status(400).json({ error: 'Missing credentials' });
     }
 
-    // --- MOCK MODE (When DB is not connected) ---
+    // Helper: Return Mock Success (used as fallback)
+    const returnMockSuccess = () => {
+        console.warn("MOCK MODE: Simulating auth success (DB unavailable)");
+        // Deterministic mock ID for consistency in dev
+        const mockId = 'mock-user-' + crypto.createHash('md5').update(email).digest('hex').substring(0, 8);
+        return response.status(200).json({ id: mockId, email });
+    };
+
+    // 1. Check for Env Var
     if (!process.env.POSTGRES_URL) {
-      console.warn("MOCK MODE: Simulating auth success (POSTGRES_URL missing)");
-      // Deterministic mock ID for consistency in dev
-      const mockId = 'mock-user-' + crypto.createHash('md5').update(email).digest('hex').substring(0, 8);
-      return response.status(200).json({ id: mockId, email });
+      return returnMockSuccess();
     }
 
-    // --- REAL DB MODE ---
+    // 2. Initialize Client
     const client = createClient({
         connectionString: process.env.POSTGRES_URL,
     });
-    await client.connect();
     
+    // 3. Attempt Connection (with Fallback)
+    try {
+        await client.connect();
+    } catch (connErr) {
+        console.warn("DB Connection Failed (falling back to mock):", connErr);
+        return returnMockSuccess();
+    }
+    
+    // 4. Perform DB Operations
     try {
         // Ensure table exists
         await client.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT);`);

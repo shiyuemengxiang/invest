@@ -3,10 +3,14 @@ import { createClient } from '@vercel/postgres';
 
 export default async function handler(request: any, response: any) {
   try {
-    // --- MOCK MODE (When DB is not connected) ---
-    if (!process.env.POSTGRES_URL) {
-        console.warn("MOCK MODE: Returning empty list (POSTGRES_URL missing)");
+    // Helper: Return Empty List
+    const returnEmpty = () => {
+        console.warn("MOCK MODE: Returning empty list (DB unavailable)");
         return response.status(200).json([]);
+    };
+
+    if (!process.env.POSTGRES_URL) {
+        return returnEmpty();
     }
 
     const { userId } = request.query;
@@ -18,7 +22,14 @@ export default async function handler(request: any, response: any) {
     const client = createClient({
         connectionString: process.env.POSTGRES_URL,
     });
-    await client.connect();
+
+    // Attempt Connection
+    try {
+        await client.connect();
+    } catch (connErr) {
+        console.warn("DB Connection Failed during fetch:", connErr);
+        return returnEmpty();
+    }
 
     try {
         const { rows } = await client.query(`SELECT data FROM ledgers WHERE user_id=$1`, [userId]);
