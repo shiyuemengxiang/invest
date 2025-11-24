@@ -1,14 +1,22 @@
-import { createClient } from '@vercel/postgres';
+import pg from 'pg';
+
+const { Pool } = pg;
+
+const pool = new Pool({
+  connectionString: process.env.POSTGRES_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
 
 export default async function handler(request: any, response: any) {
   if (request.method !== 'POST') {
       return response.status(405).json({ error: 'Method not allowed' });
   }
 
-  const client = createClient();
+  const client = await pool.connect();
 
   try {
-    await client.connect();
     const { userId, data } = request.body;
     
     if (!userId) {
@@ -16,23 +24,31 @@ export default async function handler(request: any, response: any) {
     }
 
     // Ensure table exists
-    await client.sql`CREATE TABLE IF NOT EXISTS ledgers (user_id TEXT PRIMARY KEY, data JSONB, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`;
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ledgers (
+        user_id TEXT PRIMARY KEY, 
+        data JSONB, 
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
-    const jsonStr = JSON.stringify(data);
+    // Upsert data using ON CONFLICT and Parameterized Query
+    // pg will automatically handle the JSONB stringification if passed correctly, 
+    // but stringifying explicitly ensures format.
+    const jsonData = JSON.stringify(data);
 
-    // Upsert data using ON CONFLICT
-    await client.sql`
+    await client.query(`
         INSERT INTO ledgers (user_id, data, updated_at) 
-        VALUES (${userId}, ${jsonStr}::jsonb, CURRENT_TIMESTAMP) 
+        VALUES ($1, $2, CURRENT_TIMESTAMP) 
         ON CONFLICT (user_id) 
-        DO UPDATE SET data = ${jsonStr}::jsonb, updated_at = CURRENT_TIMESTAMP;
-    `;
+        DO UPDATE SET data = $2, updated_at = CURRENT_TIMESTAMP
+    `, [userId, jsonData]);
 
     return response.status(200).json({ success: true });
   } catch (error: any) {
     console.error("Sync Error:", error);
     return response.status(500).json({ error: 'Sync failed', details: error.message });
   } finally {
-    await client.end();
+    client.release();
   }
 }

@@ -1,10 +1,20 @@
-import { createClient } from '@vercel/postgres';
+import pg from 'pg';
 import crypto from 'crypto';
 
+const { Pool } = pg;
+
+// Initialize Pool outside handler for potential reuse in warm environments
+const pool = new Pool({
+  connectionString: process.env.POSTGRES_URL,
+  ssl: {
+    rejectUnauthorized: false // Required for Vercel/Neon Postgres
+  }
+});
+
 export default async function handler(request: any, response: any) {
-  const client = createClient();
+  const client = await pool.connect();
+  
   try {
-    await client.connect();
     const { email, password, type } = request.body;
 
     if (!email || !password) {
@@ -12,12 +22,21 @@ export default async function handler(request: any, response: any) {
     }
 
     // Ensure Table Exists
-    await client.sql`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT);`;
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY, 
+        email TEXT UNIQUE, 
+        password TEXT
+      );
+    `);
 
     if (type === 'register') {
        const id = crypto.randomUUID();
        try {
-         await client.sql`INSERT INTO users (id, email, password) VALUES (${id}, ${email}, ${password})`;
+         await client.query(
+           'INSERT INTO users (id, email, password) VALUES ($1, $2, $3)',
+           [id, email, password]
+         );
          return response.status(200).json({ id, email });
        } catch (e: any) {
          if (e.code === '23505') { // Unique violation
@@ -27,7 +46,10 @@ export default async function handler(request: any, response: any) {
        }
     } else {
        // Login
-       const { rows } = await client.sql`SELECT * FROM users WHERE email=${email} AND password=${password}`;
+       const { rows } = await client.query(
+         'SELECT * FROM users WHERE email=$1 AND password=$2',
+         [email, password]
+       );
        
        if (rows.length > 0) {
            return response.status(200).json({ id: rows[0].id, email: rows[0].email });
@@ -41,6 +63,6 @@ export default async function handler(request: any, response: any) {
         details: error.message || String(error) 
     });
   } finally {
-    await client.end();
+    client.release();
   }
 }
