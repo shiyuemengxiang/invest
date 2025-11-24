@@ -69,12 +69,11 @@ export const storageService = {
         }
     },
 
-    // Login: Tries Vercel API, falls back to Mock for demo/offline
+    // Login: Tries Vercel API
     async login(email: string, password: string, isRegister: boolean = false): Promise<User> {
-        // 1. Try Real API Login
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout for API check (cold start)
+            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
 
             const res = await fetch(`${API_BASE}/auth/login`, {
                 method: 'POST',
@@ -84,8 +83,16 @@ export const storageService = {
             });
             clearTimeout(timeoutId);
 
+            const contentType = res.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                // This usually happens when the API is not running and Vite returns index.html (200 OK)
+                throw new Error('Backend service unavailable. Please ensure you are running "vercel dev" or deployed to Vercel.');
+            }
+
+            const data = await res.json();
+
             if (res.ok) {
-                const user = await res.json();
+                const user = data;
                 this.saveLocalUser(user);
                 
                 // Fetch latest cloud data immediately
@@ -93,10 +100,10 @@ export const storageService = {
                 
                 return user;
             } else {
-                throw new Error('Auth failed');
+                throw new Error(data.error || 'Authentication failed');
             }
-        } catch (e) {
-            console.warn("API Login failed, throwing error to UI.", e);
+        } catch (e: any) {
+            console.warn("API Login failed:", e);
             throw e; 
         }
     },
@@ -105,9 +112,11 @@ export const storageService = {
     async syncDown(userId: string) {
         try {
             const res = await fetch(`${API_BASE}/investments?userId=${userId}`);
-            if (res.ok) {
+            
+            // Validate JSON response
+            const contentType = res.headers.get('content-type');
+            if (res.ok && contentType && contentType.includes('application/json')) {
                 const json = await res.json();
-                // API returns { data: [...] } or just [...]
                 const data = Array.isArray(json) ? json : (json.data || []);
                 
                 if (Array.isArray(data)) {
@@ -123,6 +132,5 @@ export const storageService = {
 
     logout() {
         this.saveLocalUser(null);
-        // Optionally clear data, but keeping it for cache is often better UX
     }
 };

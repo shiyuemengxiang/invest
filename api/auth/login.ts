@@ -23,14 +23,15 @@ export default async function handler(request: any, response: any) {
          await sql`INSERT INTO users (id, email, password) VALUES (${id}, ${email}, ${password})`;
          return response.status(200).json({ id, email });
        } catch (e) {
-         return response.status(400).json({ error: 'User already exists' });
+         return response.status(400).json({ error: '该邮箱已被注册' });
        }
     } else {
+       // Login
        const { rows } = await sql`SELECT * FROM users WHERE email=${email} AND password=${password}`;
        if (rows.length > 0) {
            return response.status(200).json({ id: rows[0].id, email: rows[0].email });
        }
-       return response.status(401).json({ error: 'Invalid credentials' });
+       return response.status(401).json({ error: '邮箱或密码错误' });
     }
   } catch (error) {
     return response.status(500).json({ error: String(error) });

@@ -13,16 +13,20 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        setError(null);
+        
         try {
-            // Pass the isRegister flag to the service
             const user = await storageService.login(email, password, isRegister);
             onLogin(user);
-        } catch (error) {
-            alert(isRegister ? '注册失败: 可能邮箱已被占用' : '登录失败: 邮箱或密码错误');
+        } catch (err: any) {
+            // Display explicit error from backend if available
+            const msg = err.message || (isRegister ? '注册失败' : '登录失败');
+            setError(msg);
         } finally {
             setLoading(false);
         }
@@ -39,6 +43,13 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel }) => {
                     </p>
                 </div>
 
+                {error && (
+                    <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3">
+                         <svg className="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                         <p className="text-sm text-red-600 font-medium break-words">{error}</p>
+                    </div>
+                )}
+
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                         <label className="block text-sm font-semibold text-slate-700 mb-2">电子邮箱</label>
@@ -47,7 +58,7 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel }) => {
                             required 
                             value={email}
                             onChange={e => setEmail(e.target.value)}
-                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 outline-none"
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 outline-none transition"
                             placeholder="name@example.com"
                         />
                     </div>
@@ -58,7 +69,7 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel }) => {
                             required 
                             value={password}
                             onChange={e => setPassword(e.target.value)}
-                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 outline-none"
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 outline-none transition"
                             placeholder="••••••••"
                         />
                     </div>
@@ -74,15 +85,15 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel }) => {
 
                 <div className="mt-6 text-center">
                     <button 
-                        onClick={() => setIsRegister(!isRegister)}
-                        className="text-sm text-slate-500 hover:text-slate-800 font-medium"
+                        onClick={() => { setIsRegister(!isRegister); setError(null); }}
+                        className="text-sm text-slate-500 hover:text-slate-800 font-medium transition"
                     >
                         {isRegister ? '已有账号? 去登录' : '没有账号? 去注册'}
                     </button>
                 </div>
                 
                 <div className="mt-8 pt-6 border-t border-slate-100 text-center">
-                     <button onClick={onCancel} className="text-sm text-slate-400 hover:text-slate-600">
+                     <button onClick={onCancel} className="text-sm text-slate-400 hover:text-slate-600 transition">
                         暂不登录, 继续作为访客使用
                      </button>
                 </div>
