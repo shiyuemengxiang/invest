@@ -6,29 +6,18 @@ export default async function handler(request: any, response: any) {
       return response.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Helper: Return Mock Success
-  const returnMockSuccess = () => {
-    console.warn("MOCK MODE: Skipping cloud sync (DB unavailable)");
-    return response.status(200).json({ success: true, mode: 'mock' });
-  };
-
   if (!process.env.POSTGRES_URL) {
-    return returnMockSuccess();
+    return response.status(503).json({ error: 'Database not configured' });
   }
 
   const client = createClient({
     connectionString: process.env.POSTGRES_URL,
   });
 
-  // Attempt Connection
   try {
+    // Attempt Connection
     await client.connect();
-  } catch (connErr) {
-    console.warn("DB Connection Failed during sync:", connErr);
-    return returnMockSuccess();
-  }
 
-  try {
     const { userId, data } = request.body;
     
     if (!userId) {

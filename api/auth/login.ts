@@ -3,6 +3,10 @@ import { createClient } from '@vercel/postgres';
 import crypto from 'crypto';
 
 export default async function handler(request: any, response: any) {
+  const client = createClient({
+    connectionString: process.env.POSTGRES_URL,
+  });
+
   try {
     const { email, password, type } = request.body;
 
@@ -10,33 +14,19 @@ export default async function handler(request: any, response: any) {
         return response.status(400).json({ error: 'Missing credentials' });
     }
 
-    // Helper: Return Mock Success (used as fallback)
-    const returnMockSuccess = () => {
-        console.warn("MOCK MODE: Simulating auth success (DB unavailable)");
-        // Deterministic mock ID for consistency in dev
-        const mockId = 'mock-user-' + crypto.createHash('md5').update(email).digest('hex').substring(0, 8);
-        return response.status(200).json({ id: mockId, email });
-    };
-
-    // 1. Check for Env Var
     if (!process.env.POSTGRES_URL) {
-      return returnMockSuccess();
+        return response.status(503).json({ error: 'Database not configured (POSTGRES_URL missing)' });
     }
-
-    // 2. Initialize Client
-    const client = createClient({
-        connectionString: process.env.POSTGRES_URL,
-    });
     
-    // 3. Attempt Connection (with Fallback)
+    // 1. Attempt Connection
     try {
         await client.connect();
     } catch (connErr) {
-        console.warn("DB Connection Failed (falling back to mock):", connErr);
-        return returnMockSuccess();
+        console.error("DB Connection Failed:", connErr);
+        return response.status(500).json({ error: 'Database connection failed' });
     }
     
-    // 4. Perform DB Operations
+    // 2. Perform DB Operations
     try {
         // Ensure table exists
         await client.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT);`);
