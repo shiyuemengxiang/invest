@@ -1,5 +1,5 @@
 
-import { sql } from '@vercel/postgres';
+import { createClient } from '@vercel/postgres';
 import crypto from 'crypto';
 
 export default async function handler(request: any, response: any) {
@@ -19,34 +19,42 @@ export default async function handler(request: any, response: any) {
     }
 
     // --- REAL DB MODE ---
+    const client = createClient();
+    await client.connect();
     
-    // Ensure table exists (Lazy setup)
     try {
-        await sql`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT);`;
-    } catch (e) {
-        console.error("DB Init Error", e);
-    }
+        // Ensure table exists
+        await client.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT);`);
 
-    if (type === 'register') {
-       const id = crypto.randomUUID();
-       try {
-         await sql`INSERT INTO users (id, email, password) VALUES (${id}, ${email}, ${password})`;
-         return response.status(200).json({ id, email });
-       } catch (e: any) {
-         // Postgres unique violation code is 23505
-         if (e.code === '23505') {
-            return response.status(400).json({ error: '该邮箱已被注册' });
-         }
-         console.error("Register Error:", e);
-         return response.status(500).json({ error: '注册失败，请稍后重试' });
-       }
-    } else {
-       // Login
-       const { rows } = await sql`SELECT * FROM users WHERE email=${email} AND password=${password}`;
-       if (rows.length > 0) {
-           return response.status(200).json({ id: rows[0].id, email: rows[0].email });
-       }
-       return response.status(401).json({ error: '邮箱或密码错误' });
+        if (type === 'register') {
+           const id = crypto.randomUUID();
+           try {
+             await client.query(
+                `INSERT INTO users (id, email, password) VALUES ($1, $2, $3)`,
+                [id, email, password]
+             );
+             return response.status(200).json({ id, email });
+           } catch (e: any) {
+             // Postgres unique violation code is 23505
+             if (e.code === '23505') {
+                return response.status(400).json({ error: '该邮箱已被注册' });
+             }
+             console.error("Register Error:", e);
+             return response.status(500).json({ error: '注册失败，请稍后重试' });
+           }
+        } else {
+           // Login
+           const { rows } = await client.query(
+                `SELECT * FROM users WHERE email=$1 AND password=$2`,
+                [email, password]
+           );
+           if (rows.length > 0) {
+               return response.status(200).json({ id: rows[0].id, email: rows[0].email });
+           }
+           return response.status(401).json({ error: '邮箱或密码错误' });
+        }
+    } finally {
+        await client.end();
     }
   } catch (error) {
     console.error("API Error:", error);

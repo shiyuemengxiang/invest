@@ -1,5 +1,5 @@
 
-import { sql } from '@vercel/postgres';
+import { createClient } from '@vercel/postgres';
 
 export default async function handler(request: any, response: any) {
   try {
@@ -15,9 +15,11 @@ export default async function handler(request: any, response: any) {
         return response.status(400).json({ error: 'Missing userId' });
     }
 
-    // Attempt to read from DB
+    const client = createClient();
+    await client.connect();
+
     try {
-        const { rows } = await sql`SELECT data FROM ledgers WHERE user_id=${userId}`;
+        const { rows } = await client.query(`SELECT data FROM ledgers WHERE user_id=$1`, [userId]);
         if (rows.length > 0) {
             return response.status(200).json(rows[0].data);
         } else {
@@ -29,6 +31,8 @@ export default async function handler(request: any, response: any) {
              return response.status(200).json([]);
         }
         throw e;
+    } finally {
+        await client.end();
     }
 
   } catch (error) {
