@@ -6,9 +6,16 @@ export default async function handler(request: any, response: any) {
       return response.status(405).json({ error: 'Method not allowed' });
   }
 
-  const client = createClient({
-    connectionString: process.env.POSTGRES_URL,
-  });
+  let connectionString = process.env.POSTGRES_URL;
+  if (!connectionString) {
+      return response.status(500).json({ error: 'Database configuration missing.' });
+  }
+  if (!connectionString.includes('sslmode=')) {
+      const separator = connectionString.includes('?') ? '&' : '?';
+      connectionString += `${separator}sslmode=require`;
+  }
+
+  const client = createClient({ connectionString });
 
   try {
     await client.connect();
@@ -24,7 +31,7 @@ export default async function handler(request: any, response: any) {
 
     const jsonStr = JSON.stringify(data);
 
-    // Upsert data using standard parameterized query
+    // Upsert data
     const query = `
         INSERT INTO ledgers (user_id, data, updated_at) 
         VALUES ($1, $2, CURRENT_TIMESTAMP) 
@@ -35,10 +42,10 @@ export default async function handler(request: any, response: any) {
     await client.query(query, [userId, jsonStr]);
 
     return response.status(200).json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Sync Error:", error);
-    return response.status(500).json({ error: String(error) });
+    return response.status(500).json({ error: 'Sync failed', details: error.message });
   } finally {
-    await client.end();
+    try { await client.end(); } catch(e) {}
   }
 }
