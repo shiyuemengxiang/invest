@@ -15,7 +15,7 @@
     "recharts": "^2.12.7",
     "pg": "^8.11.3",
     "@hello-pangea/dnd": "^16.5.0",
-    "yahoo-finance2": "^2.11.3"
+    "yahoo-finance2": "^2.13.3"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",

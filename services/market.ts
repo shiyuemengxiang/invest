@@ -40,7 +40,7 @@ export const marketService = {
     async getQuotes(symbols: string[]): Promise<Record<string, number> | null> {
         console.log(`[MarketService] Requesting quotes for: ${symbols.join(', ')}`);
         
-        // Strategy 1: Try Backend API
+        // Strategy 1: Try Backend API (Often Blocked on Vercel Free Tier IP)
         try {
             const res = await fetch(`${API_BASE}/quotes`, {
                 method: 'POST',
@@ -59,37 +59,52 @@ export const marketService = {
             console.warn("[MarketService] Backend quotes API failed/network error:", e);
         }
 
-        // Strategy 2: Client-side Proxy Fetch (Fallback)
-        console.log("[MarketService] Triggering Client-Side CORS Proxy Fallback...");
+        // Strategy 2: Client-Side Multi-Proxy Fallback
+        console.log("[MarketService] Triggering Client-Side Multi-Proxy Fallback...");
         
         const result: Record<string, number> = {};
         const uniqueSymbols = Array.from(new Set(symbols));
 
         const promises = uniqueSymbols.map(async (symbol) => {
+            const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
+            
+            // Sub-Strategy A: corsproxy.io (Fastest)
             try {
-                // Yahoo Finance Chart API is often open via proxy
-                const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
-                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-                
-                console.log(`[MarketService] Proxy Fetching: ${symbol}`);
-                const res = await fetch(proxyUrl);
-                
-                if (res.ok) {
-                    const data = await res.json();
-                    const meta = data?.chart?.result?.[0]?.meta;
-                    const price = meta?.regularMarketPrice || meta?.previousClose;
-                    
-                    console.log(`[MarketService] Proxy Result for ${symbol}:`, price);
-                    
+                const proxyUrlA = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+                console.log(`[MarketService] Proxy A Fetching: ${symbol}`);
+                const resA = await fetch(proxyUrlA);
+                if (resA.ok) {
+                    const data = await resA.json();
+                    const price = extractPriceFromChart(data);
                     if (price) {
+                        console.log(`[MarketService] Proxy A Success for ${symbol}:`, price);
                         return { symbol, price };
                     }
-                } else {
-                     console.warn(`[MarketService] Proxy Fetch Failed for ${symbol}: ${res.status}`);
                 }
             } catch (e) {
-                console.warn(`[MarketService] Proxy Network Error for ${symbol}`, e);
+                console.warn(`[MarketService] Proxy A failed for ${symbol}`, e);
             }
+
+            // Sub-Strategy B: allorigins.win (Reliable Fallback)
+            try {
+                const proxyUrlB = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+                console.log(`[MarketService] Proxy B Fetching: ${symbol}`);
+                const resB = await fetch(proxyUrlB);
+                if (resB.ok) {
+                    const json = await resB.json();
+                    if (json.contents) {
+                        const data = JSON.parse(json.contents);
+                        const price = extractPriceFromChart(data);
+                        if (price) {
+                            console.log(`[MarketService] Proxy B Success for ${symbol}:`, price);
+                            return { symbol, price };
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn(`[MarketService] Proxy B failed for ${symbol}`, e);
+            }
+
             return null;
         });
 
@@ -104,3 +119,13 @@ export const marketService = {
         return Object.keys(result).length > 0 ? result : null;
     }
 };
+
+// Helper to parse Yahoo Chart JSON
+function extractPriceFromChart(data: any): number | null {
+    try {
+        const meta = data?.chart?.result?.[0]?.meta;
+        return meta?.regularMarketPrice || meta?.previousClose || null;
+    } catch (e) {
+        return null;
+    }
+}

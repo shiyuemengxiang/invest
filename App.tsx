@@ -70,11 +70,6 @@ const App: React.FC = () => {
                  }
              });
         }
-        
-        // Auto-Refresh Stock Prices if user preference allows? 
-        // Or we can just do it if we see items with isAutoQuote
-        // Let's do it if we are on client side.
-        // refreshMarketData(loadedItems); // Optional: Auto update on load
     }
   }, []);
 
@@ -111,13 +106,17 @@ const App: React.FC = () => {
   const handleRefreshMarketData = async () => {
       // 1. Identify items needing update
       const itemsToUpdate = items.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
-      if (itemsToUpdate.length === 0) return;
+      if (itemsToUpdate.length === 0) {
+          alert('没有开启“自动行情”的持仓资产。');
+          return;
+      }
 
       const symbols = itemsToUpdate.map(i => i.symbol as string);
       
       // 2. Fetch Quotes
       const quotes = await marketService.getQuotes(symbols);
       
+      let updatedCount = 0;
       if (quotes) {
           const updatedList = items.map(item => {
               if (item.isAutoQuote && item.symbol && quotes[item.symbol] && item.quantity) {
@@ -127,6 +126,7 @@ const App: React.FC = () => {
                   // Logic assumes Principal is total cost basis.
                   const currentVal = newPrice * item.quantity;
                   const newReturn = currentVal - item.principal;
+                  updatedCount++;
                   return { ...item, currentReturn: newReturn };
               }
               return item;
@@ -140,6 +140,12 @@ const App: React.FC = () => {
            if (newRates) {
                handleRatesChange(newRates, 'auto');
            }
+      }
+      
+      if (updatedCount > 0) {
+          alert(`行情更新成功！已更新 ${updatedCount} 个资产的最新价格。`);
+      } else {
+          alert('行情更新完成，但暂未获取到最新数据或价格无变化。');
       }
   };
 
@@ -343,7 +349,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 md:overflow-y-auto md:h-screen">
+      <div className="flex-1 md:overflow-y-auto md:min-h-screen">
          <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 md:pb-8">
             {view === 'dashboard' && <Dashboard items={items} rates={rates} theme={theme} />}
             {view === 'list' && <InvestmentList items={items} onDelete={handleDelete} onEdit={(item) => { setEditingItem(item); setView('add'); }} onReorder={handleReorder} onRefreshMarket={handleRefreshMarketData} />}

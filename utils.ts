@@ -361,6 +361,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   let pendingRebate = 0;
   let receivedRebate = 0;
   let realizedInterest = 0;
+  let projectedTotalProfit = 0; // Accumulator for total profit (Realized + Projected)
   
   let weightedYieldSum = 0;
   let totalWeight = 0;
@@ -368,17 +369,12 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   items.forEach(item => {
     const metrics = calculateItemMetrics(item);
     
-    // Skip Pending investments for "Invested" stats if desired, 
-    // BUT usually ledger tracks committed capital. 
-    // Let's count them in Total Invested but distinguishing Active vs Pending might be needed.
-    // For now, treat Pending as Active Principal or separate?
-    // User requirement implies "Pending Entry" != "Active Holding".
-    // Let's group Pending into activePrincipal for now to show commitment, or keep separate?
-    // Standard ledger usually counts it.
-    
     totalInvested += item.principal;
     totalRebate += item.rebate;
     
+    // Summing up total estimated profit from all sources
+    projectedTotalProfit += metrics.profit;
+
     if (item.isRebateReceived) {
       receivedRebate += item.rebate;
     } else {
@@ -408,6 +404,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     pendingRebate,
     receivedRebate,
     realizedInterest,
+    projectedTotalProfit,
     comprehensiveYield: totalWeight > 0 ? weightedYieldSum / totalWeight : 0
   };
 };

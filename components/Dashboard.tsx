@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption } from '../types';
 import { calculateItemMetrics, calculatePortfolioStats, calculateTotalValuation, filterInvestmentsByTime, formatCurrency, formatPercent, THEMES } from '../utils';
@@ -168,8 +169,9 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         </div>
       </div>
 
-      {/* Detailed Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Detailed Stats Grid - Now 4 Columns on Large Screens */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Active Principal */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-600">
@@ -184,6 +186,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           </div>
         </div>
 
+        {/* Realized Profit */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-amber-50 rounded-2xl text-amber-600">
@@ -195,10 +198,24 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.realizedInterest, selectedCurrency)}</p>
         </div>
 
+        {/* NEW CARD: Estimated Total Profit (Active + Realized) */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-indigo-100/50">
+          <div className="flex justify-between items-start mb-4">
+             <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+            </div>
+             <span className="text-xs font-bold bg-indigo-50 text-indigo-500 px-2 py-1 rounded-lg">All Time</span>
+          </div>
+          <p className="text-slate-500 text-sm font-medium">总预估收益 (含在途)</p>
+          <p className="text-2xl font-bold text-indigo-600 mt-1 tabular-nums">{formatCurrency(stats.projectedTotalProfit, selectedCurrency)}</p>
+          <p className="text-[10px] text-slate-400 mt-1">包含已完结、浮动盈亏及固收预估</p>
+        </div>
+
+        {/* Weighted Yield */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-purple-50 rounded-2xl text-purple-600">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
             </div>
              <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Weighted</span>
           </div>

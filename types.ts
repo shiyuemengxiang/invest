@@ -66,7 +66,8 @@ export interface InvestmentStats {
   pendingRebate: number;
   receivedRebate: number;
   realizedInterest: number; 
-  comprehensiveYield: number; 
+  comprehensiveYield: number;
+  projectedTotalProfit: number; // New: Sum of Realized + Projected/Current Profits
 }
 
 export type ViewState = 'dashboard' | 'list' | 'add' | 'calendar' | 'profile' | 'auth';
