@@ -13,6 +13,7 @@ export default async function handler(request: any, response: any) {
     }
     
     const { symbols } = body;
+    console.log(`[API Quotes] Received request for symbols: ${JSON.stringify(symbols)}`);
     
     if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
         return response.status(400).json({ error: 'Missing symbols array' });
@@ -22,28 +23,38 @@ export default async function handler(request: any, response: any) {
     const result: Record<string, number> = {};
 
     const fetchQuote = async (symbol: string) => {
-        // Method 1: Library (often blocked on Vercel)
+        // Method 1: Library
         try {
-            // Fix: Cast result to any to avoid TypeScript 'never' inference issue with yahoo-finance2
+            // Suppress validation errors
+            // Cast to any to bypass TS inference issues with the library types
             const quote = await yahooFinance.quote(symbol, { validateResult: false }) as any;
-            return quote.regularMarketPrice || quote.ask || quote.bid;
-        } catch (libError) {
-            // Method 2: Direct Fetch with Browser Headers
+            const price = quote.regularMarketPrice || quote.ask || quote.bid;
+            console.log(`[API Quotes] YahooLib success for ${symbol}: ${price}`);
+            return price;
+        } catch (libError: any) {
+            console.warn(`[API Quotes] YahooLib failed for ${symbol}: ${libError.message}`);
+            
+            // Method 2: Direct Fetch with Browser Headers (Fallback)
             try {
-                const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`, {
+                const fetchUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
+                const res = await fetch(fetchUrl, {
                     headers: {
                         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                     }
                 });
+                
                 if (res.ok) {
                     const data = await res.json();
                     const meta = data?.chart?.result?.[0]?.meta;
                     if (meta && meta.regularMarketPrice) {
+                        console.log(`[API Quotes] HTTP Fallback success for ${symbol}: ${meta.regularMarketPrice}`);
                         return meta.regularMarketPrice;
                     }
+                } else {
+                    console.warn(`[API Quotes] HTTP Fallback status ${res.status} for ${symbol}`);
                 }
             } catch (fallbackError) {
-                // Ignore
+                console.error(`[API Quotes] HTTP Fallback error for ${symbol}`, fallbackError);
             }
             return null;
         }
@@ -65,9 +76,11 @@ export default async function handler(request: any, response: any) {
         }
     });
 
+    console.log(`[API Quotes] Returning result: ${JSON.stringify(result)}`);
     return response.status(200).json(result);
   } catch (error: any) {
-    console.error("Market Quotes Critical Error:", error);
+    console.error("[API Quotes] Critical Error:", error);
+    // Always return 200 with empty object on crash to prevent frontend 500
     return response.status(200).json({});
   }
 }
