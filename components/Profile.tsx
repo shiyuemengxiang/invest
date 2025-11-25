@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Currency, ExchangeRates, ThemeOption, User } from '../types';
 import { THEMES } from '../utils';
 import { marketService } from '../services/market';
+import { ToastType } from './Toast';
 
 interface Props {
     user: User | null;
@@ -11,9 +12,10 @@ interface Props {
     onSaveRates: (rates: ExchangeRates, mode: 'auto' | 'manual') => void;
     onSaveTheme: (theme: ThemeOption) => void;
     onLogout: () => void;
+    onNotify: (msg: string, type: ToastType) => void;
 }
 
-const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSaveTheme, onLogout }) => {
+const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSaveTheme, onLogout, onNotify }) => {
     const [editRates, setEditRates] = useState<ExchangeRates>({...rates});
     const [rateMode, setRateMode] = useState<'auto' | 'manual'>(user?.preferences?.rateMode || 'manual');
     const [loadingRates, setLoadingRates] = useState(false);
@@ -32,7 +34,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
             // Auto-save if in auto mode
             onSaveRates(liveRates, 'auto');
         } else {
-            alert("获取实时汇率失败，已切换回手动模式");
+            onNotify("获取实时汇率失败，已切换回手动模式", "error");
             setRateMode('manual');
         }
         setLoadingRates(false);
@@ -45,7 +47,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
 
     const handleSave = () => {
         onSaveRates(editRates, rateMode);
-        alert('设置已保存');
+        onNotify('设置已保存', 'success');
     };
 
     return (

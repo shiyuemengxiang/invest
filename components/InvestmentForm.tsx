@@ -1,14 +1,16 @@
 
 import React, { useState, useEffect } from 'react';
 import { Currency, Investment, InvestmentCategory, InvestmentType, CATEGORY_LABELS } from '../types';
+import { ToastType } from './Toast';
 
 interface Props {
   onSave: (investment: Investment) => void;
   onCancel: () => void;
   initialData?: Investment | null;
+  onNotify: (msg: string, type: ToastType) => void;
 }
 
-const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
+const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNotify }) => {
   const [formData, setFormData] = useState<Partial<Investment>>(
     initialData || {
       name: '',
@@ -55,13 +57,13 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.depositDate || !formData.principal) {
-      alert("请填写必要信息");
+      onNotify("请填写必要信息（名称、本金、存入时间）", "error");
       return;
     }
     
     // Fixed type requires maturity date
     if (!isFloating && !formData.maturityDate) {
-        alert("固收型产品请填写到期时间");
+        onNotify("固收型产品请填写到期时间", "error");
         return;
     }
 

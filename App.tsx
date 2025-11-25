@@ -7,6 +7,7 @@ import InvestmentForm from './components/InvestmentForm';
 import CalendarView from './components/CalendarView';
 import Auth from './components/Auth';
 import Profile from './components/Profile';
+import Toast, { ToastType } from './components/Toast';
 import { storageService } from './services/storage';
 import { marketService } from './services/market';
 import { THEMES } from './utils';
@@ -23,6 +24,13 @@ const App: React.FC = () => {
 
   // Mobile Menu State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Toast State
+  const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
+
+  const showToast = (message: string, type: ToastType = 'success') => {
+      setToast({ message, type });
+  };
 
   // 1. Initialize App (Load Data & Auth)
   useEffect(() => {
@@ -88,11 +96,13 @@ const App: React.FC = () => {
     saveItems(updatedList);
     setView('list');
     setEditingItem(null);
+    showToast('资产记录已保存');
   };
 
   const handleDelete = (id: string) => {
     const updatedList = items.filter(i => i.id !== id);
     saveItems(updatedList);
+    showToast('资产记录已删除', 'info');
   };
 
   const handleReorder = (dragIndex: number, hoverIndex: number) => {
@@ -107,7 +117,7 @@ const App: React.FC = () => {
       // 1. Identify items needing update
       const itemsToUpdate = items.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
       if (itemsToUpdate.length === 0) {
-          alert('没有开启“自动行情”的持仓资产。');
+          showToast('没有开启“自动行情”的持仓资产', 'info');
           return;
       }
 
@@ -143,9 +153,9 @@ const App: React.FC = () => {
       }
       
       if (updatedCount > 0) {
-          alert(`行情更新成功！已更新 ${updatedCount} 个资产的最新价格。`);
+          showToast(`行情更新成功！已更新 ${updatedCount} 个资产`, 'success');
       } else {
-          alert('行情更新完成，但暂未获取到最新数据或价格无变化。');
+          showToast('行情更新完成，暂无数据变化', 'info');
       }
   };
 
@@ -169,12 +179,14 @@ const App: React.FC = () => {
       }
 
       setView('dashboard');
+      showToast('欢迎回来！数据已同步', 'success');
   };
 
   const handleLogout = () => {
       storageService.logout();
       setUser(null);
       setView('auth');
+      showToast('已安全退出', 'info');
   };
 
   const handleThemeChange = (newTheme: ThemeOption) => {
@@ -219,7 +231,12 @@ const App: React.FC = () => {
   const isLightTheme = ['lavender', 'mint', 'sky', 'sakura', 'ivory'].includes(theme);
 
   if (view === 'auth' && !user) {
-      return <Auth onLogin={handleLogin} onCancel={() => setView('dashboard')} currentItems={items} />;
+      return (
+        <>
+            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+            <Auth onLogin={handleLogin} onCancel={() => setView('dashboard')} currentItems={items} />
+        </>
+      );
   }
 
   const NavItems = () => (
@@ -257,7 +274,9 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans">
-      
+      {/* Global Toast Container */}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
       {/* --- Mobile Header --- */}
       <div className={`${themeConfig.sidebar} md:hidden p-4 flex justify-between items-center sticky top-0 z-50 shadow-md`}>
         <div className="flex items-center gap-3">
@@ -362,6 +381,7 @@ const App: React.FC = () => {
                     onSaveRates={handleRatesChange} 
                     onSaveTheme={handleThemeChange} 
                     onLogout={handleLogout}
+                    onNotify={showToast}
                 />
             )}
             {view === 'add' && (
@@ -369,6 +389,7 @@ const App: React.FC = () => {
                     onSave={handleSaveItem} 
                     onCancel={() => setView('list')} 
                     initialData={editingItem}
+                    onNotify={showToast}
                 />
             )}
          </div>
