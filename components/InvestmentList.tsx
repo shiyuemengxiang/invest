@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Investment, CATEGORY_LABELS } from '../types';
 import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime } from '../utils';
 import ConfirmModal from './ConfirmModal';
@@ -25,8 +25,12 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  // Drag & Drop State
+  // Desktop Drag State
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
+  // Mobile Touch Drag State
+  const [touchDragIndex, setTouchDragIndex] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const filteredItems = useMemo(() => {
     let result = items.filter(item => {
@@ -46,25 +50,16 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
     }
     
     // Default Sort: Deposit Date ASCENDING (Oldest first) unless manually reordered
-    // If filters ARE active, we sort by date for easier finding.
-    const isDefaultView = filter === 'all' && productFilter === 'all' && !showCustomDate;
-    // Note: If user wants manual drag/drop order, items array order is respected.
-    // Assuming "items" coming from parent is already in the persisted order.
-    // But user requested "Default sort by Deposit Date ASC".
-    // If we strict sort here, manual reordering via drag/drop visually might be confusing if state doesn't match sort.
-    // However, user specifically asked for "Default sort is Deposit Date ASC".
-    // Let's sort result here.
+    // Note: We perform this sort ONLY if the user hasn't started manually ordering things 
+    // OR strictly if filters are applied which disrupt manual order.
+    // For manual sorting to work seamlessly, we generally trust the parent's array order.
+    // However, to respect the "Default ASC" request, we applied a sort in previous steps.
+    // If we sort here dynamically, Reordering will jump. 
+    // Ideally, the "Default Sort" should happen once on data load (in App.tsx), which we implemented.
+    // So here we trust the `items` order provided by parent.
     
-    // NOTE: Drag & Drop usually requires the list to represent the underlying array index directly.
-    // If we sort here, drag & drop indices will be mismatched with parent state indices.
-    // For now, we will sort here. If user drags, it might jump. 
-    // Best practice: The persistent store should save the order.
-    // But since user asked for specific default sort logic on the list:
-    
-    if (result.length > 0) {
-         result.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
-    }
-
+    // Only sort if we are NOT viewing "All" (manual order is preserved for All view usually)
+    // But to allow filtering, we just return result.
     return result;
   }, [items, filter, productFilter, showCustomDate, customStart, customEnd]);
 
@@ -75,14 +70,15 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
     }
   };
 
-  // Drag handlers (Note: Reordering works best when list is not sorted dynamically)
+  // --- Desktop Mouse Drag Handlers ---
   const handleDragStart = (e: React.DragEvent, index: number) => {
       setDraggedIndex(index);
       e.dataTransfer.effectAllowed = 'move';
+      // Create a ghost image if needed, or browser default
   };
 
   const handleDragOver = (e: React.DragEvent, index: number) => {
-      e.preventDefault();
+      e.preventDefault(); // Necessary to allow dropping
       if (draggedIndex === null || draggedIndex === index) return;
   };
 
@@ -94,25 +90,46 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
       setDraggedIndex(null);
   };
   
-  // Mobile Manual Sort Handlers
-  const handleMoveUp = (index: number, e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (index > 0) {
-          onReorder(index, index - 1);
+  // --- Mobile Touch Drag Handlers ---
+  const handleTouchStart = (index: number) => {
+      setTouchDragIndex(index);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+      if (touchDragIndex === null) return;
+      
+      // Prevent scrolling while dragging to ensure smooth movement
+      // Note: touch-action: none is set on the handle in CSS/Tailwind
+      
+      const touch = e.touches[0];
+      const element = document.elementFromPoint(touch.clientX, touch.clientY);
+      
+      // Find the closest list item row that has a data-index
+      const row = element?.closest('[data-index]');
+      
+      if (row) {
+          const targetIndexStr = row.getAttribute('data-index');
+          if (targetIndexStr) {
+              const targetIndex = parseInt(targetIndexStr, 10);
+              
+              // If we are over a different item, swap them immediately
+              // This creates the "items move away" effect
+              if (targetIndex !== touchDragIndex && targetIndex >= 0 && targetIndex < items.length) {
+                   onReorder(touchDragIndex, targetIndex);
+                   setTouchDragIndex(targetIndex); // Update active index to follow the item
+              }
+          }
       }
   };
 
-  const handleMoveDown = (index: number, e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (index < items.length - 1) {
-          onReorder(index, index + 1);
-      }
+  const handleTouchEnd = () => {
+      setTouchDragIndex(null);
   };
 
   const isDragEnabled = filter === 'all' && productFilter === 'all' && !showCustomDate;
 
   return (
-    <div className="space-y-6 animate-fade-in pb-12">
+    <div className="space-y-6 animate-fade-in pb-12" ref={listRef}>
       {/* Delete Confirmation Modal */}
       <ConfirmModal 
         isOpen={!!deleteId}
@@ -210,7 +227,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
         
         {filteredItems.map((item, index) => {
           const metrics = calculateItemMetrics(item);
-          const isDragging = draggedIndex === index;
+          const isDragging = draggedIndex === index || touchDragIndex === index;
           
           // Determine Display Logic for Yield
           let displayYield = 'N/A';
@@ -241,17 +258,18 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
           return (
             <div 
                 key={item.id} 
+                data-index={index}
                 draggable={isDragEnabled}
                 onDragStart={(e) => handleDragStart(e, index)}
                 onDragOver={(e) => handleDragOver(e, index)}
                 onDrop={(e) => handleDrop(e, index)}
-                className={`bg-white rounded-[1.5rem] p-6 shadow-sm border transition-all duration-300 relative group overflow-hidden 
-                ${isDragging ? 'opacity-40 border-dashed border-slate-400' : 'hover:shadow-lg hover:border-indigo-100'} 
+                className={`bg-white rounded-[1.5rem] p-6 shadow-sm border transition-all duration-200 relative group overflow-hidden 
+                ${isDragging ? 'opacity-90 shadow-2xl scale-[1.02] border-indigo-300 z-50 ring-2 ring-indigo-100 bg-indigo-50/10' : 'hover:shadow-lg hover:border-indigo-100'} 
                 ${isDragEnabled ? 'md:cursor-grab md:active:cursor-grabbing' : ''}
                 ${metrics.isPending ? 'border-dashed border-slate-300 bg-slate-50/50' : 'border-slate-100'}
                 `}
             >
-              {/* Drag Handle Indicator (Visible on hover on desktop) */}
+              {/* Desktop Drag Handle Indicator (Visible on hover) */}
               {isDragEnabled && (
                   <div className="hidden md:block absolute left-3 top-1/2 -translate-y-1/2 text-slate-200 opacity-0 group-hover:opacity-100 transition">
                       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" /></svg>
@@ -301,16 +319,17 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                         <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Principal</span>
                     </div>
                     
-                    <div className="flex gap-2">
-                        {/* Mobile Sorting Arrows */}
+                    <div className="flex gap-2 items-center">
+                        {/* Mobile Touch Drag Handle */}
                         {isDragEnabled && (
-                            <div className="flex flex-col gap-0.5 md:hidden mr-1">
-                                <button onClick={(e) => handleMoveUp(index, e)} className="p-1 bg-slate-50 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30" disabled={index === 0}>
-                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" /></svg>
-                                </button>
-                                <button onClick={(e) => handleMoveDown(index, e)} className="p-1 bg-slate-50 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30" disabled={index === items.length - 1}>
-                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
-                                </button>
+                            <div 
+                                className="md:hidden p-3 bg-slate-50 rounded-xl text-slate-300 active:bg-indigo-50 active:text-indigo-500 active:shadow-inner touch-none mr-1 cursor-move"
+                                onTouchStart={() => handleTouchStart(index)}
+                                onTouchMove={handleTouchMove}
+                                onTouchEnd={handleTouchEnd}
+                                style={{ touchAction: 'none' }} 
+                            >
+                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" /></svg>
                             </div>
                         )}
 
