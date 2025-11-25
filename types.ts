@@ -45,6 +45,7 @@ export interface Investment {
   maturityDate: string; // ISO Date YYYY-MM-DD (Optional for Floating)
   withdrawalDate: string | null; 
   principal: number;
+  quantity?: number; // New: For Stocks/Funds (Shares/Units)
   expectedRate?: number; // Optional for Floating
   currentReturn?: number; // New: Manual entry for current position return (floating)
   realizedReturn?: number; 

@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Investment, CATEGORY_LABELS } from '../types';
 import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime } from '../utils';
 import ConfirmModal from './ConfirmModal';
@@ -45,12 +45,24 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
          result = filterInvestmentsByTime(result, 'custom', customStart, customEnd);
     }
     
-    // Default Sort: Preserve array order for Drag & Drop when NO filters are active.
-    // If filters ARE active, Drag & Drop is disabled visually, but we can sort by date for easier finding.
+    // Default Sort: Deposit Date ASCENDING (Oldest first) unless manually reordered
+    // If filters ARE active, we sort by date for easier finding.
     const isDefaultView = filter === 'all' && productFilter === 'all' && !showCustomDate;
-    if (!isDefaultView) {
-        // Sort by deposit date desc when filtered
-        result.sort((a, b) => new Date(b.depositDate).getTime() - new Date(a.depositDate).getTime());
+    // Note: If user wants manual drag/drop order, items array order is respected.
+    // Assuming "items" coming from parent is already in the persisted order.
+    // But user requested "Default sort by Deposit Date ASC".
+    // If we strict sort here, manual reordering via drag/drop visually might be confusing if state doesn't match sort.
+    // However, user specifically asked for "Default sort is Deposit Date ASC".
+    // Let's sort result here.
+    
+    // NOTE: Drag & Drop usually requires the list to represent the underlying array index directly.
+    // If we sort here, drag & drop indices will be mismatched with parent state indices.
+    // For now, we will sort here. If user drags, it might jump. 
+    // Best practice: The persistent store should save the order.
+    // But since user asked for specific default sort logic on the list:
+    
+    if (result.length > 0) {
+         result.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
     }
 
     return result;
@@ -63,7 +75,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
     }
   };
 
-  // Drag handlers
+  // Drag handlers (Note: Reordering works best when list is not sorted dynamically)
   const handleDragStart = (e: React.DragEvent, index: number) => {
       setDraggedIndex(index);
       e.dataTransfer.effectAllowed = 'move';
@@ -205,7 +217,11 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
           let displayYieldLabel = '收益率';
           let yieldColorClass = 'text-slate-300';
 
-          if (metrics.isCompleted) {
+          if (metrics.isPending) {
+              displayYield = formatPercent(metrics.annualizedYield);
+              displayYieldLabel = '预计(未开始)';
+              yieldColorClass = 'text-slate-400';
+          } else if (metrics.isCompleted) {
               // Completed: Always show Realized Annualized Yield
               displayYield = formatPercent(metrics.comprehensiveYield);
               displayYieldLabel = '实测年化';
@@ -229,7 +245,11 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                 onDragStart={(e) => handleDragStart(e, index)}
                 onDragOver={(e) => handleDragOver(e, index)}
                 onDrop={(e) => handleDrop(e, index)}
-                className={`bg-white rounded-[1.5rem] p-6 shadow-sm border border-slate-100 transition-all duration-300 relative group overflow-hidden ${isDragging ? 'opacity-40 border-dashed border-slate-400' : 'hover:shadow-lg hover:border-indigo-100'} ${isDragEnabled ? 'md:cursor-grab md:active:cursor-grabbing' : ''}`}
+                className={`bg-white rounded-[1.5rem] p-6 shadow-sm border transition-all duration-300 relative group overflow-hidden 
+                ${isDragging ? 'opacity-40 border-dashed border-slate-400' : 'hover:shadow-lg hover:border-indigo-100'} 
+                ${isDragEnabled ? 'md:cursor-grab md:active:cursor-grabbing' : ''}
+                ${metrics.isPending ? 'border-dashed border-slate-300 bg-slate-50/50' : 'border-slate-100'}
+                `}
             >
               {/* Drag Handle Indicator (Visible on hover on desktop) */}
               {isDragEnabled && (
@@ -241,7 +261,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
               {/* Header Row */}
               <div className={`flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 relative z-10 ${isDragEnabled ? 'md:pl-4' : ''}`}>
                 <div className="flex items-center gap-4">
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-bold shadow-sm ${metrics.isCompleted ? 'bg-slate-100 text-slate-400' : item.type === 'Floating' ? 'bg-indigo-900 text-white' : 'bg-slate-900 text-white'}`}>
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-bold shadow-sm ${metrics.isCompleted ? 'bg-slate-100 text-slate-400' : metrics.isPending ? 'bg-slate-200 text-slate-500' : item.type === 'Floating' ? 'bg-indigo-900 text-white' : 'bg-slate-900 text-white'}`}>
                     {item.currency === 'CNY' ? '¥' : item.currency === 'USD' ? '$' : 'HK'}
                   </div>
                   <div>
@@ -255,15 +275,20 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                         </span>
                     </h3>
                     <div className="flex flex-wrap items-center gap-2">
-                         {metrics.isCompleted ? 
+                         {metrics.isPending ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-500 border border-slate-300 border-dashed">
+                                未入金
+                            </span>
+                         ) : metrics.isCompleted ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-500 border border-slate-200">
                                 已完结
-                            </span> : 
+                            </span> 
+                         ) : (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-600 border border-emerald-100">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
                                 持仓中
                             </span>
-                         }
+                         )}
                          <span className="text-xs text-slate-400 font-mono">{formatDate(item.depositDate)} ~ {formatDate(item.withdrawalDate || item.maturityDate)}</span>
                     </div>
                   </div>
@@ -316,12 +341,13 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                 <div className="space-y-1">
                    <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Status/Time</p>
                    <div>
-                       {!metrics.isCompleted && (
+                       {!metrics.isCompleted && !metrics.isPending && (
                            <span className={`text-sm font-bold ${metrics.daysRemaining <= 7 ? 'text-orange-500' : 'text-emerald-600'}`}>
                                {metrics.daysRemaining < 0 ? '已逾期' : metrics.daysRemaining === 0 ? 'Today' : `${metrics.daysRemaining}天`} 
                                <span className="text-slate-400 font-normal text-xs ml-1">剩余</span>
                            </span>
                        )}
+                       {metrics.isPending && <span className="text-sm font-bold text-slate-400">未开始</span>}
                        {metrics.isCompleted && <span className="text-sm font-bold text-slate-700">Finished</span>}
                    </div>
                 </div>
@@ -331,17 +357,17 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                 </div>
                 <div className="space-y-1">
                    <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
-                       {metrics.isCompleted ? 'Realized Profit' : item.type === 'Floating' ? 'Current Profit' : 'Est. Profit'}
+                       {metrics.isCompleted ? 'Realized Profit' : metrics.isPending ? 'Potential' : item.type === 'Floating' ? 'Current Profit' : 'Est. Profit'}
                    </p>
                    <div className="flex flex-col gap-0.5">
                         {/* Primary Return Display */}
                         <div className="flex items-baseline gap-1">
-                            <p className={`font-bold text-sm ${metrics.totalReturn > 0 ? 'text-orange-500' : 'text-slate-500'}`}>
+                            <p className={`font-bold text-sm ${metrics.isPending ? 'text-slate-400' : metrics.totalReturn > 0 ? 'text-orange-500' : 'text-slate-500'}`}>
                                 {metrics.totalReturn > 0 ? '+' : ''}{formatCurrency(metrics.totalReturn, item.currency)}
                             </p>
                         </div>
                         {/* For Active Fixed: Show Accrued Interest Today */}
-                        {!metrics.isCompleted && item.type === 'Fixed' && (
+                        {!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed' && (
                             <div className="flex items-center gap-1">
                                 <span className="text-[10px] text-slate-400">截止今日:</span>
                                 <span className="text-[10px] font-bold text-slate-600">
@@ -364,8 +390,33 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                 </div>
               </div>
               
+              {/* Unit Cost & Current Price for Stocks/Funds */}
+              {item.quantity && item.quantity > 0 && (
+                  <div className="relative z-10 grid grid-cols-2 md:grid-cols-4 gap-6 py-4 mt-2 bg-slate-50/80 rounded-xl px-4 border border-dashed border-slate-200">
+                      <div className="space-y-0.5">
+                           <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Holdings</p>
+                           <p className="font-mono text-xs font-bold text-slate-700">{item.quantity} 股/份</p>
+                      </div>
+                      <div className="space-y-0.5">
+                           <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Cost Price</p>
+                           <p className="font-mono text-xs font-bold text-slate-700">{formatCurrency(metrics.unitCost, item.currency)}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                           <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Current Price</p>
+                           <div className="flex items-center gap-1">
+                               <p className={`font-mono text-xs font-bold ${metrics.currentPrice >= metrics.unitCost ? 'text-orange-600' : 'text-emerald-600'}`}>
+                                   {formatCurrency(metrics.currentPrice, item.currency)}
+                               </p>
+                               <span className={`text-[9px] px-1 rounded ${metrics.currentPrice >= metrics.unitCost ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                   {metrics.unitCost > 0 ? ((metrics.currentPrice - metrics.unitCost)/metrics.unitCost * 100).toFixed(1) : 0}%
+                               </span>
+                           </div>
+                      </div>
+                  </div>
+              )}
+              
               {item.notes && (
-                  <div className="mt-2 text-xs text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-100 flex gap-2 items-start">
+                  <div className="mt-4 text-xs text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-100 flex gap-2 items-start">
                       <svg className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
                       {item.notes}
                   </div>

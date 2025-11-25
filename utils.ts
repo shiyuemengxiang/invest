@@ -188,29 +188,43 @@ export const convertCurrency = (amount: number, from: Currency, to: Currency, ra
 // Calculate metrics for a single investment
 export const calculateItemMetrics = (item: Investment) => {
   const now = new Date();
+  // Reset time part for date-only comparison
+  const todayStart = new Date().setHours(0,0,0,0);
+  
   const deposit = new Date(item.depositDate);
+  const depositStart = new Date(item.depositDate).setHours(0,0,0,0);
+
   const maturity = item.maturityDate ? new Date(item.maturityDate) : null;
   const withdrawal = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
   const isCompleted = !!item.withdrawalDate;
 
-  // Determining Duration for Yield Calculation
-  let calcEndDate = now;
-  if (isCompleted && withdrawal) {
-      calcEndDate = withdrawal;
-  } else if (maturity) {
-      calcEndDate = maturity; // Default for fixed estimate
+  // New Status Logic: Pending Entry (未入金) if Today < Deposit Date
+  const isPending = todayStart < depositStart;
+
+  // Determine Duration
+  // If Pending: Duration is 0
+  // If Completed: Withdrawal - Deposit
+  // If Active: Now - Deposit
+  // (Assuming Fixed estimated yield calculation uses full term Maturity - Deposit elsewhere)
+  
+  let occupiedDurationMs = 0;
+  
+  if (!isPending) {
+      if (isCompleted && withdrawal) {
+          occupiedDurationMs = withdrawal.getTime() - deposit.getTime();
+      } else {
+          // For active items, duration is time held so far
+          occupiedDurationMs = now.getTime() - deposit.getTime();
+      }
   }
 
-  // Actual Occupied Duration (Real Days)
-  // If completed: Withdrawal - Deposit
-  // If active: Now - Deposit (for current holding yield) OR Maturity - Deposit (for projected annualized)
+  // Ensure non-negative duration
+  occupiedDurationMs = Math.max(0, occupiedDurationMs);
   
-  const occupiedDurationMs = (isCompleted && withdrawal) 
-      ? withdrawal.getTime() - deposit.getTime()
-      : (maturity ? maturity.getTime() - deposit.getTime() : now.getTime() - deposit.getTime());
-      
-  // Ensure at least 1 day to avoid division by zero
-  const realDurationDays = Math.max(1, Math.round(occupiedDurationMs / MS_PER_DAY));
+  // Real Duration in Days (min 0)
+  // Used for annualized calculation. 
+  // If duration is 0 (Pending or Same Day), we handle division by zero later
+  const realDurationDays = Math.round(occupiedDurationMs / MS_PER_DAY);
   
   let baseInterest = 0;
   let annualizedYield = 0; // The Year-over-Year %
@@ -218,12 +232,23 @@ export const calculateItemMetrics = (item: Investment) => {
   let hasYieldInfo = true;
   let accruedReturn = 0; // Est. return as of TODAY for fixed items
 
-  if (isCompleted && item.realizedReturn !== undefined) {
+  if (isPending) {
+      // Pending state: No returns calculated yet
+      hasYieldInfo = true; // Show expected if available
+      if (item.type === 'Fixed' && item.expectedRate) {
+           annualizedYield = item.expectedRate;
+      }
+      // Everything else 0
+  } else if (isCompleted && item.realizedReturn !== undefined) {
       // 1. Completed Item (Realized)
       // Strict calculation based on Realized Return and Actual Duration (Withdrawal - Deposit)
       baseInterest = item.realizedReturn;
-      holdingYield = (baseInterest / item.principal) * 100;
-      annualizedYield = (holdingYield / (realDurationDays / 365));
+      if (item.principal > 0) {
+        holdingYield = (baseInterest / item.principal) * 100;
+        if (realDurationDays > 0) {
+            annualizedYield = (holdingYield / (realDurationDays / 365));
+        }
+      }
 
   } else if (item.type === 'Fixed' && item.expectedRate) {
       // 2. Fixed Income with Rate (Active)
@@ -232,35 +257,42 @@ export const calculateItemMetrics = (item: Investment) => {
       const rate = item.expectedRate;
       annualizedYield = rate;
       
-      // Calculate projected total earnings based on FULL term (Maturity - Deposit)
-      // This is the "Expected Return" at maturity
-      baseInterest = item.principal * (rate / 100) * (realDurationDays / 365);
+      // Calculate Projected Total Earnings at Maturity
+      // Only if Maturity is set
+      if (maturity) {
+          const fullTermMs = maturity.getTime() - deposit.getTime();
+          const fullTermDays = Math.max(1, Math.round(fullTermMs / MS_PER_DAY));
+          baseInterest = item.principal * (rate / 100) * (fullTermDays / 365);
+      }
       
       // Calculate Accrued Interest (As of Today)
-      // Duration So Far: Today - Deposit
-      const durationSoFar = Math.max(0, Math.round((now.getTime() - deposit.getTime()) / MS_PER_DAY));
-      accruedReturn = item.principal * (rate / 100) * (durationSoFar / 365);
+      // Duration So Far: Today - Deposit (Already in realDurationDays)
+      accruedReturn = item.principal * (rate / 100) * (realDurationDays / 365);
       
-      holdingYield = (baseInterest / item.principal) * 100;
+      if (item.principal > 0 && maturity) {
+         holdingYield = (baseInterest / item.principal) * 100; // Projected absolute return at maturity
+      }
 
   } else if (item.type === 'Floating') {
       // 3. Floating / Non-Fixed
       if (item.currentReturn !== undefined) {
           // Manually entered current return (Active)
           baseInterest = item.currentReturn;
-          holdingYield = (baseInterest / item.principal) * 100;
-          
-          // Extrapolate annualized (Current Return / Current Duration * 365)
-          // For active floating, duration is Now - Deposit
-          const currentDuration = Math.max(1, Math.round((now.getTime() - deposit.getTime()) / MS_PER_DAY));
-          annualizedYield = (holdingYield / (currentDuration / 365));
+          if (item.principal > 0) {
+            holdingYield = (baseInterest / item.principal) * 100;
+            
+            // Extrapolate annualized (Current Return / Current Duration * 365)
+            if (realDurationDays > 0) {
+                annualizedYield = (holdingYield / (realDurationDays / 365));
+            }
+          }
       } else if (item.expectedRate) {
            // Treated as estimate if no current return entered
            const rate = item.expectedRate;
            annualizedYield = rate;
            // Estimate accrued based on duration so far
            baseInterest = item.principal * (rate / 100) * (realDurationDays / 365);
-           holdingYield = (baseInterest / item.principal) * 100;
+           if (item.principal > 0) holdingYield = (baseInterest / item.principal) * 100;
       } else {
           hasYieldInfo = false;
           baseInterest = 0;
@@ -279,12 +311,28 @@ export const calculateItemMetrics = (item: Investment) => {
 
   // Comprehensive Yield is the "Annualized Total Return" including Rebates
   let comprehensiveYield = 0;
-  if ((hasYieldInfo || item.rebate > 0) && realDurationDays > 0) {
+  if (!isPending && (hasYieldInfo || item.rebate > 0) && realDurationDays > 0 && item.principal > 0) {
       const totalHoldingYield = (totalReturn / item.principal) * 100;
       comprehensiveYield = totalHoldingYield / (realDurationDays / 365);
+  } else if (isPending && item.type === 'Fixed' && item.expectedRate) {
+      // For pending fixed, we estimate comprehensive based on expected
+      // This is rough because we don't know duration exactly if maturity missing, 
+      // but usually fixed has expected rate.
+      comprehensiveYield = item.expectedRate; // Base estimate
   }
 
   const profit = totalReturn; 
+  
+  // Unit Price Calculations (Funds/Stocks)
+  let unitCost = 0;
+  let currentPrice = 0;
+  if (item.quantity && item.quantity > 0) {
+      unitCost = item.principal / item.quantity;
+      // Current Value = Principal + (Realized/Current Return) + Rebate
+      // Note: Usually rebate is cash back, not part of NAV, but here we treat it as total return
+      const currentTotalValue = item.principal + (isCompleted ? baseInterest : (item.currentReturn || accruedReturn));
+      currentPrice = currentTotalValue / item.quantity;
+  }
 
   return {
     interestDays: realDurationDays,
@@ -297,8 +345,11 @@ export const calculateItemMetrics = (item: Investment) => {
     comprehensiveYield, // Annualized %
     accruedReturn, // New: Return as of today for Fixed Active
     isCompleted,
+    isPending, // New Status
     hasYieldInfo,
-    daysRemaining: item.maturityDate ? getDaysRemaining(item.maturityDate) : 0
+    daysRemaining: item.maturityDate ? getDaysRemaining(item.maturityDate) : 0,
+    unitCost, // New
+    currentPrice // New
   };
 };
 
@@ -317,6 +368,14 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   items.forEach(item => {
     const metrics = calculateItemMetrics(item);
     
+    // Skip Pending investments for "Invested" stats if desired, 
+    // BUT usually ledger tracks committed capital. 
+    // Let's count them in Total Invested but distinguishing Active vs Pending might be needed.
+    // For now, treat Pending as Active Principal or separate?
+    // User requirement implies "Pending Entry" != "Active Holding".
+    // Let's group Pending into activePrincipal for now to show commitment, or keep separate?
+    // Standard ledger usually counts it.
+    
     totalInvested += item.principal;
     totalRebate += item.rebate;
     
@@ -334,7 +393,8 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     }
 
     // Only weight yields that make sense (exclude crazy outliers from short duration)
-    if ((metrics.hasYieldInfo || item.rebate > 0) && metrics.comprehensiveYield > -100 && metrics.comprehensiveYield < 1000) { 
+    // Exclude Pending items from yield calc as duration is 0
+    if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0) && metrics.comprehensiveYield > -100 && metrics.comprehensiveYield < 1000) { 
         weightedYieldSum += metrics.comprehensiveYield * item.principal;
         totalWeight += item.principal;
     }
@@ -363,6 +423,8 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
 
         if (metrics.isCompleted) {
             value += metrics.totalReturn;
+        } else if (metrics.isPending) {
+            value = item.principal; // Just the committed amount
         } else {
             // Active: Add Current Return (Floating) or Accrued/Expected (Fixed)
             if (metrics.hasYieldInfo || item.currentReturn) {
@@ -382,22 +444,33 @@ export const filterInvestmentsByTime = (items: Investment[], filter: TimeFilter,
     if (filter === 'all') return items;
     
     const now = new Date();
+    // Use setHours to normalize today comparisons
+    const today = new Date();
+    today.setHours(0,0,0,0);
     
     return items.filter(item => {
-        const d = new Date(item.depositDate);
+        // Fix: Ensure we parse the string YYYY-MM-DD correctly in local time context or consistently
+        const d = new Date(item.depositDate); 
+        // Normalize time to midnight for fair comparison
+        d.setHours(0,0,0,0);
+        
         switch (filter) {
-            case '1m': return d >= new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-            case '3m': return d >= new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
-            case '6m': return d >= new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
-            case '1y': return d >= new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+            case '1m': return d >= new Date(new Date().setMonth(now.getMonth() - 1));
+            case '3m': return d >= new Date(new Date().setMonth(now.getMonth() - 3));
+            case '6m': return d >= new Date(new Date().setMonth(now.getMonth() - 6));
+            case '1y': return d >= new Date(new Date().setFullYear(now.getFullYear() - 1));
             case 'mtd': return d >= new Date(now.getFullYear(), now.getMonth(), 1);
             case 'ytd': return d >= new Date(now.getFullYear(), 0, 1);
             case 'custom': 
                 if (customStart && customEnd) {
-                    const start = new Date(customStart).setHours(0,0,0,0);
-                    const end = new Date(customEnd).setHours(23,59,59,999);
-                    const itemTime = d.getTime();
-                    return itemTime >= start && itemTime <= end;
+                    // Force start of day / end of day
+                    const start = new Date(customStart);
+                    start.setHours(0,0,0,0);
+                    
+                    const end = new Date(customEnd);
+                    end.setHours(23,59,59,999);
+                    
+                    return d >= start && d <= end;
                 }
                 return true;
             default: return true;

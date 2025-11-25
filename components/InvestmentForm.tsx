@@ -18,6 +18,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
       depositDate: new Date().toISOString().split('T')[0],
       maturityDate: '',
       principal: 10000,
+      quantity: undefined,
       expectedRate: undefined,
       currentReturn: undefined,
       realizedReturn: undefined,
@@ -72,6 +73,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
       maturityDate: formData.maturityDate || '', // Optional for Floating
       withdrawalDate: formData.withdrawalDate || null,
       principal: Number(formData.principal),
+      quantity: formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined,
       expectedRate: formData.expectedRate && formData.expectedRate !== 0 ? Number(formData.expectedRate) : undefined,
       currentReturn: formData.currentReturn ? Number(formData.currentReturn) : undefined,
       realizedReturn: formData.realizedReturn ? Number(formData.realizedReturn) : undefined,
@@ -81,6 +83,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
     };
     onSave(newInvestment);
   };
+
+  const isFundOrStock = formData.category === 'Fund' || formData.category === 'Stock';
 
   return (
     <div className="bg-white/95 backdrop-blur-sm p-8 rounded-3xl shadow-xl shadow-slate-200/50 max-w-2xl mx-auto border border-white/50 animate-fade-in-up">
@@ -181,6 +185,23 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
             />
           </div>
         </div>
+        
+        {/* New Quantity Field for Stocks/Funds */}
+        {isFundOrStock && (
+             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">持有份额/股数 (Quantity)</label>
+                <input
+                    type="number"
+                    step="0.0001"
+                    name="quantity"
+                    value={formData.quantity === undefined ? '' : formData.quantity}
+                    onChange={handleChange}
+                    placeholder="0"
+                    className="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono"
+                />
+                <p className="text-xs text-slate-400 mt-1">填写后，列表将自动计算【持仓成本】和【当前单价】。</p>
+             </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
