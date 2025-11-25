@@ -1,7 +1,7 @@
 
 export type Currency = 'CNY' | 'USD' | 'HKD';
 
-export type InvestmentCategory = 'Fixed' | 'Deposit' | 'Fund' | 'Stock' | 'Other';
+export type InvestmentCategory = 'Fixed' | 'Deposit' | 'Fund' | 'Stock' | 'Cash' | 'Other';
 export type InvestmentType = 'Fixed' | 'Floating'; // Fixed Income vs Floating/Non-fixed
 
 export const CATEGORY_LABELS: Record<InvestmentCategory, string> = {
@@ -9,6 +9,7 @@ export const CATEGORY_LABELS: Record<InvestmentCategory, string> = {
     Deposit: '定期存款',
     Fund: '基金',
     Stock: '股票',
+    Cash: '现金资产',
     Other: '其他'
 };
 

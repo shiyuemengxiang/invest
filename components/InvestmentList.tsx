@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Investment, CATEGORY_LABELS } from '../types';
+import { Investment, CATEGORY_LABELS, Currency } from '../types';
 import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime } from '../utils';
 import ConfirmModal from './ConfirmModal';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
@@ -14,10 +14,12 @@ interface Props {
 
 type FilterType = 'all' | 'active' | 'completed';
 type ProductTypeFilter = 'all' | 'Fixed' | 'Floating';
+type CurrencyFilter = 'all' | Currency;
 
 const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder }) => {
   const [filter, setFilter] = useState<FilterType>('all');
   const [productFilter, setProductFilter] = useState<ProductTypeFilter>('all');
+  const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('all');
   
   // Custom Date Filter State
   const [showCustomDate, setShowCustomDate] = useState(false);
@@ -35,16 +37,19 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
       // 2. Product Type Filter
       if (productFilter !== 'all' && item.type !== productFilter) return false;
 
+      // 3. Currency Filter
+      if (currencyFilter !== 'all' && item.currency !== currencyFilter) return false;
+
       return true;
     });
 
-    // 3. Custom Date Filter (using helper)
+    // 4. Custom Date Filter (using helper)
     if (showCustomDate && customStart && customEnd) {
          result = filterInvestmentsByTime(result, 'custom', customStart, customEnd);
     }
     
     return result;
-  }, [items, filter, productFilter, showCustomDate, customStart, customEnd]);
+  }, [items, filter, productFilter, currencyFilter, showCustomDate, customStart, customEnd]);
 
   const handleDeleteConfirm = () => {
     if (deleteId) {
@@ -60,7 +65,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
     onReorder(result.source.index, result.destination.index);
   };
 
-  const isDragEnabled = filter === 'all' && productFilter === 'all' && !showCustomDate;
+  const isDragEnabled = filter === 'all' && productFilter === 'all' && currencyFilter === 'all' && !showCustomDate;
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -77,7 +82,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
 
       {/* Filters Container */}
       <div className="bg-white/80 backdrop-blur-sm p-4 rounded-3xl border border-white/50 shadow-sm space-y-4">
-          {/* Row 1: Status Tabs & Product Type Tabs */}
+          {/* Row 1: Status & Currency Tabs */}
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                 <div className="flex flex-wrap gap-2 w-full md:w-auto">
                     {/* Status Tabs */}
@@ -88,40 +93,57 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                                 onClick={() => setFilter(f)}
                                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filter === f ? 'bg-white text-slate-900 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
                             >
-                                {f === 'all' ? '全部状态' : f === 'active' ? '在途' : '已完结'}
+                                {f === 'all' ? '全部' : f === 'active' ? '在途' : '已完结'}
                             </button>
                         ))}
                     </div>
 
-                    {/* Product Type Tabs */}
+                    {/* Currency Tabs */}
                     <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl">
-                        {(['all', 'Fixed', 'Floating'] as ProductTypeFilter[]).map(p => (
+                        {(['all', 'CNY', 'USD', 'HKD'] as CurrencyFilter[]).map(c => (
                             <button
-                                key={p}
-                                onClick={() => setProductFilter(p)}
-                                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${productFilter === p ? 'bg-white text-indigo-600 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
+                                key={c}
+                                onClick={() => setCurrencyFilter(c)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currencyFilter === c ? 'bg-white text-emerald-600 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
                             >
-                                {p === 'all' ? '全部类型' : p === 'Fixed' ? '固收型' : '浮动型'}
+                                {c === 'all' ? '全部币种' : c}
                             </button>
                         ))}
                     </div>
                 </div>
 
                 <div className="flex items-center gap-3 w-full md:w-auto">
-                    <button 
-                        onClick={() => setShowCustomDate(!showCustomDate)}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${showCustomDate ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
-                    >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        自定义时间筛选
-                    </button>
-                     <div className="text-xs font-semibold text-slate-400 bg-white px-3 py-1.5 rounded-lg border border-slate-100 whitespace-nowrap">
+                     <div className="text-xs font-semibold text-slate-400 bg-white px-3 py-1.5 rounded-lg border border-slate-100 whitespace-nowrap ml-auto">
                         共 {filteredItems.length} 笔
                     </div>
                 </div>
           </div>
 
-          {/* Row 2: Custom Date Inputs (Conditional) */}
+          {/* Row 2: Type Tabs & Date Filter */}
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                {/* Product Type Tabs */}
+                <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl w-full md:w-auto overflow-x-auto no-scrollbar">
+                    {(['all', 'Fixed', 'Floating'] as ProductTypeFilter[]).map(p => (
+                        <button
+                            key={p}
+                            onClick={() => setProductFilter(p)}
+                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${productFilter === p ? 'bg-white text-indigo-600 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            {p === 'all' ? '全部类型' : p === 'Fixed' ? '固收型' : '浮动型'}
+                        </button>
+                    ))}
+                </div>
+
+                <button 
+                    onClick={() => setShowCustomDate(!showCustomDate)}
+                    className={`w-full md:w-auto flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${showCustomDate ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
+                >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    自定义时间
+                </button>
+          </div>
+
+          {/* Custom Date Inputs (Conditional) */}
           {showCustomDate && (
               <div className="flex flex-col sm:flex-row items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-fade-in">
                   <span className="text-xs font-bold text-slate-400 uppercase">Range:</span>
@@ -129,20 +151,20 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                     type="date" 
                     value={customStart} 
                     onChange={e => setCustomStart(e.target.value)}
-                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-400 outline-none"
+                    className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-400 outline-none w-full"
                   />
                   <span className="text-slate-300">-</span>
                   <input 
                     type="date" 
                     value={customEnd} 
                     onChange={e => setCustomEnd(e.target.value)}
-                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-400 outline-none"
+                    className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-400 outline-none w-full"
                   />
                   <button 
                     onClick={() => {setCustomStart(''); setCustomEnd(''); setShowCustomDate(false);}}
-                    className="text-xs text-red-400 hover:text-red-600 ml-auto"
+                    className="text-xs text-red-400 hover:text-red-600 ml-auto whitespace-nowrap"
                   >
-                    清除
+                    清除筛选
                   </button>
               </div>
           )}
