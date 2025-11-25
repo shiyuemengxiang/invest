@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Currency, Investment, InvestmentCategory, CATEGORY_LABELS } from '../types';
+import { Currency, Investment, InvestmentCategory, InvestmentType, CATEGORY_LABELS } from '../types';
 
 interface Props {
   onSave: (investment: Investment) => void;
@@ -13,11 +13,13 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
     initialData || {
       name: '',
       category: 'Fixed',
+      type: 'Fixed',
       currency: 'CNY',
       depositDate: new Date().toISOString().split('T')[0],
       maturityDate: '',
       principal: 10000,
       expectedRate: undefined,
+      currentReturn: undefined,
       realizedReturn: undefined,
       rebate: 0,
       isRebateReceived: false,
@@ -27,10 +29,15 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
   );
 
   const [isCompleted, setIsCompleted] = useState(!!initialData?.withdrawalDate);
+  const [isFloating, setIsFloating] = useState(initialData?.type === 'Floating');
 
   useEffect(() => {
     setIsCompleted(!!formData.withdrawalDate);
   }, [formData.withdrawalDate]);
+
+  useEffect(() => {
+      setIsFloating(formData.type === 'Floating');
+  }, [formData.type]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -44,21 +51,29 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.depositDate || !formData.maturityDate || !formData.principal) {
+    if (!formData.name || !formData.depositDate || !formData.principal) {
       alert("请填写必要信息");
       return;
+    }
+    
+    // Fixed type requires maturity date
+    if (!isFloating && !formData.maturityDate) {
+        alert("固收型产品请填写到期时间");
+        return;
     }
 
     const newInvestment: Investment = {
       id: initialData?.id || crypto.randomUUID(),
       name: formData.name,
       category: (formData.category as InvestmentCategory) || 'Fixed',
+      type: (formData.type as InvestmentType) || 'Fixed',
       currency: (formData.currency as Currency) || 'CNY',
       depositDate: formData.depositDate,
-      maturityDate: formData.maturityDate,
+      maturityDate: formData.maturityDate || '', // Optional for Floating
       withdrawalDate: formData.withdrawalDate || null,
       principal: Number(formData.principal),
       expectedRate: formData.expectedRate && formData.expectedRate !== 0 ? Number(formData.expectedRate) : undefined,
+      currentReturn: formData.currentReturn ? Number(formData.currentReturn) : undefined,
       realizedReturn: formData.realizedReturn ? Number(formData.realizedReturn) : undefined,
       rebate: Number(formData.rebate || 0),
       isRebateReceived: !!formData.isRebateReceived,
@@ -76,6 +91,24 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
       
       <form onSubmit={handleSubmit} className="space-y-6">
         
+        {/* Product Type Selection */}
+        <div className="flex gap-4 p-1 bg-slate-100 rounded-xl mb-4">
+            <button 
+                type="button"
+                onClick={() => setFormData({...formData, type: 'Fixed'})}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${!isFloating ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+                固收型 (Fixed)
+            </button>
+            <button 
+                type="button"
+                onClick={() => setFormData({...formData, type: 'Floating'})}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${isFloating ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+                浮动型 (Floating)
+            </button>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="md:col-span-3">
                 <label className="block text-sm font-semibold text-slate-700 mb-2">资产名称</label>
@@ -90,7 +123,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
                 />
             </div>
              <div>
-                 <label className="block text-sm font-semibold text-slate-700 mb-2">类型</label>
+                 <label className="block text-sm font-semibold text-slate-700 mb-2">分类标签</label>
                  <select 
                     name="category"
                     value={formData.category}
@@ -133,7 +166,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
           </div>
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">
-                预计年化率 (%) <span className="text-slate-400 font-normal text-xs">(可选)</span>
+                {isFloating ? '预计年化 (%)' : '预计年化 (%)'} 
+                <span className="text-slate-400 font-normal text-xs ml-1">{isFloating ? '(可选)' : '(必填)'}</span>
             </label>
             <input
               type="number"
@@ -141,8 +175,9 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
               name="expectedRate"
               value={formData.expectedRate === undefined ? '' : formData.expectedRate}
               onChange={handleChange}
-              placeholder="浮动可不填"
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono text-lg"
+              placeholder={isFloating ? "浮动可不填" : "4.00"}
+              className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono text-lg`}
+              required={!isFloating}
             />
           </div>
         </div>
@@ -160,14 +195,17 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
             />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">到期/目标时间</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">
+                到期/目标时间
+                <span className="text-slate-400 font-normal text-xs ml-1">{isFloating ? '(可选)' : '(必填)'}</span>
+            </label>
             <input
               type="date"
               name="maturityDate"
               value={formData.maturityDate}
               onChange={handleChange}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none"
-              required
+              className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none ${!isFloating && !formData.maturityDate ? 'border-red-300' : ''}`}
+              required={!isFloating}
             />
           </div>
            <div>
@@ -183,7 +221,33 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
           </div>
         </div>
         
-        {/* Dynamic Section: Show Actual Return input if withdrawal date is set */}
+        {/* Dynamic Section: Current Position Return for Active Floating Items */}
+        {isFloating && !isCompleted && (
+             <div className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 animate-fade-in">
+                 <div className="flex items-start gap-3">
+                    <div className="mt-1 text-indigo-500">
+                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                    </div>
+                    <div className="w-full">
+                        <label className="block text-sm font-bold text-indigo-900 mb-2">当前持仓累计收益额 (Current Return)</label>
+                        <p className="text-xs text-indigo-700/70 mb-3">填写截止目前的浮动盈亏金额，用于计算当前持仓收益率。</p>
+                        <div className="relative">
+                            <input
+                                type="number"
+                                name="currentReturn"
+                                value={formData.currentReturn !== undefined ? formData.currentReturn : ''}
+                                onChange={handleChange}
+                                className="w-full p-3 pl-4 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-lg text-indigo-900"
+                                placeholder="0.00"
+                            />
+                            <span className="absolute right-4 top-3.5 text-indigo-600/50 text-sm font-medium">{formData.currency}</span>
+                        </div>
+                    </div>
+                 </div>
+            </div>
+        )}
+
+        {/* Dynamic Section: Actual Return for Completed Items */}
         {isCompleted && (
             <div className="bg-emerald-50/50 p-5 rounded-xl border border-emerald-100 animate-fade-in">
                  <div className="flex items-start gap-3">
@@ -192,7 +256,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
                     </div>
                     <div className="w-full">
                         <label className="block text-sm font-bold text-emerald-900 mb-2">实际落袋收益 (不含本金)</label>
-                        <p className="text-xs text-emerald-700/70 mb-3">填写后将根据 持有时长 和 收益 自动计算实际年化收益率。</p>
+                        <p className="text-xs text-emerald-700/70 mb-3">填写后将根据 持有时长 (取出 - 存入) 和 收益 自动计算实际年化收益率。</p>
                         <div className="relative">
                             <input
                                 type="number"

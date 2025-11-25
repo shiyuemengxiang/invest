@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption } from '../types';
 import { calculateItemMetrics, calculatePortfolioStats, calculateTotalValuation, filterInvestmentsByTime, formatCurrency, formatPercent, THEMES } from '../utils';
@@ -24,6 +23,11 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   const [selectedCurrency, setSelectedCurrency] = useState<Currency>('CNY');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   
+  // Custom Date Filter State
+  const [showCustomDate, setShowCustomDate] = useState(false);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [loadingAi, setLoadingAi] = useState(false);
 
@@ -36,7 +40,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   const currencyItems = useMemo(() => items.filter(i => (i.currency || 'CNY') === selectedCurrency), [items, selectedCurrency]);
   
   // Then Filter by Time for Stats
-  const statsItems = useMemo(() => filterInvestmentsByTime(currencyItems, timeFilter), [currencyItems, timeFilter]);
+  const statsItems = useMemo(() => filterInvestmentsByTime(currencyItems, timeFilter, customStart, customEnd), [currencyItems, timeFilter, customStart, customEnd]);
   
   const stats = calculatePortfolioStats(statsItems);
 
@@ -54,7 +58,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
 
   // Upcoming
   const upcoming = currencyItems
-    .filter(i => !i.withdrawalDate)
+    .filter(i => !i.withdrawalDate && i.maturityDate)
     .sort((a, b) => new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime())
     .slice(0, 5)
     .map(i => {
@@ -64,36 +68,75 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             daysRemaining: m.daysRemaining
         };
     });
+    
+  const handleTimeFilterClick = (filter: TimeFilter) => {
+      setTimeFilter(filter);
+      if (filter === 'custom') {
+          setShowCustomDate(true);
+      } else {
+          setShowCustomDate(false);
+          setCustomStart('');
+          setCustomEnd('');
+      }
+  };
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
-      {/* Controls - Mobile: Static/Relative, Desktop: Sticky. Remove blur on mobile to reduce jitter */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white md:bg-white/80 md:backdrop-blur-md p-4 rounded-3xl shadow-sm border border-white/50 relative md:sticky md:top-2 z-20">
-         <div className="flex items-center gap-3">
-             <span className="text-sm font-bold text-slate-400 uppercase tracking-wider">Currency View</span>
-             <div className="flex gap-1 p-1.5 bg-slate-100 rounded-xl">
-                {(['CNY', 'USD', 'HKD'] as Currency[]).map(c => (
+      {/* Controls */}
+      <div className="flex flex-col gap-4 bg-white md:bg-white/80 md:backdrop-blur-md p-4 rounded-3xl shadow-sm border border-white/50 relative md:sticky md:top-2 z-20">
+         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+             <div className="flex items-center gap-3 w-full md:w-auto">
+                 <span className="text-sm font-bold text-slate-400 uppercase tracking-wider hidden md:inline">Currency</span>
+                 <div className="flex gap-1 p-1.5 bg-slate-100 rounded-xl w-full md:w-auto">
+                    {(['CNY', 'USD', 'HKD'] as Currency[]).map(c => (
+                        <button
+                            key={c}
+                            onClick={() => setSelectedCurrency(c)}
+                            className={`flex-1 md:flex-none px-4 py-1.5 text-sm font-bold rounded-lg transition-all shadow-sm ${selectedCurrency === c ? 'bg-white text-slate-800 ring-1 ring-black/5' : 'bg-transparent text-slate-400 hover:text-slate-600 shadow-none'}`}
+                        >
+                            {c}
+                        </button>
+                    ))}
+                 </div>
+             </div>
+             <div className="flex flex-wrap gap-2 justify-center md:justify-end w-full md:w-auto">
+                {TIME_FILTERS.map(f => (
                     <button
-                        key={c}
-                        onClick={() => setSelectedCurrency(c)}
-                        className={`px-4 py-1.5 text-sm font-bold rounded-lg transition-all shadow-sm ${selectedCurrency === c ? 'bg-white text-slate-800 ring-1 ring-black/5' : 'bg-transparent text-slate-400 hover:text-slate-600 shadow-none'}`}
+                        key={f.value}
+                        onClick={() => handleTimeFilterClick(f.value)}
+                        className={`px-4 py-1.5 text-xs font-bold rounded-full border transition-all ${timeFilter === f.value ? themeConfig.button + ' text-white border-transparent' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
                     >
-                        {c}
+                        {f.label}
                     </button>
                 ))}
+                <button
+                    onClick={() => handleTimeFilterClick('custom')}
+                    className={`px-4 py-1.5 text-xs font-bold rounded-full border transition-all ${timeFilter === 'custom' ? themeConfig.button + ' text-white border-transparent' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                >
+                    自定义
+                </button>
              </div>
          </div>
-         <div className="flex gap-2 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 no-scrollbar">
-            {TIME_FILTERS.map(f => (
-                <button
-                    key={f.value}
-                    onClick={() => setTimeFilter(f.value)}
-                    className={`whitespace-nowrap px-4 py-1.5 text-xs font-bold rounded-full border transition-all ${timeFilter === f.value ? themeConfig.button + ' text-white border-transparent' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                >
-                    {f.label}
-                </button>
-            ))}
-         </div>
+         
+         {/* Custom Date Inputs */}
+         {showCustomDate && (
+              <div className="flex flex-col sm:flex-row items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-fade-in">
+                  <span className="text-xs font-bold text-slate-400 uppercase">Range:</span>
+                  <input 
+                    type="date" 
+                    value={customStart} 
+                    onChange={e => setCustomStart(e.target.value)}
+                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-400 outline-none"
+                  />
+                  <span className="text-slate-300">-</span>
+                  <input 
+                    type="date" 
+                    value={customEnd} 
+                    onChange={e => setCustomEnd(e.target.value)}
+                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-400 outline-none"
+                  />
+              </div>
+          )}
       </div>
 
       {/* Global Net Worth Card */}

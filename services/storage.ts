@@ -1,5 +1,5 @@
 
-import { ExchangeRates, Investment, ThemeOption, User, DEFAULT_EXCHANGE_RATES } from "../types";
+import { ExchangeRates, Investment, ThemeOption, User, DEFAULT_EXCHANGE_RATES, UserPreferences } from "../types";
 
 const STORAGE_KEYS = {
     DATA: 'smart_ledger_data',
@@ -48,14 +48,11 @@ export const storageService = {
         localStorage.setItem(STORAGE_KEYS.THEME, theme);
     },
 
-    // --- Hybrid Cloud / Local Logic ---
+    // --- Cloud Sync Logic ---
 
-    // Sync Data: Uploads to Vercel PG if logged in, always saves to LocalStorage
+    // Save Data: Uploads to Vercel PG if logged in, always saves to LocalStorage
     async saveData(user: User | null, items: Investment[]) {
-        // 1. Optimistic Local Save
         this.saveLocalData(items);
-
-        // 2. Cloud Sync
         if (user) {
             try {
                 await fetch(`${API_BASE}/sync`, {
@@ -65,19 +62,38 @@ export const storageService = {
                 });
             } catch (e) {
                 console.warn("Background sync failed:", e);
-                // Silently fail for API issues, UI remains responsive
+            }
+        }
+    },
+    
+    // Save Preferences: Uploads to Vercel PG if logged in, always saves to LocalStorage
+    async savePreferences(user: User | null, theme: ThemeOption, rates: ExchangeRates) {
+        this.saveTheme(theme);
+        this.saveRates(rates);
+        
+        if (user) {
+            try {
+                const prefs: UserPreferences = { theme, rates };
+                await fetch(`${API_BASE}/user/preferences`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: user.id, preferences: prefs })
+                });
+                
+                // Update local user object too
+                const updatedUser = { ...user, preferences: prefs };
+                this.saveLocalUser(updatedUser);
+            } catch (e) {
+                console.warn("Preference sync failed:", e);
             }
         }
     },
 
     // Login: Tries Vercel API
-    // Modified to accept currentItems. 
-    // If Registering: Upload currentItems to cloud.
-    // If Logging in: Download from cloud.
     async login(email: string, password: string, isRegister: boolean, currentItems: Investment[]): Promise<User> {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout for cold starts
+            const timeoutId = setTimeout(() => controller.abort(), 15000); 
 
             const res = await fetch(`${API_BASE}/auth/login`, {
                 method: 'POST',
@@ -95,16 +111,20 @@ export const storageService = {
             const data = await res.json();
 
             if (res.ok) {
-                const user = data;
+                const user = data as User;
                 this.saveLocalUser(user);
                 
+                // Apply User Preferences if available
+                if (user.preferences) {
+                    if (user.preferences.theme) this.saveTheme(user.preferences.theme);
+                    if (user.preferences.rates) this.saveRates(user.preferences.rates);
+                }
+
                 if (isRegister && currentItems.length > 0) {
-                    // SCENARIO 1: New Registration with existing Guest Data.
-                    // Action: Push Guest Data to Cloud immediately.
                     await this.saveData(user, currentItems);
+                    // Also save current theme/rates as default for new user
+                    await this.savePreferences(user, this.getTheme(), this.getRates());
                 } else {
-                    // SCENARIO 2: Login or Registration without data.
-                    // Action: Pull Data from Cloud.
                     await this.syncDown(user.id);
                 }
                 
@@ -118,18 +138,13 @@ export const storageService = {
         }
     },
 
-    // Pull data from Vercel PG
     async syncDown(userId: string) {
         try {
             const res = await fetch(`${API_BASE}/investments?userId=${userId}`);
-            
-            // Validate JSON response
             const contentType = res.headers.get('content-type');
             if (res.ok && contentType && contentType.includes('application/json')) {
                 const json = await res.json();
-                // Check if it's wrapped in {data: ...} or direct array
                 const data = Array.isArray(json) ? json : (json.data || []);
-                
                 if (Array.isArray(data)) {
                     this.saveLocalData(data);
                     return data;

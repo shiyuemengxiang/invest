@@ -15,7 +15,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('dashboard');
   const [editingItem, setEditingItem] = useState<Investment | null>(null);
   
-  // New Global States
+  // Global States
   const [user, setUser] = useState<User | null>(null);
   const [rates, setRates] = useState<ExchangeRates>(storageService.getRates());
   const [theme, setTheme] = useState<ThemeOption>('slate');
@@ -27,10 +27,12 @@ const App: React.FC = () => {
   useEffect(() => {
     const currentUser = storageService.getLocalUser();
     const currentTheme = storageService.getTheme();
+    const currentRates = storageService.getRates();
     const localData = storageService.getLocalData();
     
     setUser(currentUser);
     setTheme(currentTheme);
+    setRates(currentRates);
 
     // Initial Load from Local Cache
     if (localData) {
@@ -38,8 +40,9 @@ const App: React.FC = () => {
     } else if (!currentUser) {
         // Seed Data only if guest and empty
         const seed: Investment[] = [
-            { id: '1', name: '新手专享理财', category: 'Fixed', currency: 'CNY', depositDate: '2023-10-01', maturityDate: '2023-11-01', withdrawalDate: '2023-11-02', principal: 50000, expectedRate: 3.5, realizedReturn: 145, rebate: 100, isRebateReceived: true, notes: '新人福利' },
-            { id: '2', name: '稳健季季红', category: 'Deposit', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期' },
+            { id: '1', name: '新手专享理财', category: 'Fixed', type: 'Fixed', currency: 'CNY', depositDate: '2023-10-01', maturityDate: '2023-11-01', withdrawalDate: '2023-11-02', principal: 50000, expectedRate: 3.5, realizedReturn: 145, rebate: 100, isRebateReceived: true, notes: '新人福利' },
+            { id: '2', name: '稳健季季红', category: 'Deposit', type: 'Fixed', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期' },
+            { id: '3', name: '科技ETF基金', category: 'Fund', type: 'Floating', currency: 'CNY', depositDate: '2024-03-01', maturityDate: '', withdrawalDate: null, principal: 20000, expectedRate: undefined, currentReturn: 850, rebate: 0, isRebateReceived: false, notes: '长期持有' },
         ];
         setItems(seed);
     }
@@ -48,10 +51,10 @@ const App: React.FC = () => {
     if (currentUser) {
         storageService.syncDown(currentUser.id).then(cloudData => {
             if (cloudData && Array.isArray(cloudData)) {
-                 console.log("Cloud data synced:", cloudData.length, "items");
                  setItems(cloudData);
             }
         });
+        // Check for preference consistency? Handled in Login usually, but here we trust local if user is already logged in
     }
   }, []);
 
@@ -77,10 +80,28 @@ const App: React.FC = () => {
     saveItems(updatedList);
   };
 
+  const handleReorder = (dragIndex: number, hoverIndex: number) => {
+      const updatedList = [...items];
+      const draggedItem = updatedList[dragIndex];
+      updatedList.splice(dragIndex, 1);
+      updatedList.splice(hoverIndex, 0, draggedItem);
+      saveItems(updatedList);
+  };
+
   const handleLogin = (loggedInUser: User) => {
       setUser(loggedInUser);
       
-      // IMPORTANT: Load the fresh data that was synced to localStorage during the login process
+      // Load preferences from the user object (returned by API)
+      if (loggedInUser.preferences) {
+          if (loggedInUser.preferences.theme) {
+              setTheme(loggedInUser.preferences.theme);
+          }
+          if (loggedInUser.preferences.rates) {
+              setRates(loggedInUser.preferences.rates);
+          }
+      }
+      
+      // Load fresh data synced to localStorage
       const freshData = storageService.getLocalData();
       if (freshData) {
           setItems(freshData);
@@ -97,12 +118,14 @@ const App: React.FC = () => {
 
   const handleThemeChange = (newTheme: ThemeOption) => {
       setTheme(newTheme);
-      storageService.saveTheme(newTheme);
+      // Persist to DB if logged in
+      storageService.savePreferences(user, newTheme, rates);
   };
 
   const handleRatesChange = (newRates: ExchangeRates) => {
       setRates(newRates);
-      storageService.saveRates(newRates);
+      // Persist to DB if logged in
+      storageService.savePreferences(user, theme, newRates);
   };
 
   // Helper to close menu on nav
@@ -113,6 +136,9 @@ const App: React.FC = () => {
 
   // --- View Rendering ---
   const themeConfig = THEMES[theme];
+  
+  // Determine if theme is light to adjust mobile button text
+  const isLightTheme = ['lavender', 'mint', 'sky', 'sakura', 'ivory'].includes(theme);
 
   if (view === 'auth' && !user) {
       return <Auth onLogin={handleLogin} onCancel={() => setView('dashboard')} currentItems={items} />;
@@ -163,9 +189,10 @@ const App: React.FC = () => {
             </button>
             <h1 className="font-bold text-lg">Smart Ledger</h1>
         </div>
+        {/* Dynamic Mobile Add Button: Uses dark text/bg for light themes */}
         <button 
             onClick={() => { setEditingItem(null); setView('add'); }}
-            className={`bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg text-sm font-bold backdrop-blur-sm transition`}
+            className={`px-3 py-1.5 rounded-lg text-sm font-bold backdrop-blur-sm transition ${isLightTheme ? 'bg-slate-900/10 text-slate-800 hover:bg-slate-900/20' : 'bg-white/20 text-white hover:bg-white/30'}`}
         >
             + 记一笔
         </button>
@@ -235,7 +262,7 @@ const App: React.FC = () => {
             {!user && (
                 <button 
                     onClick={() => setView('auth')} 
-                    className={`w-full mt-3 text-xs text-center py-2 ${theme === 'ivory' || theme === 'lavender' || theme === 'mint' || theme === 'sky' || theme === 'sakura' ? 'text-slate-500 hover:text-slate-800' : 'text-white/50 hover:text-white'}`}
+                    className={`w-full mt-3 text-xs text-center py-2 ${isLightTheme ? 'text-slate-500 hover:text-slate-800' : 'text-white/50 hover:text-white'}`}
                 >
                     登录 / 注册同步
                 </button>
@@ -247,7 +274,7 @@ const App: React.FC = () => {
       <div className="flex-1 md:overflow-y-auto md:h-screen">
          <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 md:pb-8">
             {view === 'dashboard' && <Dashboard items={items} rates={rates} theme={theme} />}
-            {view === 'list' && <InvestmentList items={items} onDelete={handleDelete} onEdit={(item) => { setEditingItem(item); setView('add'); }} />}
+            {view === 'list' && <InvestmentList items={items} onDelete={handleDelete} onEdit={(item) => { setEditingItem(item); setView('add'); }} onReorder={handleReorder} />}
             {view === 'calendar' && <CalendarView items={items} />}
             {view === 'profile' && (
                 <Profile 
