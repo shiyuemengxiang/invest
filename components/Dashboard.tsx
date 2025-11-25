@@ -198,7 +198,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.realizedInterest, selectedCurrency)}</p>
         </div>
 
-        {/* NEW CARD: Estimated Total Profit (Active + Realized) */}
+        {/* Estimated Total Profit (Active + Realized) + Yield */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-indigo-100/50">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
@@ -207,8 +207,13 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
              <span className="text-xs font-bold bg-indigo-50 text-indigo-500 px-2 py-1 rounded-lg">All Time</span>
           </div>
           <p className="text-slate-500 text-sm font-medium">总预估收益 (含在途)</p>
-          <p className="text-2xl font-bold text-indigo-600 mt-1 tabular-nums">{formatCurrency(stats.projectedTotalProfit, selectedCurrency)}</p>
-          <p className="text-[10px] text-slate-400 mt-1">包含已完结、浮动盈亏及固收预估</p>
+          <p className="text-2xl font-bold text-indigo-600 mt-1 tabular-nums flex items-baseline gap-2">
+              {formatCurrency(stats.projectedTotalProfit, selectedCurrency)}
+              <span className="text-sm font-medium text-indigo-400 bg-indigo-50 px-1.5 rounded-md" title="Total Projected Yield">
+                 {formatPercent(stats.projectedTotalYield)}
+              </span>
+          </p>
+          <p className="text-[10px] text-slate-400 mt-1">含已完结、浮动及固收(截止今日)</p>
         </div>
 
         {/* Weighted Yield */}

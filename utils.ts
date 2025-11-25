@@ -202,11 +202,6 @@ export const calculateItemMetrics = (item: Investment) => {
   const isPending = todayStart < depositStart;
 
   // Determine Duration
-  // If Pending: Duration is 0
-  // If Completed: Withdrawal - Deposit
-  // If Active: Now - Deposit
-  // (Assuming Fixed estimated yield calculation uses full term Maturity - Deposit elsewhere)
-  
   let occupiedDurationMs = 0;
   
   if (!isPending) {
@@ -222,8 +217,6 @@ export const calculateItemMetrics = (item: Investment) => {
   occupiedDurationMs = Math.max(0, occupiedDurationMs);
   
   // Real Duration in Days (min 0)
-  // Used for annualized calculation. 
-  // If duration is 0 (Pending or Same Day), we handle division by zero later
   const realDurationDays = Math.round(occupiedDurationMs / MS_PER_DAY);
   
   let baseInterest = 0;
@@ -253,15 +246,16 @@ export const calculateItemMetrics = (item: Investment) => {
   } else if (item.type === 'Fixed' && item.expectedRate) {
       // 2. Fixed Income with Rate (Active)
       // Display as "Expected Annualized"
-      // Duration used for projection: Maturity - Deposit
       const rate = item.expectedRate;
       annualizedYield = rate;
       
-      // Calculate Projected Total Earnings at Maturity
-      // Only if Maturity is set
+      // Calculate Projected Total Earnings at Maturity (for specific use cases if needed)
       if (maturity) {
           const fullTermMs = maturity.getTime() - deposit.getTime();
           const fullTermDays = Math.max(1, Math.round(fullTermMs / MS_PER_DAY));
+          // Calculate potential return at end of term
+          // We store this mainly for UI reference if needed, but 'baseInterest' is used for profit in list logic usually
+          // For consistency with other types, baseInterest usually holds "Current/Realized" value
           baseInterest = item.principal * (rate / 100) * (fullTermDays / 365);
       }
       
@@ -312,15 +306,35 @@ export const calculateItemMetrics = (item: Investment) => {
   // Comprehensive Yield is the "Annualized Total Return" including Rebates
   let comprehensiveYield = 0;
   if (!isPending && (hasYieldInfo || item.rebate > 0) && realDurationDays > 0 && item.principal > 0) {
-      const totalHoldingYield = (totalReturn / item.principal) * 100;
-      comprehensiveYield = totalHoldingYield / (realDurationDays / 365);
+      // For Active Fixed items, use accrued return for comprehensive yield calc? 
+      // Usually users want to see "Expected Yield" which includes fixed rate + rebate annualized over full term.
+      // But for Completed items, we use realized.
+      // Let's stick to:
+      // - Completed: Realized / Duration
+      // - Active Fixed: Expected Rate + (Rebate annualized over CURRENT duration)
+      // - Active Floating: Current Return / Duration
+      
+      if (item.type === 'Fixed' && !isCompleted && item.expectedRate) {
+          // Special case for Active Fixed: Base is rate, rebate is extra
+          // Rebate annualized over current duration so far
+          const rebateYield = (item.rebate / item.principal) * 100 / (realDurationDays / 365);
+          comprehensiveYield = item.expectedRate + rebateYield;
+      } else {
+          // Standard calculation
+          const totalHoldingYield = ((isCompleted ? item.realizedReturn! : baseInterest) + item.rebate) / item.principal * 100;
+          comprehensiveYield = totalHoldingYield / (realDurationDays / 365);
+      }
+      
   } else if (isPending && item.type === 'Fixed' && item.expectedRate) {
-      // For pending fixed, we estimate comprehensive based on expected
-      // This is rough because we don't know duration exactly if maturity missing, 
-      // but usually fixed has expected rate.
-      comprehensiveYield = item.expectedRate; // Base estimate
+      comprehensiveYield = item.expectedRate; 
   }
 
+  // Profit displayed in list: 
+  // - Completed: Realized + Rebate
+  // - Floating: Current + Rebate
+  // - Fixed Active: Usually user expects "Accrued" or "Expected at Maturity".
+  // Let's standardize on "Value Gained So Far" for Active, "Final Value" for Completed.
+  // Exception: Fixed lists often show "Expected Total" visually.
   const profit = totalReturn; 
   
   // Unit Price Calculations (Funds/Stocks)
@@ -375,9 +389,11 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     // Summing up total estimated profit from all sources
     // UPDATED LOGIC: For Active Fixed items, use Accrued (Current) Return instead of Full Maturity Return
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
+        // ONLY count accrued return up to today for unfinished fixed items
         projectedTotalProfit += (metrics.accruedReturn + item.rebate);
     } else {
         // Floating (already current), Completed (realized), Pending (rebate only)
+        // For floating, 'metrics.profit' is derived from currentReturn + rebate
         projectedTotalProfit += metrics.profit;
     }
 
@@ -401,6 +417,10 @@ export const calculatePortfolioStats = (items: Investment[]) => {
         totalWeight += item.principal;
     }
   });
+  
+  // Calculate Projected Total Yield
+  // (Total Profit / Total Invested) * 100
+  const projectedTotalYield = totalInvested > 0 ? (projectedTotalProfit / totalInvested) * 100 : 0;
 
   return {
     totalInvested,
@@ -411,6 +431,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     receivedRebate,
     realizedInterest,
     projectedTotalProfit,
+    projectedTotalYield, // New Field
     comprehensiveYield: totalWeight > 0 ? weightedYieldSum / totalWeight : 0
   };
 };
