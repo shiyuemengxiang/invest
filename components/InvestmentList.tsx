@@ -67,13 +67,11 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
   const handleDragStart = (e: React.DragEvent, index: number) => {
       setDraggedIndex(index);
       e.dataTransfer.effectAllowed = 'move';
-      // Make ghost image distinct if needed, or default
   };
 
   const handleDragOver = (e: React.DragEvent, index: number) => {
       e.preventDefault();
       if (draggedIndex === null || draggedIndex === index) return;
-      // Optional: Add visual indicator line
   };
 
   const handleDrop = (e: React.DragEvent, index: number) => {
@@ -82,6 +80,21 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
           onReorder(draggedIndex, index);
       }
       setDraggedIndex(null);
+  };
+  
+  // Mobile Manual Sort Handlers
+  const handleMoveUp = (index: number, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (index > 0) {
+          onReorder(index, index - 1);
+      }
+  };
+
+  const handleMoveDown = (index: number, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (index < items.length - 1) {
+          onReorder(index, index + 1);
+      }
   };
 
   const isDragEnabled = filter === 'all' && productFilter === 'all' && !showCustomDate;
@@ -216,17 +229,17 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                 onDragStart={(e) => handleDragStart(e, index)}
                 onDragOver={(e) => handleDragOver(e, index)}
                 onDrop={(e) => handleDrop(e, index)}
-                className={`bg-white rounded-[1.5rem] p-6 shadow-sm border border-slate-100 transition-all duration-300 relative group overflow-hidden ${isDragging ? 'opacity-40 border-dashed border-slate-400' : 'hover:shadow-lg hover:border-indigo-100'} ${isDragEnabled ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                className={`bg-white rounded-[1.5rem] p-6 shadow-sm border border-slate-100 transition-all duration-300 relative group overflow-hidden ${isDragging ? 'opacity-40 border-dashed border-slate-400' : 'hover:shadow-lg hover:border-indigo-100'} ${isDragEnabled ? 'md:cursor-grab md:active:cursor-grabbing' : ''}`}
             >
-              {/* Drag Handle Indicator (Visible on hover when enabled) */}
+              {/* Drag Handle Indicator (Visible on hover on desktop) */}
               {isDragEnabled && (
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-200 opacity-0 group-hover:opacity-100 transition">
+                  <div className="hidden md:block absolute left-3 top-1/2 -translate-y-1/2 text-slate-200 opacity-0 group-hover:opacity-100 transition">
                       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" /></svg>
                   </div>
               )}
 
               {/* Header Row */}
-              <div className={`flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 relative z-10 ${isDragEnabled ? 'pl-4' : ''}`}>
+              <div className={`flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 relative z-10 ${isDragEnabled ? 'md:pl-4' : ''}`}>
                 <div className="flex items-center gap-4">
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-bold shadow-sm ${metrics.isCompleted ? 'bg-slate-100 text-slate-400' : item.type === 'Floating' ? 'bg-indigo-900 text-white' : 'bg-slate-900 text-white'}`}>
                     {item.currency === 'CNY' ? '¥' : item.currency === 'USD' ? '$' : 'HK'}
@@ -264,6 +277,18 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                     </div>
                     
                     <div className="flex gap-2">
+                        {/* Mobile Sorting Arrows */}
+                        {isDragEnabled && (
+                            <div className="flex flex-col gap-0.5 md:hidden mr-1">
+                                <button onClick={(e) => handleMoveUp(index, e)} className="p-1 bg-slate-50 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30" disabled={index === 0}>
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" /></svg>
+                                </button>
+                                <button onClick={(e) => handleMoveDown(index, e)} className="p-1 bg-slate-50 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30" disabled={index === items.length - 1}>
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
+                                </button>
+                            </div>
+                        )}
+
                         <button 
                             onClick={() => onEdit(item)}
                             className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 rounded-xl border border-slate-200 hover:border-indigo-200 transition"
@@ -308,10 +333,22 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                    <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
                        {metrics.isCompleted ? 'Realized Profit' : item.type === 'Floating' ? 'Current Profit' : 'Est. Profit'}
                    </p>
-                   <div className="flex items-baseline gap-1">
-                        <p className={`font-bold text-sm ${metrics.totalReturn > 0 ? 'text-orange-500' : 'text-slate-500'}`}>
-                            {metrics.totalReturn > 0 ? '+' : ''}{formatCurrency(metrics.totalReturn, item.currency)}
-                        </p>
+                   <div className="flex flex-col gap-0.5">
+                        {/* Primary Return Display */}
+                        <div className="flex items-baseline gap-1">
+                            <p className={`font-bold text-sm ${metrics.totalReturn > 0 ? 'text-orange-500' : 'text-slate-500'}`}>
+                                {metrics.totalReturn > 0 ? '+' : ''}{formatCurrency(metrics.totalReturn, item.currency)}
+                            </p>
+                        </div>
+                        {/* For Active Fixed: Show Accrued Interest Today */}
+                        {!metrics.isCompleted && item.type === 'Fixed' && (
+                            <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-400">截止今日:</span>
+                                <span className="text-[10px] font-bold text-slate-600">
+                                    {formatCurrency(metrics.accruedReturn, item.currency)}
+                                </span>
+                            </div>
+                        )}
                    </div>
                 </div>
                 <div className="space-y-1">

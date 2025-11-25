@@ -198,10 +198,6 @@ export const calculateItemMetrics = (item: Investment) => {
   if (isCompleted && withdrawal) {
       calcEndDate = withdrawal;
   } else if (maturity) {
-      // If active and has maturity, for PROJECTED calculations we usually look at full term.
-      // But for "current duration" stats, we look at now.
-      // Logic requirement: "Pre-estimated Annualized Yield... if withdrawal date filled, use withdrawal - deposit."
-      // "Calculated based on actual capital occupation duration"
       calcEndDate = maturity; // Default for fixed estimate
   }
 
@@ -220,6 +216,7 @@ export const calculateItemMetrics = (item: Investment) => {
   let annualizedYield = 0; // The Year-over-Year %
   let holdingYield = 0; // The Absolute Return %
   let hasYieldInfo = true;
+  let accruedReturn = 0; // Est. return as of TODAY for fixed items
 
   if (isCompleted && item.realizedReturn !== undefined) {
       // 1. Completed Item (Realized)
@@ -236,8 +233,13 @@ export const calculateItemMetrics = (item: Investment) => {
       annualizedYield = rate;
       
       // Calculate projected total earnings based on FULL term (Maturity - Deposit)
-      // This is the "Expected Return"
+      // This is the "Expected Return" at maturity
       baseInterest = item.principal * (rate / 100) * (realDurationDays / 365);
+      
+      // Calculate Accrued Interest (As of Today)
+      // Duration So Far: Today - Deposit
+      const durationSoFar = Math.max(0, Math.round((now.getTime() - deposit.getTime()) / MS_PER_DAY));
+      accruedReturn = item.principal * (rate / 100) * (durationSoFar / 365);
       
       holdingYield = (baseInterest / item.principal) * 100;
 
@@ -293,6 +295,7 @@ export const calculateItemMetrics = (item: Investment) => {
     annualizedYield,
     holdingYield, // Absolute %
     comprehensiveYield, // Annualized %
+    accruedReturn, // New: Return as of today for Fixed Active
     isCompleted,
     hasYieldInfo,
     daysRemaining: item.maturityDate ? getDaysRemaining(item.maturityDate) : 0
