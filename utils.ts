@@ -373,7 +373,13 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     totalRebate += item.rebate;
     
     // Summing up total estimated profit from all sources
-    projectedTotalProfit += metrics.profit;
+    // UPDATED LOGIC: For Active Fixed items, use Accrued (Current) Return instead of Full Maturity Return
+    if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
+        projectedTotalProfit += (metrics.accruedReturn + item.rebate);
+    } else {
+        // Floating (already current), Completed (realized), Pending (rebate only)
+        projectedTotalProfit += metrics.profit;
+    }
 
     if (item.isRebateReceived) {
       receivedRebate += item.rebate;
@@ -423,11 +429,17 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
         } else if (metrics.isPending) {
             value = item.principal; // Just the committed amount
         } else {
-            // Active: Add Current Return (Floating) or Accrued/Expected (Fixed)
-            if (metrics.hasYieldInfo || item.currentReturn) {
-               value += metrics.totalReturn; 
+            // Active
+            if (item.type === 'Fixed') {
+                 // UPDATED LOGIC: Use Accrued Return for Fixed Active items to reflect current net worth
+                 value += metrics.accruedReturn + item.rebate;
             } else {
-               value += item.rebate;
+                 // Floating items: metrics.totalReturn is already based on currentReturn or time-based accrual
+                 if (metrics.hasYieldInfo || item.currentReturn) {
+                    value += metrics.totalReturn; 
+                 } else {
+                    value += item.rebate;
+                 }
             }
         }
 
