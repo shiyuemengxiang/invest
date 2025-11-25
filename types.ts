@@ -18,6 +18,7 @@ export type ThemeOption = 'slate' | 'midnight' | 'forest' | 'ocean' | 'sunset' |
 export interface UserPreferences {
     theme?: ThemeOption;
     rates?: ExchangeRates;
+    rateMode?: 'auto' | 'manual';
 }
 
 export interface User {
@@ -47,6 +48,8 @@ export interface Investment {
   withdrawalDate: string | null; 
   principal: number;
   quantity?: number; // New: For Stocks/Funds (Shares/Units)
+  symbol?: string; // New: Ticker Symbol (e.g., AAPL, 0700.HK)
+  isAutoQuote?: boolean; // New: Whether to auto-fetch price
   expectedRate?: number; // Optional for Floating
   currentReturn?: number; // New: Manual entry for current position return (floating)
   realizedReturn?: number; 

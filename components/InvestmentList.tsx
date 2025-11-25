@@ -10,16 +10,18 @@ interface Props {
   onDelete: (id: string) => void;
   onEdit: (item: Investment) => void;
   onReorder: (dragIndex: number, hoverIndex: number) => void;
+  onRefreshMarket: () => void;
 }
 
 type FilterType = 'all' | 'active' | 'completed';
 type ProductTypeFilter = 'all' | 'Fixed' | 'Floating';
 type CurrencyFilter = 'all' | Currency;
 
-const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder }) => {
+const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, onRefreshMarket }) => {
   const [filter, setFilter] = useState<FilterType>('all');
   const [productFilter, setProductFilter] = useState<ProductTypeFilter>('all');
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('all');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   // Custom Date Filter State
   const [showCustomDate, setShowCustomDate] = useState(false);
@@ -64,6 +66,12 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
 
     onReorder(result.source.index, result.destination.index);
   };
+  
+  const handleRefreshClick = async () => {
+      setIsRefreshing(true);
+      await onRefreshMarket();
+      setTimeout(() => setIsRefreshing(false), 1000); // Visual feedback min duration
+  };
 
   const isDragEnabled = filter === 'all' && productFilter === 'all' && currencyFilter === 'all' && !showCustomDate;
 
@@ -82,7 +90,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
 
       {/* Filters Container */}
       <div className="bg-white/80 backdrop-blur-sm p-4 rounded-3xl border border-white/50 shadow-sm space-y-4">
-          {/* Row 1: Status & Currency Tabs */}
+          {/* Row 1: Status, Currency & Refresh */}
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                 <div className="flex flex-wrap gap-2 w-full md:w-auto">
                     {/* Status Tabs */}
@@ -112,8 +120,17 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3 w-full md:w-auto">
-                     <div className="text-xs font-semibold text-slate-400 bg-white px-3 py-1.5 rounded-lg border border-slate-100 whitespace-nowrap ml-auto">
+                <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+                    <button
+                        onClick={handleRefreshClick}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors ${isRefreshing ? 'opacity-70 cursor-wait' : ''}`}
+                        title="刷新市场数据"
+                        disabled={isRefreshing}
+                    >
+                        <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                        {isRefreshing ? '更新中...' : '刷新行情'}
+                    </button>
+                     <div className="text-xs font-semibold text-slate-400 bg-white px-3 py-1.5 rounded-lg border border-slate-100 whitespace-nowrap">
                         共 {filteredItems.length} 笔
                     </div>
                 </div>
@@ -365,7 +382,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                                             <div className="relative z-10 grid grid-cols-2 md:grid-cols-4 gap-6 py-4 mt-2 bg-slate-50/80 rounded-xl px-4 border border-dashed border-slate-200">
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Holdings</p>
-                                                    <p className="font-mono text-xs font-bold text-slate-700">{item.quantity} 股/份</p>
+                                                    <p className="font-mono text-xs font-bold text-slate-700">{item.quantity} {item.symbol ? `(${item.symbol})` : '股/份'}</p>
                                                 </div>
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Cost Price</p>
@@ -380,6 +397,9 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder })
                                                         <span className={`text-[9px] px-1 rounded ${metrics.currentPrice >= metrics.unitCost ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
                                                             {metrics.unitCost > 0 ? ((metrics.currentPrice - metrics.unitCost)/metrics.unitCost * 100).toFixed(1) : 0}%
                                                         </span>
+                                                        {item.isAutoQuote && (
+                                                            <span className="text-[9px] text-slate-400 ml-1" title="Auto Update">☁️</span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>

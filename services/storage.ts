@@ -67,13 +67,16 @@ export const storageService = {
     },
     
     // Save Preferences: Uploads to Vercel PG if logged in, always saves to LocalStorage
-    async savePreferences(user: User | null, theme: ThemeOption, rates: ExchangeRates) {
+    async savePreferences(user: User | null, theme: ThemeOption, rates: ExchangeRates, rateMode?: 'auto' | 'manual') {
         this.saveTheme(theme);
         this.saveRates(rates);
         
         if (user) {
             try {
-                const prefs: UserPreferences = { theme, rates };
+                // Determine rateMode: use argument if provided, else fallback to user's existing pref
+                const finalRateMode = rateMode || user.preferences?.rateMode;
+                const prefs: UserPreferences = { theme, rates, rateMode: finalRateMode };
+                
                 await fetch(`${API_BASE}/user/preferences`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

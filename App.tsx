@@ -8,6 +8,7 @@ import CalendarView from './components/CalendarView';
 import Auth from './components/Auth';
 import Profile from './components/Profile';
 import { storageService } from './services/storage';
+import { marketService } from './services/market';
 import { THEMES } from './utils';
 
 const App: React.FC = () => {
@@ -35,8 +36,9 @@ const App: React.FC = () => {
     setRates(currentRates);
 
     // Initial Load from Local Cache
+    let loadedItems: Investment[] = [];
     if (localData) {
-        setItems(localData);
+        loadedItems = localData;
     } else if (!currentUser) {
         // Seed Data only if guest and empty
         const seed: Investment[] = [
@@ -44,8 +46,12 @@ const App: React.FC = () => {
             { id: '2', name: '稳健季季红', category: 'Deposit', type: 'Fixed', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期' },
             { id: '3', name: '科技ETF基金', category: 'Fund', type: 'Floating', currency: 'CNY', depositDate: '2024-03-01', maturityDate: '', withdrawalDate: null, principal: 20000, expectedRate: undefined, currentReturn: 850, rebate: 0, isRebateReceived: false, notes: '长期持有' },
         ];
-        setItems(seed);
+        loadedItems = seed;
     }
+    
+    // Sort by deposit date ascending by default
+    loadedItems.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
+    setItems(loadedItems);
 
     // Cloud Sync: If logged in, fetch fresh data from DB
     if (currentUser) {
@@ -54,7 +60,21 @@ const App: React.FC = () => {
                  setItems(cloudData);
             }
         });
-        // Check for preference consistency? Handled in Login usually, but here we trust local if user is already logged in
+
+        // Check for Auto Rate Update preference on load
+        if (currentUser.preferences?.rateMode === 'auto') {
+             marketService.getRates().then(newRates => {
+                 if (newRates) {
+                     setRates(newRates);
+                     storageService.saveRates(newRates);
+                 }
+             });
+        }
+        
+        // Auto-Refresh Stock Prices if user preference allows? 
+        // Or we can just do it if we see items with isAutoQuote
+        // Let's do it if we are on client side.
+        // refreshMarketData(loadedItems); // Optional: Auto update on load
     }
   }, []);
 
@@ -86,6 +106,41 @@ const App: React.FC = () => {
       updatedList.splice(dragIndex, 1);
       updatedList.splice(hoverIndex, 0, draggedItem);
       saveItems(updatedList);
+  };
+  
+  const handleRefreshMarketData = async () => {
+      // 1. Identify items needing update
+      const itemsToUpdate = items.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
+      if (itemsToUpdate.length === 0) return;
+
+      const symbols = itemsToUpdate.map(i => i.symbol as string);
+      
+      // 2. Fetch Quotes
+      const quotes = await marketService.getQuotes(symbols);
+      
+      if (quotes) {
+          const updatedList = items.map(item => {
+              if (item.isAutoQuote && item.symbol && quotes[item.symbol] && item.quantity) {
+                  const newPrice = quotes[item.symbol];
+                  // Calculate new Current Return
+                  // Current Return = (Current Price * Quantity) - Principal
+                  // Logic assumes Principal is total cost basis.
+                  const currentVal = newPrice * item.quantity;
+                  const newReturn = currentVal - item.principal;
+                  return { ...item, currentReturn: newReturn };
+              }
+              return item;
+          });
+          saveItems(updatedList);
+      }
+      
+      // 3. Update Rates if Auto
+      if (user?.preferences?.rateMode === 'auto') {
+           const newRates = await marketService.getRates();
+           if (newRates) {
+               handleRatesChange(newRates, 'auto');
+           }
+      }
   };
 
   const handleLogin = (loggedInUser: User) => {
@@ -119,13 +174,30 @@ const App: React.FC = () => {
   const handleThemeChange = (newTheme: ThemeOption) => {
       setTheme(newTheme);
       // Persist to DB if logged in
-      storageService.savePreferences(user, newTheme, rates);
+      storageService.savePreferences(user, newTheme, rates, user?.preferences?.rateMode);
   };
 
-  const handleRatesChange = (newRates: ExchangeRates) => {
+  const handleRatesChange = (newRates: ExchangeRates, mode?: 'auto' | 'manual') => {
       setRates(newRates);
+      const currentMode = mode || user?.preferences?.rateMode || 'manual';
+      
       // Persist to DB if logged in
-      storageService.savePreferences(user, theme, newRates);
+      if (user) {
+         // Update local user object state for consistency
+         const updatedUser = { 
+             ...user, 
+             preferences: { 
+                 ...user.preferences, 
+                 rates: newRates,
+                 rateMode: currentMode 
+             } 
+         };
+         setUser(updatedUser);
+         storageService.saveLocalUser(updatedUser);
+         storageService.savePreferences(user, theme, newRates, currentMode);
+      } else {
+         storageService.saveRates(newRates);
+      }
   };
 
   // Helper to close menu on nav
@@ -274,7 +346,7 @@ const App: React.FC = () => {
       <div className="flex-1 md:overflow-y-auto md:h-screen">
          <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 md:pb-8">
             {view === 'dashboard' && <Dashboard items={items} rates={rates} theme={theme} />}
-            {view === 'list' && <InvestmentList items={items} onDelete={handleDelete} onEdit={(item) => { setEditingItem(item); setView('add'); }} onReorder={handleReorder} />}
+            {view === 'list' && <InvestmentList items={items} onDelete={handleDelete} onEdit={(item) => { setEditingItem(item); setView('add'); }} onReorder={handleReorder} onRefreshMarket={handleRefreshMarketData} />}
             {view === 'calendar' && <CalendarView items={items} />}
             {view === 'profile' && (
                 <Profile 

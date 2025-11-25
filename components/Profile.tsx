@@ -1,26 +1,50 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Currency, ExchangeRates, ThemeOption, User } from '../types';
 import { THEMES } from '../utils';
+import { marketService } from '../services/market';
 
 interface Props {
     user: User | null;
     rates: ExchangeRates;
     currentTheme: ThemeOption;
-    onSaveRates: (rates: ExchangeRates) => void;
+    onSaveRates: (rates: ExchangeRates, mode: 'auto' | 'manual') => void;
     onSaveTheme: (theme: ThemeOption) => void;
     onLogout: () => void;
 }
 
 const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSaveTheme, onLogout }) => {
     const [editRates, setEditRates] = useState<ExchangeRates>({...rates});
+    const [rateMode, setRateMode] = useState<'auto' | 'manual'>(user?.preferences?.rateMode || 'manual');
+    const [loadingRates, setLoadingRates] = useState(false);
+
+    useEffect(() => {
+        if (rateMode === 'auto') {
+            fetchLiveRates();
+        }
+    }, [rateMode]);
+
+    const fetchLiveRates = async () => {
+        setLoadingRates(true);
+        const liveRates = await marketService.getRates();
+        if (liveRates) {
+            setEditRates(liveRates);
+            // Auto-save if in auto mode
+            onSaveRates(liveRates, 'auto');
+        } else {
+            alert("获取实时汇率失败，已切换回手动模式");
+            setRateMode('manual');
+        }
+        setLoadingRates(false);
+    };
 
     const handleRateChange = (c: Currency, val: string) => {
+        if (rateMode === 'auto') return;
         setEditRates(prev => ({ ...prev, [c]: parseFloat(val) || 0 }));
     };
 
     const handleSave = () => {
-        onSaveRates(editRates);
+        onSaveRates(editRates, rateMode);
         alert('设置已保存');
     };
 
@@ -63,33 +87,59 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
 
             {/* Exchange Rates */}
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-                <div className="flex justify-between items-center mb-6">
-                     <h3 className="text-lg font-bold text-slate-800">自定义汇率 (Exchange Rates)</h3>
-                     <button onClick={handleSave} className={`px-5 py-2 text-white text-sm font-bold rounded-xl shadow-md ${THEMES[currentTheme].button}`}>
-                        保存设置
-                     </button>
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                     <div>
+                        <h3 className="text-lg font-bold text-slate-800">汇率设置 (Exchange Rates)</h3>
+                        <p className="text-xs text-slate-400 mt-1">基准货币 CNY</p>
+                     </div>
+                     
+                     <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
+                        <button 
+                            onClick={() => setRateMode('auto')}
+                            className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${rateMode === 'auto' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}
+                        >
+                            自动更新
+                        </button>
+                        <button 
+                            onClick={() => setRateMode('manual')}
+                            className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${rateMode === 'manual' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                        >
+                            手动设置
+                        </button>
+                     </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
+                    {loadingRates && (
+                        <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center">
+                            <span className="text-sm font-bold text-emerald-600 animate-pulse">更新汇率中...</span>
+                        </div>
+                    )}
                     {(['CNY', 'USD', 'HKD'] as Currency[]).map(c => (
                         <div key={c}>
-                            <label className="block text-sm font-semibold text-slate-500 mb-2">1 {c} 等于 (基准)</label>
+                            <label className="block text-sm font-semibold text-slate-500 mb-2">1 {c} 等于</label>
                             <div className="relative">
                                 <input
                                     type="number"
-                                    step="0.01"
+                                    step="0.0001"
                                     value={editRates[c]}
                                     onChange={(e) => handleRateChange(c, e.target.value)}
-                                    disabled={c === 'CNY'} // CNY is base
-                                    className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-800 outline-none focus:ring-2 ${c === 'CNY' ? 'opacity-60 cursor-not-allowed' : 'focus:ring-slate-300'}`}
+                                    disabled={c === 'CNY' || rateMode === 'auto'}
+                                    className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-800 outline-none focus:ring-2 ${c === 'CNY' || rateMode === 'auto' ? 'opacity-60 cursor-not-allowed' : 'focus:ring-slate-300'}`}
                                 />
-                                {c === 'CNY' && <span className="absolute right-4 top-3 text-xs text-slate-400">基准货币</span>}
+                                {c === 'CNY' && <span className="absolute right-4 top-3 text-xs text-slate-400">基准</span>}
                             </div>
                         </div>
                     ))}
                 </div>
-                <p className="text-xs text-slate-400 mt-4 bg-slate-50 p-3 rounded-lg">
-                    * 提示: 请输入相对于 CNY 的汇率。例如 USD 设为 7.23 表示 1 USD = 7.23 CNY。
-                </p>
+
+                {rateMode === 'manual' && (
+                    <div className="mt-6 flex justify-end">
+                        <button onClick={handleSave} className={`px-5 py-2 text-white text-sm font-bold rounded-xl shadow-md ${THEMES[currentTheme].button}`}>
+                            保存汇率
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -19,6 +19,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
       maturityDate: '',
       principal: 10000,
       quantity: undefined,
+      symbol: '',
+      isAutoQuote: false,
       expectedRate: undefined,
       currentReturn: undefined,
       realizedReturn: undefined,
@@ -74,6 +76,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
       withdrawalDate: formData.withdrawalDate || null,
       principal: Number(formData.principal),
       quantity: formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined,
+      symbol: formData.symbol || undefined,
+      isAutoQuote: !!formData.isAutoQuote,
       expectedRate: formData.expectedRate && formData.expectedRate !== 0 ? Number(formData.expectedRate) : undefined,
       currentReturn: formData.currentReturn ? Number(formData.currentReturn) : undefined,
       realizedReturn: formData.realizedReturn ? Number(formData.realizedReturn) : undefined,
@@ -186,20 +190,48 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
           </div>
         </div>
         
-        {/* New Quantity Field for Stocks/Funds */}
+        {/* Quantity & Symbol for Stocks/Funds */}
         {isFundOrStock && (
-             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <label className="block text-sm font-semibold text-slate-700 mb-2">持有份额/股数 (Quantity)</label>
-                <input
-                    type="number"
-                    step="0.0001"
-                    name="quantity"
-                    value={formData.quantity === undefined ? '' : formData.quantity}
-                    onChange={handleChange}
-                    placeholder="0"
-                    className="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono"
-                />
-                <p className="text-xs text-slate-400 mt-1">填写后，列表将自动计算【持仓成本】和【当前单价】。</p>
+             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">持有份额/股数 (Quantity)</label>
+                        <input
+                            type="number"
+                            step="0.0001"
+                            name="quantity"
+                            value={formData.quantity === undefined ? '' : formData.quantity}
+                            onChange={handleChange}
+                            placeholder="0"
+                            className="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">交易代码 (Symbol)</label>
+                        <input
+                            type="text"
+                            name="symbol"
+                            value={formData.symbol || ''}
+                            onChange={handleChange}
+                            placeholder="如: AAPL, 0700.HK, 600519.SS"
+                            className="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono uppercase"
+                        />
+                    </div>
+                </div>
+                
+                {formData.symbol && (
+                     <label className="flex items-center cursor-pointer select-none group">
+                        <input
+                            type="checkbox"
+                            name="isAutoQuote"
+                            checked={!!formData.isAutoQuote}
+                            onChange={handleChange}
+                            className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 transition-colors duration-200"></div>
+                        <span className="ml-2 text-sm text-slate-600">开启自动行情更新 (Yahoo Finance)</span>
+                    </label>
+                )}
              </div>
         )}
 
@@ -251,14 +283,17 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData }) => {
                     </div>
                     <div className="w-full">
                         <label className="block text-sm font-bold text-indigo-900 mb-2">当前持仓累计收益额 (Current Return)</label>
-                        <p className="text-xs text-indigo-700/70 mb-3">填写截止目前的浮动盈亏金额，用于计算当前持仓收益率。</p>
+                        <p className="text-xs text-indigo-700/70 mb-3">
+                            {formData.isAutoQuote ? '已开启自动行情，收益额将根据最新价格自动计算更新。' : '手动填写截止目前的浮动盈亏金额，用于计算当前持仓收益率。'}
+                        </p>
                         <div className="relative">
                             <input
                                 type="number"
                                 name="currentReturn"
                                 value={formData.currentReturn !== undefined ? formData.currentReturn : ''}
                                 onChange={handleChange}
-                                className="w-full p-3 pl-4 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-lg text-indigo-900"
+                                disabled={formData.isAutoQuote}
+                                className={`w-full p-3 pl-4 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-lg text-indigo-900 ${formData.isAutoQuote ? 'bg-indigo-100/50 cursor-not-allowed' : 'bg-white'}`}
                                 placeholder="0.00"
                             />
                             <span className="absolute right-4 top-3.5 text-indigo-600/50 text-sm font-medium">{formData.currency}</span>
