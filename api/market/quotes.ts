@@ -18,21 +18,23 @@ export default async function handler(request: any, response: any) {
         return response.status(400).json({ error: 'Missing symbols array' });
     }
 
-    // Dedup symbols
     const uniqueSymbols = Array.from(new Set(symbols as string[]));
     const result: Record<string, number> = {};
 
-    // Helper: Fetch quote with fallback
     const fetchQuote = async (symbol: string) => {
+        // Method 1: Library (often blocked on Vercel)
         try {
-            // Strategy 1: Library
-            const quote = await yahooFinance.quote(symbol, { validateResult: false });
+            // Fix: Cast result to any to avoid TypeScript 'never' inference issue with yahoo-finance2
+            const quote = await yahooFinance.quote(symbol, { validateResult: false }) as any;
             return quote.regularMarketPrice || quote.ask || quote.bid;
         } catch (libError) {
-            // console.warn(`Library failed for ${symbol}, trying chart endpoint...`);
-            // Strategy 2: Direct Chart API fetch (often less restricted)
+            // Method 2: Direct Fetch with Browser Headers
             try {
-                const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`);
+                const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    }
+                });
                 if (res.ok) {
                     const data = await res.json();
                     const meta = data?.chart?.result?.[0]?.meta;
@@ -41,7 +43,7 @@ export default async function handler(request: any, response: any) {
                     }
                 }
             } catch (fallbackError) {
-                // console.warn(`Fallback failed for ${symbol}`);
+                // Ignore
             }
             return null;
         }
