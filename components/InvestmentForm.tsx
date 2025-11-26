@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+// ... (imports same as before)
 import { Currency, Investment, InvestmentCategory, InvestmentType, CATEGORY_LABELS, Transaction, TransactionType } from '../types';
 import { ToastType } from './Toast';
 import { recalculateInvestmentState, formatDateTime } from '../utils';
@@ -11,7 +12,10 @@ interface Props {
   onNotify: (msg: string, type: ToastType) => void;
 }
 
+// ... (Component definition same as before until JSX return of modal)
+
 const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNotify }) => {
+  // ... (all state and handlers same as before)
   const parseInitialSymbol = () => {
       if (!initialData?.symbol) return { code: '', market: 'sh' };
       const s = initialData.symbol;
@@ -324,6 +328,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             </button>
         </div>
 
+        {/* ... (Inputs for Name, Category, Principal, Rates etc. remain same) ... */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="md:col-span-3">
                 <label className="block text-sm font-semibold text-slate-700 mb-2">资产名称</label>
@@ -494,6 +499,15 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                     <h4 className="text-sm font-bold text-indigo-900 mb-3">
                         {editingTxId ? '编辑交易' : `新增: ${getTxTypeLabel(txData.type)}`}
                     </h4>
+                    
+                    {/* Warning for Fixed Add Principal */}
+                    {!isFloating && txData.type === 'Buy' && (
+                        <div className="mb-3 text-[10px] text-orange-600 bg-orange-50/80 p-2 rounded border border-orange-100">
+                            <strong>注意：</strong> 系统将根据每笔交易的实际存续天数自动计算“分段利息”。<br/>
+                            如果您修改了“综合利率”或“到期时间”，新条款将适用于此资产。若追加资金的利率与原资产差异较大，建议新建一条资产记录。
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-3">
                         <div className="col-span-1">
                             <label className="block text-[10px] font-bold text-indigo-400 mb-1">日期</label>

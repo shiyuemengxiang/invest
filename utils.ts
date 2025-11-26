@@ -29,7 +29,7 @@ export const THEMES: Record<ThemeOption, ThemeConfig> = {
     mint: { sidebar: 'bg-emerald-50 text-emerald-900 border-r border-emerald-100', accent: 'from-emerald-400 to-teal-500', button: 'bg-emerald-500 hover:bg-emerald-600', text: 'text-emerald-600', icon: 'text-emerald-500', navActive: 'bg-emerald-200 text-emerald-900 font-bold shadow-sm', navHover: 'hover:bg-emerald-100 text-emerald-700' },
     sky: { sidebar: 'bg-sky-50 text-sky-900 border-r border-sky-100', accent: 'from-sky-400 to-blue-500', button: 'bg-sky-500 hover:bg-sky-600', text: 'text-sky-600', icon: 'text-sky-500', navActive: 'bg-sky-200 text-sky-900 font-bold shadow-sm', navHover: 'hover:bg-sky-100 text-sky-700' },
     sakura: { sidebar: 'bg-pink-50 text-pink-900 border-r border-pink-100', accent: 'from-pink-400 to-rose-500', button: 'bg-pink-500 hover:bg-pink-600', text: 'text-pink-600', icon: 'text-pink-400', navActive: 'bg-pink-200 text-pink-900 font-bold shadow-sm', navHover: 'hover:bg-pink-100 text-pink-700' },
-    ivory: { sidebar: 'bg-white text-slate-800 border-r border-slate-200', accent: 'from-slate-400 to-slate-600', button: 'bg-slate-700 hover:bg-slate-800', text: 'text-slate-700', icon: 'text-slate-400', navActive: 'bg-slate-100 text-slate-900 font-bold shadow-sm', navHover: 'hover:bg-slate-50 text-slate-600' }
+    ivory: { sidebar: 'bg-white text-slate-800 border-r border-slate-200', accent: 'from-slate-400 to-slate-600', button: 'bg-slate-700 hover:bg-slate-800', text: 'text-slate-700', icon: 'text-slate-400', navActive: 'bg-slate-100 text-slate-900 font-bold shadow-sm', navHover: 'hover:bg-slate-600' }
 };
 
 // --- DATA MIGRATION & CALCULATION UTILS ---
@@ -74,13 +74,10 @@ export const migrateInvestmentData = (item: any): Investment => {
     return recalculateInvestmentState(newItem);
 };
 
-/**
- * Phase 3 Upgrade: Weighted Average Cost (AVCO) Support
- */
 export const recalculateInvestmentState = (item: Investment): Investment => {
-    let currentPrincipal = 0; // Represents "Cost Basis" for Floating, or "Principal Balance" for Fixed
+    let currentPrincipal = 0;
     let currentQuantity = 0;
-    let totalCost = 0; // Cumulative invested amount
+    let totalCost = 0;
     let totalRealizedProfit = 0;
 
     const sortedTxs = [...(item.transactions || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -90,32 +87,21 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
         const qty = Number(tx.quantity) || 0;
 
         if (tx.type === 'Buy') {
-            // Buy/Add Position
             currentPrincipal += amount;
             totalCost += amount;
             if (qty) currentQuantity += qty;
             
         } else if (tx.type === 'Sell') {
-            // Sell/Reduce Position/Withdraw
-            
             if (item.type === 'Floating' && currentQuantity > 0 && qty > 0) {
-                // Floating AVCO Logic:
-                // Cost of Sold = (Current Basis / Current Qty) * Sold Qty
+                // AVCO Logic
                 const avgCostPerUnit = currentPrincipal / currentQuantity;
                 const costOfSold = avgCostPerUnit * qty;
-                
-                // Realized Profit = Sold Amount (Revenue) - Cost Basis of Sold
                 const realizedTxProfit = amount - costOfSold;
                 
                 totalRealizedProfit += realizedTxProfit;
-                currentPrincipal -= costOfSold; // Reduce Basis
-                currentQuantity -= qty; // Reduce Qty
-                
+                currentPrincipal -= costOfSold;
+                currentQuantity -= qty;
             } else {
-                // Fixed Income (Withdrawal) OR Floating without Qty
-                // Simply reduce principal/basis. No immediate profit realized here for Fixed 
-                // (unless we explicitly track interest, which is usually Dividend type).
-                // For simplicity, Fixed 'Sell' = Principal Withdrawal.
                 currentPrincipal -= amount;
                 if (qty) currentQuantity -= qty;
             }
@@ -125,7 +111,6 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
         }
     }
 
-    // Rounding to prevent float errors
     currentPrincipal = Math.max(0, Number(currentPrincipal.toFixed(4)));
     currentQuantity = Math.max(0, Number(currentQuantity.toFixed(4)));
     totalRealizedProfit = Number(totalRealizedProfit.toFixed(4));
@@ -137,8 +122,8 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
         currentQuantity,
         totalCost,
         totalRealizedProfit, 
-        principal: currentPrincipal, // Sync legacy
-        quantity: currentQuantity    // Sync legacy
+        principal: currentPrincipal, 
+        quantity: currentQuantity    
     };
 };
 
@@ -195,9 +180,7 @@ export const calculateDailyReturn = (item: Investment): number => {
 
     if (item.type === 'Floating') {
         if (item.estGrowth && activePrincipal > 0) {
-            // Daily Return = Current Market Value * Change%
-            // Market Value = Basis + Unrealized P&L. 
-            // Simplified: (Principal + TotalReturns) * Change%
+            // Daily Return based on Market Value
             const currentTotalValue = activePrincipal + (item.currentReturn || 0);
             const baseValue = Math.max(0, currentTotalValue);
             return baseValue * (item.estGrowth / 100);
@@ -225,6 +208,7 @@ export const calculateItemMetrics = (item: Investment) => {
   const activePrincipal = item.currentPrincipal; 
   const currentQuantity = item.currentQuantity || 0;
 
+  // Duration Logic
   let occupiedDurationMs = 0;
   if (!isPending) {
       if (isCompleted && withdrawal) {
@@ -248,10 +232,9 @@ export const calculateItemMetrics = (item: Investment) => {
            annualizedYield = item.expectedRate;
       }
   } else if (isCompleted && item.realizedReturn !== undefined) {
+      // ... existing completed logic ...
       baseInterest = item.realizedReturn + item.totalRealizedProfit; 
-      
       const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
-      
       if (calcBase > 0) {
         holdingYield = (baseInterest / calcBase) * 100;
         if (realDurationDays > 0) {
@@ -263,13 +246,64 @@ export const calculateItemMetrics = (item: Investment) => {
       const rate = item.expectedRate;
       annualizedYield = rate;
       
-      if (maturity) {
-          const fullTermMs = maturity.getTime() - deposit.getTime();
-          const fullTermDays = Math.max(1, Math.round(fullTermMs / MS_PER_DAY));
-          baseInterest = activePrincipal * (rate / 100) * (fullTermDays / 365);
-      }
+      // --- NEW LOGIC: Transaction-Weighted Accrual ---
+      // Instead of using global principal * global duration, we iterate transactions.
       
-      accruedReturn = activePrincipal * (rate / 100) * (realDurationDays / 365);
+      let calculatedAccrued = 0;
+      let calculatedProjected = 0;
+      
+      const relevantTxs = (item.transactions || []).filter(t => t.type === 'Buy' || t.type === 'Sell');
+      
+      // 1. Calculate Accrued (Up to Now)
+      // We need to simulate the balance day by day or segment by segment.
+      // Simplification: Each 'Buy' creates a tranche that earns interest from TxDate to Now/End.
+      // 'Sell' reduces the earliest tranche (FIFO) or just negative interest?
+      // Better: Calculate interest for each specific segment of time where balance was constant.
+      
+      // Sort transactions by date
+      const sortedTxs = [...relevantTxs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      // Add 'Now' as a checkpoint for accrued
+      // Add 'Maturity' as a checkpoint for projected
+      
+      const calculateSegmentedInterest = (endDate: Date) => {
+          let totalInterest = 0;
+          let currentBalance = 0;
+          
+          // We iterate through time segments defined by transactions
+          for (let i = 0; i < sortedTxs.length; i++) {
+              const tx = sortedTxs[i];
+              const txDate = new Date(tx.date);
+              const nextTx = sortedTxs[i+1];
+              const nextDate = nextTx ? new Date(nextTx.date) : endDate;
+              
+              // Update Balance based on this tx
+              if (tx.type === 'Buy') currentBalance += tx.amount;
+              else if (tx.type === 'Sell') currentBalance -= tx.amount;
+              
+              // Calculate interest for the period [txDate, nextDate]
+              // Cap nextDate at endDate
+              const segmentEnd = nextDate < endDate ? nextDate : endDate;
+              
+              if (segmentEnd > txDate) {
+                  const days = (segmentEnd.getTime() - txDate.getTime()) / MS_PER_DAY;
+                  if (days > 0 && currentBalance > 0) {
+                      totalInterest += currentBalance * (rate / 100) * (days / 365);
+                  }
+              }
+              
+              if (new Date(nextTx?.date || '') > endDate) break;
+          }
+          return totalInterest;
+      };
+
+      // Accrued: Interest up to Today
+      accruedReturn = calculateSegmentedInterest(now);
+      
+      // Projected: Interest up to Maturity
+      if (maturity) {
+          baseInterest = calculateSegmentedInterest(maturity);
+      }
       
       if (activePrincipal > 0 && maturity) {
          holdingYield = (baseInterest / activePrincipal) * 100;
@@ -327,14 +361,14 @@ export const calculateItemMetrics = (item: Investment) => {
 
   return {
     interestDays: realDurationDays,
-    baseInterest,
+    baseInterest, // For Fixed: Projected Interest. For Floating: Current P&L
     totalReturn,
     profit,
     realDurationDays,
     annualizedYield,
     holdingYield,
     comprehensiveYield,
-    accruedReturn,
+    accruedReturn, // Calculated using segmented transaction logic
     isCompleted,
     isPending,
     hasYieldInfo,
@@ -365,6 +399,8 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     totalRebate += item.rebate;
     
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
+        // Projected Profit = Accrued (Earned so far) + Rebate + Dividends
+        // This is a conservative 'Estimated Value if I exit today' or 'Current Value'
         projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
     } else if (!metrics.isCompleted && item.type === 'Floating') {
         projectedTotalProfit += metrics.profit;
@@ -387,6 +423,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
       realizedInterest += metrics.baseInterest;
     } else {
       activePrincipal += item.currentPrincipal;
+      // Realized Interest for active items = Dividends received
       realizedInterest += item.totalRealizedProfit;
     }
 
@@ -442,6 +479,7 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
     return totalValuation;
 };
 
+// ... (rest of file matches provided content) ...
 export const filterInvestmentsByTime = (items: Investment[], filter: TimeFilter, customStart?: string, customEnd?: string): Investment[] => {
     if (filter === 'all') return items;
     const now = new Date();
