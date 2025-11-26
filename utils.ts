@@ -3,7 +3,7 @@ import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, Transacti
 
 export const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-// ... [Theme Config remains unchanged, re-including for file completeness] ...
+// ... [Theme Config remains unchanged] ...
 interface ThemeConfig {
     sidebar: string;
     accent: string;
@@ -82,6 +82,8 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
     let totalRealizedProfit = 0;
 
     const sortedTxs = [...(item.transactions || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
 
     for (const tx of sortedTxs) {
         const amount = Number(tx.amount) || 0;
@@ -108,7 +110,11 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
             }
 
         } else if (tx.type === 'Dividend') {
-            totalRealizedProfit += amount;
+            // Only count dividends up to today as "Realized" in the state sum
+            // Future dividends are just projected records
+            if (tx.date <= todayStr) {
+                totalRealizedProfit += amount;
+            }
         }
     }
 
@@ -181,7 +187,7 @@ export const calculateDailyReturn = (item: Investment): number => {
 
     if (item.type === 'Floating') {
         if (item.estGrowth && activePrincipal > 0) {
-            // Daily Return based on Market Value
+            // Daily Return based on Market Value (Principal + Unrealized Gain)
             const currentTotalValue = activePrincipal + (item.currentReturn || 0);
             const baseValue = Math.max(0, currentTotalValue);
             return baseValue * (item.estGrowth / 100);
@@ -243,9 +249,6 @@ export const calculateItemMetrics = (item: Investment) => {
       if (calcBase > 0) {
         holdingYield = (baseInterest / calcBase) * 100;
         if (realDurationDays > 0) {
-            // For Annualized, standardizing to 365 for comparison is common, 
-            // but if product is 360 basis, maybe yield should reflect that?
-            // Usually Yield% is comparable across products, so * 365 / days is standard.
             annualizedYield = (holdingYield / (realDurationDays / 365));
         }
       }
@@ -383,8 +386,11 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   let projectedTotalProfit = 0;
   let todayEstProfit = 0;
   
-  let weightedYieldSum = 0;
-  let totalWeight = 0;
+  // Logic for Weighted Yield Calculation
+  // To allow for negative yields, we use Dollar-Weighted Return:
+  // Sum(Profit) / Sum(Principal * DurationYears)
+  let totalProfitForYield = 0;
+  let totalWeightedBasis = 0; // Sum(Principal * Duration in Years)
 
   items.forEach(item => {
     const metrics = calculateItemMetrics(item);
@@ -392,12 +398,17 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     totalInvested += item.totalCost; 
     totalRebate += item.rebate;
     
+    let itemProfit = 0;
+    
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
         // Projected Profit = Accrued (Earned so far) + Rebate + Dividends
-        projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
+        itemProfit = (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
+        projectedTotalProfit += itemProfit;
     } else if (!metrics.isCompleted && item.type === 'Floating') {
+        itemProfit = metrics.profit;
         projectedTotalProfit += metrics.profit;
     } else {
+        itemProfit = metrics.profit;
         projectedTotalProfit += metrics.profit;
     }
     
@@ -416,18 +427,27 @@ export const calculatePortfolioStats = (items: Investment[]) => {
       realizedInterest += metrics.baseInterest;
     } else {
       activePrincipal += item.currentPrincipal;
-      // Realized Interest for active items = Dividends received
       realizedInterest += item.totalRealizedProfit;
     }
 
-    if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0) && metrics.comprehensiveYield > -100 && metrics.comprehensiveYield < 1000) { 
+    // Weighted Yield Basis Calculation
+    if (!metrics.isPending) {
         const weight = metrics.isCompleted ? item.totalCost : item.currentPrincipal;
-        weightedYieldSum += metrics.comprehensiveYield * weight;
-        totalWeight += weight;
+        const durationYears = Math.max(1/365, metrics.realDurationDays / 365);
+        
+        if (weight > 0) {
+            totalProfitForYield += itemProfit;
+            totalWeightedBasis += weight * durationYears;
+        }
     }
   });
   
   const projectedTotalYield = totalInvested > 0 ? (projectedTotalProfit / totalInvested) * 100 : 0;
+  
+  // Annualized Comprehensive Yield = (Total Profit / Total Weighted Principal-Years) * 100
+  const comprehensiveYield = totalWeightedBasis > 0 
+      ? (totalProfitForYield / totalWeightedBasis) * 100 
+      : 0;
 
   return {
     totalInvested,
@@ -440,7 +460,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     projectedTotalProfit,
     projectedTotalYield,
     todayEstProfit,
-    comprehensiveYield: totalWeight > 0 ? weightedYieldSum / totalWeight : 0
+    comprehensiveYield
   };
 };
 
@@ -472,7 +492,7 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
     return totalValuation;
 };
 
-// ... (rest of file matches provided content) ...
+// ... (rest of file remains unchanged) ...
 export const filterInvestmentsByTime = (items: Investment[], filter: TimeFilter, customStart?: string, customEnd?: string): Investment[] => {
     if (filter === 'all') return items;
     const now = new Date();

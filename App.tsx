@@ -31,9 +31,39 @@ const App: React.FC = () => {
   const migrateAndSetItems = (rawItems: Investment[]) => {
       const migrated = rawItems.map(migrateInvestmentData);
       setItems(migrated);
-      // We don't save immediately to avoid unwanted writes on every load, 
-      // but 'handleSaveItem' will eventually persist the new structure.
-      // However, for consistency, we could save back if migration actually changed things.
+  };
+
+  // Market Data Refresh Logic (Extracted for reuse)
+  const refreshMarketData = async (currentItems: Investment[]) => {
+      const itemsToUpdate = currentItems.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
+      if (itemsToUpdate.length === 0) return;
+
+      const symbols = itemsToUpdate.map(i => i.symbol as string);
+      
+      const quotes = await marketService.getQuotes(symbols);
+      
+      if (quotes) {
+          const updatedList = currentItems.map(item => {
+              if (item.isAutoQuote && item.symbol && quotes[item.symbol] && item.quantity) {
+                  const marketData = quotes[item.symbol];
+                  const newPrice = marketData.price;
+                  const qty = item.currentQuantity || item.quantity || 0;
+                  const currentVal = newPrice * qty;
+                  const newReturn = currentVal - item.currentPrincipal; 
+                  
+                  return { 
+                      ...item, 
+                      currentReturn: newReturn,
+                      estGrowth: marketData.change, 
+                      lastUpdate: new Date().toISOString()
+                  };
+              }
+              return item;
+          });
+          // Update state and save
+          setItems(updatedList);
+          storageService.saveData(user, updatedList);
+      }
   };
 
   useEffect(() => {
@@ -50,7 +80,6 @@ const App: React.FC = () => {
     if (localData) {
         loadedItems = localData;
     } else if (!currentUser) {
-        // Seed Data
         const seed: Investment[] = [
             { id: '1', name: '新手专享理财', category: 'Fixed', type: 'Fixed', currency: 'CNY', depositDate: '2023-10-01', maturityDate: '2023-11-01', withdrawalDate: '2023-11-02', principal: 50000, expectedRate: 3.5, realizedReturn: 145, rebate: 100, isRebateReceived: true, notes: '新人福利', transactions: [], currentPrincipal: 50000, totalCost: 50000, totalRealizedProfit: 145 },
             { id: '2', name: '稳健季季红', category: 'Deposit', type: 'Fixed', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期', transactions: [], currentPrincipal: 100000, totalCost: 100000, totalRealizedProfit: 0 },
@@ -59,14 +88,16 @@ const App: React.FC = () => {
         loadedItems = seed;
     }
     
-    // Sort and Migrate
     loadedItems.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
     migrateAndSetItems(loadedItems);
 
     if (currentUser) {
         storageService.syncDown(currentUser.id).then(cloudData => {
             if (cloudData && Array.isArray(cloudData)) {
-                 migrateAndSetItems(cloudData);
+                 const migrated = cloudData.map(migrateInvestmentData);
+                 setItems(migrated);
+                 // Trigger refresh after sync
+                 refreshMarketData(migrated);
             }
         });
 
@@ -78,6 +109,9 @@ const App: React.FC = () => {
                  }
              });
         }
+    } else {
+        // Trigger refresh for guest
+        refreshMarketData(loadedItems);
     }
   }, []);
 
@@ -113,40 +147,7 @@ const App: React.FC = () => {
   };
   
   const handleRefreshMarketData = async () => {
-      const itemsToUpdate = items.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
-      if (itemsToUpdate.length === 0) {
-          // Silent on auto-refresh if no items, unless triggered manually
-          // showToast('没有开启“自动行情”的持仓资产', 'info');
-          return;
-      }
-      const symbols = itemsToUpdate.map(i => i.symbol as string);
-      
-      // Only show toast on manual refresh, or maybe small indicator
-      // For now, silent refresh is better for navigation UX unless errors occur
-      
-      const quotes = await marketService.getQuotes(symbols);
-      
-      if (quotes) {
-          const updatedList = items.map(item => {
-              if (item.isAutoQuote && item.symbol && quotes[item.symbol] && item.quantity) {
-                  const marketData = quotes[item.symbol];
-                  const newPrice = marketData.price;
-                  // Use item.currentQuantity instead of item.quantity for safety
-                  const qty = item.currentQuantity || item.quantity || 0;
-                  const currentVal = newPrice * qty;
-                  const newReturn = currentVal - item.currentPrincipal; // Profit = Value - Principal
-                  
-                  return { 
-                      ...item, 
-                      currentReturn: newReturn,
-                      estGrowth: marketData.change, 
-                      lastUpdate: new Date().toISOString()
-                  };
-              }
-              return item;
-          });
-          saveItems(updatedList);
-      }
+      await refreshMarketData(items);
       
       if (user?.preferences?.rateMode === 'auto') {
            const newRates = await marketService.getRates();
@@ -162,13 +163,16 @@ const App: React.FC = () => {
       }
       
       const freshData = storageService.getLocalData();
-      if (freshData) migrateAndSetItems(freshData);
+      if (freshData) {
+          const migrated = freshData.map(migrateInvestmentData);
+          setItems(migrated);
+          refreshMarketData(migrated);
+      }
 
       setView('dashboard');
       showToast('欢迎回来！数据已同步', 'success');
   };
 
-  // ... (Rest of handleLogout, handleThemeChange, handleRatesChange, etc. remain the same) ...
   const handleLogout = () => {
       storageService.logout();
       setUser(null);
@@ -200,17 +204,15 @@ const App: React.FC = () => {
       
       // Auto refresh market data when entering list view
       if (targetView === 'list') {
-          // Add a small delay to allow view transition
           setTimeout(() => {
               handleRefreshMarketData();
-          }, 100);
+          }, 50);
       }
   };
   
   const themeConfig = THEMES[theme];
   const isLightTheme = ['lavender', 'mint', 'sky', 'sakura', 'ivory'].includes(theme);
 
-  // ... (UI Rendering remains essentially the same, just wrapping App) ...
   if (view === 'auth' && !user) {
       return (
         <>
@@ -220,11 +222,10 @@ const App: React.FC = () => {
       );
   }
 
-  // Reuse NavItems for cleaner code (kept from previous, assuming unchanged)
   const NavItems = () => (
       <>
         <button onClick={() => handleNav('dashboard')} className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center gap-3 ${view === 'dashboard' ? themeConfig.navActive : themeConfig.navHover}`}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> 总览 Dashboard
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> 总览 Dashboard
         </button>
         <button onClick={() => handleNav('list')} className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center gap-3 ${view === 'list' ? themeConfig.navActive : themeConfig.navHover}`}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2-2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg> 明细 List

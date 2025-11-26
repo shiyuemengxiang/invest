@@ -51,14 +51,37 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         type: 'Dividend' as TransactionType,
         frequency: 'monthly', // weekly, monthly, quarterly, yearly
         startDate: '',
-        endDate: '',
-        count: 12
+        endDate: ''
     });
     
-    // Auto-fill rate when opening batch form
+    // Auto-fill rate and dates when opening batch form
     useEffect(() => {
-        if (showBatchForm && formData.expectedRate) {
-            setBatchConfig(prev => ({ ...prev, rate: formData.expectedRate || 0, mode: 'annual' }));
+        if (showBatchForm) {
+            const newConfig = { ...batchConfig };
+            
+            // Auto-fill rate
+            if (formData.expectedRate) {
+                newConfig.rate = formData.expectedRate || 0;
+                newConfig.mode = 'annual';
+            }
+            
+            // Auto-fill start date (Deposit Date or Today)
+            if (!newConfig.startDate) {
+                newConfig.startDate = formData.depositDate;
+            }
+
+            // Auto-fill end date (Maturity Date or Start + 1 Year)
+            if (!newConfig.endDate) {
+                if (formData.maturityDate) {
+                    newConfig.endDate = formData.maturityDate;
+                } else {
+                    const d = new Date(newConfig.startDate);
+                    d.setFullYear(d.getFullYear() + 1);
+                    newConfig.endDate = d.toISOString().split('T')[0];
+                }
+            }
+            
+            setBatchConfig(newConfig);
         }
     }, [showBatchForm]);
 
@@ -120,16 +143,22 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     };
 
     const handleSaveBatch = () => {
+        if (!batchConfig.endDate) {
+            onNotify("请选择结束日期", "error");
+            return;
+        }
+
         const newTxs: Transaction[] = [];
         let currentDate = new Date(batchConfig.startDate);
-        const endDate = batchConfig.endDate ? new Date(batchConfig.endDate) : null;
+        // To avoid timezone issues with simple dates, set to noon
+        currentDate.setHours(12,0,0,0);
         
-        let count = 0;
-        const maxCount = batchConfig.count || 100;
+        const endDateObj = new Date(batchConfig.endDate);
+        endDateObj.setHours(23,59,59,999);
+        
+        let safetyCounter = 0;
 
-        while (count < maxCount) {
-            if (endDate && currentDate > endDate) break;
-
+        while (currentDate <= endDateObj && safetyCounter < 500) {
             let txAmount = 0;
             if (batchConfig.mode === 'fixed') {
                 txAmount = Number(batchConfig.amount);
@@ -172,7 +201,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             else if (batchConfig.frequency === 'yearly') currentDate.setFullYear(currentDate.getFullYear() + 1);
             else currentDate.setDate(currentDate.getDate() + 30); 
 
-            count++;
+            safetyCounter++;
         }
 
         setFormData({ ...formData, transactions: [...(formData.transactions || []), ...newTxs] });
@@ -421,8 +450,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                                     <input type="date" value={batchConfig.startDate} onChange={e => setBatchConfig({...batchConfig, startDate: e.target.value})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none" />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-purple-700 block mb-1.5">生成数量 (期)</label>
-                                    <input type="number" value={batchConfig.count} onChange={e => setBatchConfig({...batchConfig, count: parseInt(e.target.value)})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none" />
+                                    <label className="text-xs font-bold text-purple-700 block mb-1.5">结束日期</label>
+                                    <input type="date" value={batchConfig.endDate} onChange={e => setBatchConfig({...batchConfig, endDate: e.target.value})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none" />
                                 </div>
                             </div>
                             <div className="flex justify-between items-center pt-2">
@@ -467,15 +496,17 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                                         className="text-xs p-2 rounded-lg border border-slate-200 w-full bg-white font-mono font-bold text-slate-700"
                                     />
                                 </div>
-                                <div className="relative w-24">
-                                    <input 
-                                        type="number" 
-                                        placeholder="份额 Qty"
-                                        value={tx.quantity || ''} 
-                                        onChange={(e) => handleTransactionChange(index, 'quantity', parseFloat(e.target.value))}
-                                        className="text-xs p-2 rounded-lg border border-slate-200 w-full bg-white font-mono"
-                                    />
-                                </div>
+                                {formData.type === 'Floating' && (
+                                    <div className="relative w-24">
+                                        <input 
+                                            type="number" 
+                                            placeholder="份额 Qty"
+                                            value={tx.quantity || ''} 
+                                            onChange={(e) => handleTransactionChange(index, 'quantity', parseFloat(e.target.value))}
+                                            className="text-xs p-2 rounded-lg border border-slate-200 w-full bg-white font-mono"
+                                        />
+                                    </div>
+                                )}
                                 <input 
                                     type="text" 
                                     placeholder="备注..."
