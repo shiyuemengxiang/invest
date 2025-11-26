@@ -143,9 +143,16 @@ export default async function handler(request: any, response: any) {
                     const meta = data?.chart?.result?.[0]?.meta;
                     if (meta && meta.regularMarketPrice) {
                         console.log(`[API Quotes] HTTP Fallback success for ${symbol}: ${meta.regularMarketPrice}`);
+                        
+                        let percentChange = 0;
+                        const prevClose = meta.chartPreviousClose || meta.previousClose;
+                        if (prevClose && prevClose > 0) {
+                            percentChange = ((meta.regularMarketPrice - prevClose) / prevClose) * 100;
+                        }
+
                         return { 
                             price: meta.regularMarketPrice,
-                            change: meta.regularMarketPrice - (meta.chartPreviousClose || meta.previousClose || 0) // Approximation if percent not avail
+                            change: percentChange
                         };
                     }
                 }

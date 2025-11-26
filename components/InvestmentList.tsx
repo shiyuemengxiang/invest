@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Investment, CATEGORY_LABELS, Currency, InvestmentCategory } from '../types';
 import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn } from '../utils';
@@ -542,7 +543,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                             
                                                             <div className={`flex items-center gap-1 w-fit px-1.5 py-0.5 rounded ${item.estGrowth >= 0 ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
                                                                 <span className="text-[9px] opacity-75 font-bold scale-90">估</span>
-                                                                <span className="text-[10px] font-bold font-mono">{item.estGrowth >= 0 ? '+' : ''}{item.estGrowth}%</span>
+                                                                <span className="text-[10px] font-bold font-mono">{item.estGrowth >= 0 ? '+' : ''}{item.estGrowth.toFixed(2)}%</span>
                                                             </div>
                                                         </div>
                                                     ) : (

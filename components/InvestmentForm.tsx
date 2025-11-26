@@ -12,7 +12,12 @@ interface Props {
   onNotify: (msg: string, type: ToastType) => void;
 }
 
-// ... (Component definition same as before until JSX return of modal)
+// Helper for datetime-local input
+const getCurrentLocalISO = () => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+};
 
 const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNotify }) => {
   // ... (all state and handlers same as before)
@@ -72,7 +77,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       newExpectedRate: string;
   }>({ 
       type: 'Buy', 
-      date: new Date().toISOString().split('T')[0], 
+      date: getCurrentLocalISO(), 
       amount: '', 
       price: '', 
       quantity: '', 
@@ -112,7 +117,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const openTxForm = (type: TransactionType) => {
       setTxData({
           type,
-          date: new Date().toISOString().split('T')[0],
+          date: getCurrentLocalISO(),
           amount: '',
           price: '',
           quantity: '',
@@ -131,14 +136,13 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       }
 
       // 1. Prepare Transaction List
-      // Fix logic: Always fallback to initialData if formData.transactions is undefined/empty to avoid wiping history
       const currentTxs = formData.transactions && formData.transactions.length > 0
           ? [...formData.transactions] 
           : (initialData?.transactions ? [...initialData.transactions] : []);
 
       const newTx: Transaction = {
           id: editingTxId || self.crypto.randomUUID(),
-          date: txData.date,
+          date: txData.date, // Now contains HH:mm
           type: txData.type,
           amount: Number(txData.amount),
           price: txData.price ? Number(txData.price) : undefined,
@@ -170,9 +174,17 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   };
 
   const handleEditTransaction = (tx: Transaction) => {
+      // Convert stored date string (potentially ISO) to local datetime-local string
+      let dateVal = tx.date;
+      if (tx.date.endsWith('Z') || tx.date.includes('T')) {
+          const d = new Date(tx.date);
+          d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+          dateVal = d.toISOString().slice(0, 16);
+      }
+
       setTxData({
           type: tx.type,
-          date: tx.date.split('T')[0],
+          date: dateVal,
           amount: String(tx.amount),
           price: tx.price ? String(tx.price) : '',
           quantity: tx.quantity ? String(tx.quantity) : '',
@@ -239,10 +251,9 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             notes: 'Initial Deposit'
         });
     } else {
-        // Sync first Buy if needed (only if it's the initial one)
+        // Sync first Buy if needed
         const firstBuyIndex = transactions.findIndex(t => t.type === 'Buy');
         if (firstBuyIndex >= 0) {
-             // Only update if it looks like the initial one (simple heuristic)
              if (transactions[firstBuyIndex].notes === 'Initial Deposit' || transactions[firstBuyIndex].notes === 'Initial Deposit (Migrated)') {
                  transactions[firstBuyIndex] = {
                     ...transactions[firstBuyIndex],
@@ -510,8 +521,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-3">
                         <div className="col-span-1">
-                            <label className="block text-[10px] font-bold text-indigo-400 mb-1">日期</label>
-                            <input type="date" value={txData.date} onChange={e => setTxData({...txData, date: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
+                            <label className="block text-[10px] font-bold text-indigo-400 mb-1">日期时间</label>
+                            <input type="datetime-local" value={txData.date} onChange={e => setTxData({...txData, date: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
                         </div>
                         
                         {/* Price/Qty only for Floating Buy/Sell */}
@@ -559,65 +570,67 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                 </div>
             )}
 
-            <div className="bg-slate-50 rounded-xl overflow-hidden border border-slate-200">
-                <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100 text-slate-500 font-semibold border-b border-slate-200">
-                        <tr>
-                            <th className="p-3">日期 (Date)</th>
-                            <th className="p-3">类型</th>
-                            <th className="p-3 text-right">金额 (Amount)</th>
-                            {isFloating && <th className="p-3 text-right">单价/数量</th>}
-                            <th className="p-3">备注</th>
-                            <th className="p-3 text-right">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {displayTransactions.map(tx => (
-                            <tr key={tx.id} className="text-slate-700 hover:bg-white transition group">
-                                <td className="p-3 font-mono text-slate-500 whitespace-nowrap">{formatDateTime(tx.date)}</td>
-                                <td className="p-3">
-                                    <span className={`px-1.5 py-0.5 rounded border font-medium text-[10px] whitespace-nowrap ${
-                                        tx.type === 'Buy' ? 'bg-blue-50 text-blue-600 border-blue-100' :
-                                        tx.type === 'Sell' ? 'bg-orange-50 text-orange-600 border-orange-100' :
-                                        tx.type === 'Dividend' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                                        'bg-slate-100 text-slate-600 border-slate-200'
-                                    }`}>
-                                        {getTxTypeLabel(tx.type)}
-                                    </span>
-                                </td>
-                                <td className="p-3 text-right font-mono font-medium">
-                                    {tx.type === 'Sell' ? '-' : '+'}{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </td>
-                                {isFloating && (
-                                    <td className="p-3 text-right font-mono text-slate-500">
-                                        {tx.price && tx.quantity ? `${tx.price} x ${tx.quantity}` : '-'}
-                                    </td>
-                                )}
-                                <td className="p-3 text-slate-400 truncate max-w-[100px]">{tx.notes || '-'}</td>
-                                <td className="p-3 text-right">
-                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button 
-                                            type="button" 
-                                            onClick={() => handleEditTransaction(tx)}
-                                            className="text-indigo-500 hover:text-indigo-700"
-                                            title="编辑"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                                        </button>
-                                        <button 
-                                            type="button" 
-                                            onClick={() => handleDeleteTransaction(tx.id)}
-                                            className="text-red-400 hover:text-red-600"
-                                            title="删除"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                        </button>
-                                    </div>
-                                </td>
+            <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs min-w-[600px]">
+                        <thead className="bg-slate-100 text-slate-500 font-semibold border-b border-slate-200">
+                            <tr>
+                                <th className="p-3 w-32">日期 (Date)</th>
+                                <th className="p-3 w-20">类型</th>
+                                <th className="p-3 text-right w-24">金额 (Amount)</th>
+                                {isFloating && <th className="p-3 text-right w-24">单价/数量</th>}
+                                <th className="p-3">备注</th>
+                                <th className="p-3 text-right w-20">操作</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {displayTransactions.map(tx => (
+                                <tr key={tx.id} className="text-slate-700 hover:bg-white transition group">
+                                    <td className="p-3 font-mono text-slate-500 whitespace-nowrap">{formatDateTime(tx.date)}</td>
+                                    <td className="p-3">
+                                        <span className={`px-1.5 py-0.5 rounded border font-medium text-[10px] whitespace-nowrap ${
+                                            tx.type === 'Buy' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                                            tx.type === 'Sell' ? 'bg-orange-50 text-orange-600 border-orange-100' :
+                                            tx.type === 'Dividend' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                            'bg-slate-100 text-slate-600 border-slate-200'
+                                        }`}>
+                                            {getTxTypeLabel(tx.type)}
+                                        </span>
+                                    </td>
+                                    <td className="p-3 text-right font-mono font-medium">
+                                        {tx.type === 'Sell' ? '-' : '+'}{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </td>
+                                    {isFloating && (
+                                        <td className="p-3 text-right font-mono text-slate-500">
+                                            {tx.price && tx.quantity ? `${tx.price} x ${tx.quantity}` : '-'}
+                                        </td>
+                                    )}
+                                    <td className="p-3 text-slate-400 truncate max-w-[100px]">{tx.notes || '-'}</td>
+                                    <td className="p-3 text-right">
+                                        <div className="flex justify-end gap-2">
+                                            <button 
+                                                type="button" 
+                                                onClick={() => handleEditTransaction(tx)}
+                                                className="text-indigo-500 hover:text-indigo-700"
+                                                title="编辑"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                            </button>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => handleDeleteTransaction(tx.id)}
+                                                className="text-red-400 hover:text-red-600"
+                                                title="删除"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </div>
       </div>
     </div>
