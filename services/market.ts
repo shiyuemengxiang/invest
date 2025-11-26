@@ -103,10 +103,10 @@ export const marketService = {
                 return null;
             }
 
-            // B. CN Funds (EastMoney fundgz for Estimate)
+            // B. CN Funds (EastMoney fundgz)
             if (/^\d{6}$/.test(symbol)) {
                 try {
-                    // Use fundgz via proxy
+                    // Strategy 1: fundgz via proxy (Preferred for simplicity if dwjz exists)
                     const target = `https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
@@ -115,11 +115,12 @@ export const marketService = {
                         const match = json.contents.match(/jsonpgz\((.*?)\)/);
                         if (match && match[1]) {
                             const data = JSON.parse(match[1]);
-                            if (data.gsz) {
+                            // USE dwjz (NAV) for Price, gszzl (Est) for Growth
+                            if (data.dwjz) {
                                 return { 
                                     symbol, 
                                     data: {
-                                        price: parseFloat(data.gsz),
+                                        price: parseFloat(data.dwjz),
                                         change: parseFloat(data.gszzl || '0'),
                                         time: data.gztime
                                     }
@@ -127,7 +128,27 @@ export const marketService = {
                             }
                         }
                     }
-                } catch (e) { console.warn(`[MarketService] EastMoney Fund fallback failed for ${symbol}`, e); }
+                } catch (e) { console.warn(`[MarketService] EastMoney Fund (fundgz) fallback failed for ${symbol}`, e); }
+                
+                // Strategy 2: F10DataApi via proxy (Backup)
+                try {
+                    const target = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${symbol}&page=1`;
+                    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
+                    const json = await res.json();
+                    if (json.contents) {
+                        const navMatch = json.contents.match(/<td>(\d{4}-\d{2}-\d{2})<\/td><td class='tor bold'>([\d\.]+)<\/td>/);
+                         if (navMatch && navMatch[2]) {
+                            return { 
+                                symbol, 
+                                data: {
+                                    price: parseFloat(navMatch[2]),
+                                    change: 0 // No intraday info from history table
+                                }
+                            };
+                         }
+                    }
+                } catch (e) { console.warn(`[MarketService] EastMoney Fund (F10) fallback failed for ${symbol}`, e); }
+                
                 return null;
             }
 

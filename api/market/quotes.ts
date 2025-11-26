@@ -61,31 +61,52 @@ export default async function handler(request: any, response: any) {
             return null;
         }
 
-        // 2. CN Funds (EastMoney fundgz): 6 digits (e.g. 320007)
+        // 2. CN Funds (EastMoney): 6 digits (e.g. 320007)
         if (/^\d{6}$/.test(symbol)) {
             try {
-                // Use fundgz for Real-time Estimate (GSZ)
+                // Strategy A: fundgz (Real-time Estimate + Basic NAV info)
                 const url = `https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`;
                 const res = await fetch(url, {
                     headers: { 'Referer': 'https://fund.eastmoney.com/' }
                 });
                 const text = await res.text();
-                // Format: jsonpgz({"fundcode":"320007","name":"...","jzrq":"...","dwjz":"1.7680","gsz":"1.7692","gszzl":"0.07","gztime":"..."});
+                // Format: jsonpgz({"fundcode":"320007",..."dwjz":"1.7680","gsz":"1.7692","gszzl":"0.07",...});
                 
                 const match = text.match(/jsonpgz\((.*?)\)/);
                 if (match && match[1]) {
                     const data = JSON.parse(match[1]);
-                    // gsz: Estimate, gszzl: Growth Rate %
-                    if (data.gsz) {
-                        const price = parseFloat(data.gsz);
-                        const change = parseFloat(data.gszzl || '0');
-                        console.log(`[API Quotes] EastMoney Fund (GSZ) success for ${symbol}: ${price} (${change}%)`);
+                    
+                    // CRITICAL UPDATE: Use 'dwjz' (Confirmed NAV) for Price, NOT 'gsz' (Estimate)
+                    // Use 'gszzl' for Today's Growth Estimate
+                    if (data.dwjz && parseFloat(data.dwjz) > 0) {
+                        const price = parseFloat(data.dwjz);
+                        const change = parseFloat(data.gszzl || '0'); 
+                        console.log(`[API Quotes] EastMoney Fund (NAV) success for ${symbol}: ${price} (Est Change: ${change}%)`);
                         return { price, change, time: data.gztime || new Date().toISOString() };
                     }
                 }
             } catch (e: any) {
-                console.warn(`[API Quotes] EastMoney Fund failed for ${symbol}: ${e.message}`);
+                console.warn(`[API Quotes] EastMoney Fund (fundgz) failed for ${symbol}: ${e.message}`);
             }
+
+            // Strategy B: F10DataApi (Confirmed NAV Table) - Fallback if fundgz dwjz is missing
+            try {
+                const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${symbol}&page=1`;
+                const res = await fetch(url);
+                const text = await res.text();
+                // var apidata={ content:"... <tr><td>2023-01-01</td><td class='tor bold'>1.2345</td>..." }
+                
+                // Extract First Row NAV
+                const navMatch = text.match(/<td>(\d{4}-\d{2}-\d{2})<\/td><td class='tor bold'>([\d\.]+)<\/td>/);
+                if (navMatch && navMatch[2]) {
+                    const price = parseFloat(navMatch[2]);
+                    console.log(`[API Quotes] EastMoney Fund (F10) success for ${symbol}: ${price}`);
+                    return { price, change: 0, time: navMatch[1] }; // No intraday change info here
+                }
+            } catch (e: any) {
+                console.warn(`[API Quotes] EastMoney Fund (F10) failed for ${symbol}: ${e.message}`);
+            }
+
             return null;
         }
 
