@@ -377,47 +377,58 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                             </div>
                                         </div>
                                         
-                                        {/* Unit Cost & Current Price for Stocks/Funds */}
+                                        {/* Unit Cost & Current Price for Stocks/Funds - 5 Column Layout */}
                                         {item.quantity && item.quantity > 0 && (
-                                            <div className="relative z-10 grid grid-cols-2 md:grid-cols-4 gap-6 py-4 mt-2 bg-slate-50/80 rounded-xl px-4 border border-dashed border-slate-200">
+                                            <div className="relative z-10 grid grid-cols-2 md:grid-cols-5 gap-4 py-4 mt-2 bg-slate-50/80 rounded-xl px-4 border border-dashed border-slate-200">
+                                                {/* 1. Holdings */}
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Holdings</p>
                                                     <p className="font-mono text-xs font-bold text-slate-700">{item.quantity} {item.symbol ? `(${item.symbol})` : '股/份'}</p>
                                                 </div>
+
+                                                {/* 2. Cost Price */}
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Cost Price</p>
                                                     <p className="font-mono text-xs font-bold text-slate-700">{formatCurrency(metrics.unitCost, item.currency)}</p>
                                                 </div>
+
+                                                {/* 3. Latest NAV (Price Only) */}
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
                                                         {item.category === 'Fund' ? '最新净值 (NAV)' : 'Current Price'}
                                                     </p>
-                                                    <div className="flex flex-wrap items-center gap-1">
-                                                        <p className={`font-mono text-xs font-bold ${metrics.currentPrice >= metrics.unitCost ? 'text-orange-600' : 'text-emerald-600'}`}>
-                                                            {formatCurrency(metrics.currentPrice, item.currency)}
-                                                        </p>
-                                                        
-                                                        {/* Show Estimated Growth if available */}
-                                                        {item.estGrowth !== undefined ? (
-                                                            <div className={`flex items-center gap-0.5 px-1 py-0.5 rounded ${item.estGrowth >= 0 ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                                                                <span className="text-[8px] opacity-75 font-bold scale-90">估</span>
-                                                                <span className="text-[9px] font-bold">{item.estGrowth >= 0 ? '+' : ''}{item.estGrowth}%</span>
-                                                            </div>
-                                                        ) : (
-                                                            item.isAutoQuote && (
-                                                                <span className="text-[9px] px-1 rounded bg-slate-100 text-slate-400 border border-slate-200">
-                                                                    暂无估值
-                                                                </span>
-                                                            )
-                                                        )}
+                                                    <p className={`font-mono text-xs font-bold ${metrics.currentPrice >= metrics.unitCost ? 'text-orange-600' : 'text-emerald-600'}`}>
+                                                        {formatCurrency(metrics.currentPrice, item.currency)}
+                                                    </p>
+                                                </div>
 
-                                                        {item.isAutoQuote && (
-                                                            <span className="text-[9px] text-slate-400 ml-1" title="Auto Update">☁️</span>
-                                                        )}
-                                                    </div>
+                                                {/* 4. Est. Valuation (Change % Only) */}
+                                                <div className="space-y-0.5">
+                                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                                                        {item.category === 'Fund' ? '实时估值 (Est)' : 'Today\'s Change'}
+                                                    </p>
+                                                    
+                                                    {item.estGrowth !== undefined ? (
+                                                        <div className={`flex items-center gap-1 w-fit px-1.5 py-0.5 rounded ${item.estGrowth >= 0 ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                                            <span className="text-[9px] opacity-75 font-bold scale-90">估</span>
+                                                            <span className="text-[10px] font-bold font-mono">{item.estGrowth >= 0 ? '+' : ''}{item.estGrowth}%</span>
+                                                        </div>
+                                                    ) : (
+                                                        item.isAutoQuote ? (
+                                                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 border border-slate-200">
+                                                                暂无估值
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[10px] text-slate-300">-</span>
+                                                        )
+                                                    )}
+                                                    
+                                                    {item.isAutoQuote && (
+                                                         <div className="text-[9px] text-slate-400 mt-0.5">Cloud Auto ☁️</div>
+                                                    )}
                                                 </div>
                                                 
-                                                 {/* Total Return % */}
+                                                 {/* 5. Total Return % */}
                                                  <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Total Return %</p>
                                                     <span className={`text-xs font-bold ${metrics.currentPrice >= metrics.unitCost ? 'text-orange-600' : 'text-emerald-600'}`}>
