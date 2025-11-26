@@ -83,7 +83,10 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           return;
       }
 
-      const currentTxs = formData.transactions ? [...formData.transactions] : [];
+      // CRITICAL FIX: Ensure we start with existing transactions from initialData if formData hasn't been touched yet
+      const currentTxs = formData.transactions 
+          ? [...formData.transactions] 
+          : (initialData?.transactions ? [...initialData.transactions] : []);
 
       if (editingTxId) {
           // Update existing
@@ -132,7 +135,11 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const handleDeleteTransaction = (id: string) => {
       if (!window.confirm("确定要删除这条交易记录吗？")) return;
       
-      const currentTxs = formData.transactions ? [...formData.transactions] : [];
+      // CRITICAL FIX: Ensure we start with existing transactions from initialData if formData hasn't been touched yet
+      const currentTxs = formData.transactions 
+          ? [...formData.transactions] 
+          : (initialData?.transactions ? [...initialData.transactions] : []);
+
       const updatedTxs = currentTxs.filter(t => t.id !== id);
       setFormData(prev => ({ ...prev, transactions: updatedTxs }));
       onNotify("交易记录已删除", "info");
@@ -176,7 +183,10 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     // --- PHASE 1 REFACTOR: Construct Transactions for New Items ---
     // Note: We respect existing transactions (e.g. newly added Dividends) and just sync the Primary Buy/Sell
     
-    let transactions: Transaction[] = formData.transactions ? [...formData.transactions] : (initialData?.transactions ? [...initialData.transactions] : []);
+    // CRITICAL FIX: Ensure we have the base list
+    let transactions: Transaction[] = formData.transactions 
+        ? [...formData.transactions] 
+        : (initialData?.transactions ? [...initialData.transactions] : []);
     
     if (transactions.length === 0) {
         // Create initial transaction if none exists
@@ -191,8 +201,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         });
     } else {
         // Modify the first 'Buy' transaction (assuming it's the initial deposit)
-        // We look for the "Buy" transaction that corresponds to the main principal. 
-        // For simplicity in Phase 1, we assume the first "Buy" is the primary one.
         const firstBuyIndex = transactions.findIndex(t => t.type === 'Buy');
         if (firstBuyIndex >= 0) {
             transactions[firstBuyIndex] = {
@@ -280,6 +288,11 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           default: return type;
       }
   };
+
+  // Decide what transactions to display: formData takes precedence, else initialData
+  const displayTransactions = formData.transactions && formData.transactions.length > 0 
+      ? formData.transactions 
+      : (initialData?.transactions || []);
 
   return (
     <div className="bg-white/95 backdrop-blur-sm p-8 rounded-3xl shadow-xl shadow-slate-200/50 max-w-2xl mx-auto border border-white/50 animate-fade-in-up">
@@ -491,7 +504,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {(formData.transactions && formData.transactions.length > 0 ? formData.transactions : (initialData?.transactions || [])).map(tx => (
+                        {displayTransactions.map(tx => (
                             <tr key={tx.id} className="text-slate-700 hover:bg-white transition group">
                                 <td className="p-3 font-mono text-slate-500">{formatDateTime(tx.date)}</td>
                                 <td className="p-3">
@@ -532,7 +545,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                                 </td>
                             </tr>
                         ))}
-                        {(!formData.transactions || formData.transactions.length === 0) && (!initialData?.transactions || initialData.transactions.length === 0) && (
+                        {displayTransactions.length === 0 && (
                             <tr>
                                 <td colSpan={5} className="p-4 text-center text-slate-300 italic">暂无交易流水</td>
                             </tr>
