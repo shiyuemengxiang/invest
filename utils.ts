@@ -199,12 +199,14 @@ export const calculateDailyReturn = (item: Investment): number => {
     if (item.type === 'Floating') {
         if (item.estGrowth && item.principal > 0) {
             // estGrowth is percent (e.g., 1.5 for 1.5%)
-            // Daily Return = Current Value * (Growth/100) or Principal * (Growth/100)
-            // Using Principal as base for simplicity, or if we have currentReturn, add it.
-            // Let's use (Principal + CurrentReturn) * Growth% ideally, but simpler is Principal * Growth%
-            // Better: use Quantity * Price * Growth% ?
-            // Let's stick to: Principal * (estGrowth / 100)
-            return item.principal * (item.estGrowth / 100);
+            // UPDATE: Use Current Market Value (Principal + Returns) for more accurate daily P&L
+            const currentTotalValue = item.principal + (item.currentReturn || 0);
+            
+            // If we have negative return eating into principal, value could be < principal. 
+            // If value < 0 (unlikely unless leveraged), clamp to 0.
+            const baseValue = Math.max(0, currentTotalValue);
+            
+            return baseValue * (item.estGrowth / 100);
         }
         return 0;
     }

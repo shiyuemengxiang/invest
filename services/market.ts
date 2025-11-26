@@ -158,9 +158,10 @@ export const marketService = {
                 return null;
             }
 
-            // C. Yahoo Finance (International)
+            // C. Yahoo Finance (International) - Multi-Proxy Strategy
             const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
             
+            // Proxy 1: corsproxy.io (Fast, sometimes blocked)
             try {
                 const proxyUrlA = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
                 const resA = await fetch(proxyUrlA);
@@ -171,6 +172,7 @@ export const marketService = {
                 }
             } catch (e) {}
 
+            // Proxy 2: AllOrigins (Slower, reliable)
             try {
                 const proxyUrlB = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
                 const resB = await fetch(proxyUrlB);
@@ -180,6 +182,20 @@ export const marketService = {
                         const data = JSON.parse(json.contents);
                         const info = this.extractPriceFromChart(data);
                         if (info) return { symbol, data: info };
+                    }
+                }
+            } catch (e) {}
+
+            // Proxy 3: CodeTabs (Backup)
+            try {
+                const proxyUrlC = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
+                const resC = await fetch(proxyUrlC);
+                if (resC.ok) {
+                    const data = await resC.json();
+                    const info = this.extractPriceFromChart(data);
+                    if (info) {
+                        console.log(`[MarketService] CodeTabs proxy success for ${symbol}`);
+                        return { symbol, data: info };
                     }
                 }
             } catch (e) {}
