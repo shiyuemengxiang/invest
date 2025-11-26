@@ -91,7 +91,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   // Batch Generator State
   const [batchData, setBatchData] = useState({
       startDate: '',
-      frequency: 'Monthly', // Monthly, Quarterly, Yearly
+      frequency: 'Monthly', // Weekly, Monthly, Quarterly, Yearly
       amount: '',
       endDate: '',
       notes: '自动派息'
@@ -181,7 +181,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           count++;
 
           // Increment Date
-          if (batchData.frequency === 'Monthly') current.setMonth(current.getMonth() + 1);
+          if (batchData.frequency === 'Weekly') current.setDate(current.getDate() + 7);
+          else if (batchData.frequency === 'Monthly') current.setMonth(current.getMonth() + 1);
           else if (batchData.frequency === 'Quarterly') current.setMonth(current.getMonth() + 3);
           else if (batchData.frequency === 'Yearly') current.setFullYear(current.getFullYear() + 1);
           else break;
@@ -198,7 +199,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           return;
       }
 
-      // 1. Prepare Transaction List
+      // 1. Prepare Transaction List - FIXED: Fallback to initialData if formData has no transactions yet
       const currentTxs = formData.transactions && formData.transactions.length > 0
           ? [...formData.transactions] 
           : (initialData?.transactions ? [...initialData.transactions] : []);
@@ -262,6 +263,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const handleDeleteTransaction = (id: string) => {
       if (!window.confirm("确定要删除这条交易记录吗？")) return;
       
+      // FIXED: Fallback to initialData to prevent wiping history
       const currentTxs = formData.transactions && formData.transactions.length > 0
           ? [...formData.transactions] 
           : (initialData?.transactions ? [...initialData.transactions] : []);
@@ -586,6 +588,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                         <div>
                             <label className="block text-[10px] font-bold text-purple-400 mb-1">频率</label>
                             <select value={batchData.frequency} onChange={e => setBatchData({...batchData, frequency: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300">
+                                <option value="Weekly">每周 (Weekly)</option>
                                 <option value="Monthly">每月 (Monthly)</option>
                                 <option value="Quarterly">每季 (Quarterly)</option>
                                 <option value="Yearly">每年 (Yearly)</option>
