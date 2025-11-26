@@ -169,11 +169,26 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         </div>
       </div>
 
-      {/* Detailed Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Detailed Stats Grid - Adjusted to 5 columns for large screens */}
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
         
+        {/* Active Principal (Restored) */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-blue-50">
+          <div className="flex justify-between items-start mb-4">
+            <div className="p-3 bg-blue-50 rounded-2xl text-blue-600">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+            </div>
+            <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
+          </div>
+          <p className="text-slate-500 text-sm font-medium">在途本金</p>
+          <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.activePrincipal, selectedCurrency)}</p>
+          <div className="w-full bg-slate-100 h-1.5 mt-4 rounded-full overflow-hidden">
+             <div className="bg-blue-500 h-full rounded-full transition-all duration-1000" style={{ width: `${stats.totalInvested ? (stats.activePrincipal / stats.totalInvested) * 100 : 0}%` }}></div>
+          </div>
+        </div>
+
         {/* Estimated Total Profit (Active + Realized) */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-indigo-100/50">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-indigo-50">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
@@ -181,17 +196,16 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
              <span className="text-xs font-bold bg-indigo-50 text-indigo-500 px-2 py-1 rounded-lg">All Time</span>
           </div>
           <p className="text-slate-500 text-sm font-medium">总预估收益 (含在途)</p>
-          <p className="text-2xl font-bold text-indigo-600 mt-1 tabular-nums flex items-baseline gap-2">
+          <p className="text-xl font-bold text-indigo-600 mt-1 tabular-nums flex flex-col gap-1">
               {formatCurrency(stats.projectedTotalProfit, selectedCurrency)}
-              <span className="text-sm font-medium text-indigo-400 bg-indigo-50 px-1.5 rounded-md" title="Total Projected Yield">
+              <span className="text-xs font-medium text-indigo-400 bg-indigo-50 px-1.5 rounded-md w-fit" title="Total Projected Yield">
                  {formatPercent(stats.projectedTotalYield)}
               </span>
           </p>
-          <p className="text-[10px] text-slate-400 mt-1">含已完结、浮动及固收(截止今日)</p>
         </div>
 
         {/* Today's Estimated Profit (Daily Return) */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-orange-50">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-orange-50 rounded-2xl text-orange-600">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
@@ -206,7 +220,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         </div>
 
         {/* Realized Profit */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-amber-50">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-amber-50 rounded-2xl text-amber-600">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -218,7 +232,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         </div>
 
         {/* Weighted Yield */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-purple-50">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-purple-50 rounded-2xl text-purple-600">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>

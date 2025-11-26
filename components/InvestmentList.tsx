@@ -17,12 +17,14 @@ type FilterType = 'all' | 'active' | 'completed';
 type ProductTypeFilter = 'all' | 'Fixed' | 'Floating';
 type CurrencyFilter = 'all' | Currency;
 type CategoryFilter = 'all' | InvestmentCategory;
+type SortType = 'date-asc' | 'date-desc' | 'custom';
 
 const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, onRefreshMarket }) => {
   const [filter, setFilter] = useState<FilterType>('all');
   const [productFilter, setProductFilter] = useState<ProductTypeFilter>('all');
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
+  const [sortType, setSortType] = useState<SortType>('date-asc');
   
   const [isRefreshing, setIsRefreshing] = useState(false);
   
@@ -56,8 +58,16 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
          result = filterInvestmentsByTime(result, 'custom', customStart, customEnd);
     }
     
+    // 6. Sort
+    if (sortType === 'date-asc') {
+        result.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
+    } else if (sortType === 'date-desc') {
+        result.sort((a, b) => new Date(b.depositDate).getTime() - new Date(a.depositDate).getTime());
+    }
+    // 'custom' uses the default order in the array
+    
     return result;
-  }, [items, filter, productFilter, currencyFilter, categoryFilter, showCustomDate, customStart, customEnd]);
+  }, [items, filter, productFilter, currencyFilter, categoryFilter, showCustomDate, customStart, customEnd, sortType]);
 
   // --- Summary Stats Calculation ---
   const summaryStats = useMemo(() => {
@@ -112,7 +122,9 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
       setTimeout(() => setIsRefreshing(false), 1000); 
   };
 
-  const isDragEnabled = filter === 'all' && productFilter === 'all' && currencyFilter === 'all' && categoryFilter === 'all' && !showCustomDate;
+  // Drag is enabled ONLY if using Custom Sort and NO filters are active
+  const isFiltersActive = filter !== 'all' || productFilter !== 'all' || currencyFilter !== 'all' || categoryFilter !== 'all' || showCustomDate;
+  const isDragEnabled = sortType === 'custom' && !isFiltersActive;
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -174,9 +186,9 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                 </div>
           </div>
 
-          {/* Row 2: Type, Category & Date */}
+          {/* Row 2: Type, Category, Date & Sorting */}
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-                <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+                <div className="flex flex-wrap gap-2 w-full lg:w-auto items-center">
                     {/* Product Type */}
                     <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl">
                         {(['all', 'Fixed', 'Floating'] as ProductTypeFilter[]).map(p => (
@@ -201,6 +213,17 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                             <option key={key} value={key}>{label}</option>
                         ))}
                     </select>
+
+                    {/* Sort Selector */}
+                    <select 
+                        value={sortType}
+                        onChange={(e) => setSortType(e.target.value as SortType)}
+                        className="px-3 py-1.5 bg-slate-100 rounded-xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-slate-200 border-none h-[34px]"
+                    >
+                        <option value="date-asc">买入时间升序</option>
+                        <option value="date-desc">买入时间降序</option>
+                        <option value="custom">自定义排序 (可拖拽)</option>
+                    </select>
                 </div>
 
                 <button 
@@ -212,7 +235,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                 </button>
           </div>
 
-          {/* Row 3: Live Summary Stats (Based on Filter) */}
+          {/* Row 3: Live Summary Stats */}
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-wrap gap-8 items-center justify-around">
              {/* Only show stats for currencies present in the list or all if no filter */}
              {(['CNY', 'USD', 'HKD'] as Currency[]).filter(c => currencyFilter === 'all' || currencyFilter === c).map(c => {
@@ -272,6 +295,13 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
               </div>
           )}
       </div>
+      
+      {/* Warning for DND when sorting/filtering */}
+      {!isDragEnabled && sortType === 'custom' && (
+          <div className="text-center text-xs text-orange-400 bg-orange-50 py-2 rounded-xl border border-orange-100">
+              提示: 筛选或自定义时间模式下无法进行拖拽排序，请重置筛选条件。
+          </div>
+      )}
 
       {/* List - Drag and Drop Context */}
       <DragDropContext onDragEnd={handleDragEnd}>
@@ -409,7 +439,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                         </div>
 
                                         {/* Metrics Grid */}
-                                        <div className="relative z-10 grid grid-cols-2 md:grid-cols-4 gap-6 py-5 border-t border-slate-50">
+                                        <div className="relative z-10 grid grid-cols-2 md:grid-cols-5 gap-4 py-5 border-t border-slate-50">
                                             <div className="space-y-1">
                                             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Status/Time</p>
                                             <div>
@@ -465,6 +495,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                     </span>
                                             </div>
                                             </div>
+                                            {/* Extra column if needed or adjust logic */}
                                         </div>
                                         
                                         {/* Unit Cost & Current Price for Stocks/Funds */}
