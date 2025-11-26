@@ -76,11 +76,19 @@ export default async function handler(request: any, response: any) {
                 if (match && match[1]) {
                     const data = JSON.parse(match[1]);
                     
-                    // CRITICAL UPDATE: Use 'dwjz' (Confirmed NAV) for Price, NOT 'gsz' (Estimate)
-                    // Use 'gszzl' for Today's Growth Estimate
+                    // CRITICAL: Use 'dwjz' (Confirmed NAV) for Price.
                     if (data.dwjz && parseFloat(data.dwjz) > 0) {
                         const price = parseFloat(data.dwjz);
-                        const change = parseFloat(data.gszzl || '0'); 
+                        
+                        // Parse 'gszzl' (Est Change %). If empty or invalid, set to undefined.
+                        let change: number | undefined = undefined;
+                        if (data.gszzl && data.gszzl !== "") {
+                            const parsedChange = parseFloat(data.gszzl);
+                            if (!isNaN(parsedChange)) {
+                                change = parsedChange;
+                            }
+                        }
+
                         console.log(`[API Quotes] EastMoney Fund (NAV) success for ${symbol}: ${price} (Est Change: ${change}%)`);
                         return { price, change, time: data.gztime || new Date().toISOString() };
                     }
@@ -101,7 +109,8 @@ export default async function handler(request: any, response: any) {
                 if (navMatch && navMatch[2]) {
                     const price = parseFloat(navMatch[2]);
                     console.log(`[API Quotes] EastMoney Fund (F10) success for ${symbol}: ${price}`);
-                    return { price, change: 0, time: navMatch[1] }; // No intraday change info here
+                    // Historical table does not have intraday valuation change, so change is undefined
+                    return { price, change: undefined, time: navMatch[1] }; 
                 }
             } catch (e: any) {
                 console.warn(`[API Quotes] EastMoney Fund (F10) failed for ${symbol}: ${e.message}`);

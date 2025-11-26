@@ -405,7 +405,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                         ) : (
                                                             item.isAutoQuote && (
                                                                 <span className="text-[9px] px-1 rounded bg-slate-200 text-slate-500">
-                                                                    No Val Info
+                                                                    暂无估值
                                                                 </span>
                                                             )
                                                         )}

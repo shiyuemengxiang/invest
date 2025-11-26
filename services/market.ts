@@ -106,7 +106,7 @@ export const marketService = {
             // B. CN Funds (EastMoney fundgz)
             if (/^\d{6}$/.test(symbol)) {
                 try {
-                    // Strategy 1: fundgz via proxy (Preferred for simplicity if dwjz exists)
+                    // Strategy 1: fundgz via proxy
                     const target = `https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
@@ -115,13 +115,18 @@ export const marketService = {
                         const match = json.contents.match(/jsonpgz\((.*?)\)/);
                         if (match && match[1]) {
                             const data = JSON.parse(match[1]);
-                            // USE dwjz (NAV) for Price, gszzl (Est) for Growth
                             if (data.dwjz) {
+                                let change: number | undefined = undefined;
+                                if (data.gszzl && data.gszzl !== "") {
+                                    const parsedChange = parseFloat(data.gszzl);
+                                    if (!isNaN(parsedChange)) change = parsedChange;
+                                }
+
                                 return { 
                                     symbol, 
                                     data: {
                                         price: parseFloat(data.dwjz),
-                                        change: parseFloat(data.gszzl || '0'),
+                                        change: change, // undefined if invalid
                                         time: data.gztime
                                     }
                                 };
@@ -142,7 +147,7 @@ export const marketService = {
                                 symbol, 
                                 data: {
                                     price: parseFloat(navMatch[2]),
-                                    change: 0 // No intraday info from history table
+                                    change: undefined // Explicitly undefined
                                 }
                             };
                          }
@@ -196,7 +201,6 @@ export const marketService = {
             const meta = data?.chart?.result?.[0]?.meta;
             const price = meta?.regularMarketPrice || meta?.previousClose;
             if (price) {
-                // Calculate rough change % if not directly available
                 let change = 0;
                 if (meta.previousClose) {
                     change = ((price - meta.previousClose) / meta.previousClose) * 100;
