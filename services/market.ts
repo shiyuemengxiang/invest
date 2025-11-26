@@ -40,33 +40,53 @@ export const marketService = {
     async getQuotes(symbols: string[]): Promise<Record<string, number> | null> {
         console.log(`[MarketService] Requesting quotes for: ${symbols.join(', ')}`);
         
-        // Strategy 1: Try Backend API
+        let result: Record<string, number> = {};
+        const uniqueSymbols = Array.from(new Set(symbols));
+        
+        // 1. Try Backend API first
         try {
             const res = await fetch(`${API_BASE}/quotes`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbols })
+                body: JSON.stringify({ symbols: uniqueSymbols })
             });
             if (res.ok) {
-                const data = await res.json();
-                console.log("[MarketService] Backend API response:", data);
-                if (Object.keys(data).length > 0) return data;
+                const backendData = await res.json();
+                console.log("[MarketService] Backend API partial response:", backendData);
+                result = { ...backendData };
             }
         } catch (e) {
             console.warn("[MarketService] Backend quotes API failed/network error:", e);
         }
 
-        // Strategy 2: Client-Side Fallback (Intelligent Routing)
-        console.log("[MarketService] Triggering Client-Side Fallback...");
+        // 2. Identify Missing Symbols (Differential Backfill)
+        const missingSymbols = uniqueSymbols.filter(sym => result[sym] === undefined || result[sym] === null);
         
-        const result: Record<string, number> = {};
-        const uniqueSymbols = Array.from(new Set(symbols));
+        if (missingSymbols.length > 0) {
+            console.log(`[MarketService] Backend missed ${missingSymbols.length} symbols. Triggering client-side fallback for:`, missingSymbols);
+            
+            // 3. Client-Side Fallback for MISSING symbols only
+            const fallbackQuotes = await this.fetchClientSideQuotes(missingSymbols);
+            
+            // Merge results
+            result = { ...result, ...fallbackQuotes };
+        } else {
+            console.log("[MarketService] Backend returned all symbols. No fallback needed.");
+        }
 
-        const promises = uniqueSymbols.map(async (symbol) => {
+        console.log("[MarketService] Final Combined Quotes:", result);
+        return Object.keys(result).length > 0 ? result : null;
+    },
+
+    // Helper for Client-Side Fetching
+    async fetchClientSideQuotes(symbols: string[]): Promise<Record<string, number>> {
+        const result: Record<string, number> = {};
+        
+        const promises = symbols.map(async (symbol) => {
             // A. CN Stocks (Tencent): sh, sz, bj
             if (/^(sh|sz|bj)\d{6}$/i.test(symbol)) {
                 try {
-                    // Use CORS Proxy because Tencent endpoint might not enable CORS for all origins or HTTP/S mix
+                    // Use CORS Proxy for Tencent
                     const target = `https://qt.gtimg.cn/q=${symbol}`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
@@ -81,6 +101,7 @@ export const marketService = {
             // B. CN Funds (EastMoney)
             if (/^\d{6}$/.test(symbol)) {
                 try {
+                    // Use CORS Proxy for EastMoney
                     const target = `http://fundgz.1234567.com.cn/js/${symbol}.js`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
@@ -101,7 +122,7 @@ export const marketService = {
                 const resA = await fetch(proxyUrlA);
                 if (resA.ok) {
                     const data = await resA.json();
-                    const price = extractPriceFromChart(data);
+                    const price = this.extractPriceFromChart(data);
                     if (price) return { symbol, price };
                 }
             } catch (e) {}
@@ -114,7 +135,7 @@ export const marketService = {
                     const json = await resB.json();
                     if (json.contents) {
                         const data = JSON.parse(json.contents);
-                        const price = extractPriceFromChart(data);
+                        const price = this.extractPriceFromChart(data);
                         if (price) return { symbol, price };
                     }
                 }
@@ -129,17 +150,16 @@ export const marketService = {
                 result[outcome.value.symbol] = outcome.value.price;
             }
         });
+        
+        return result;
+    },
 
-        console.log("[MarketService] Final Combined Quotes:", result);
-        return Object.keys(result).length > 0 ? result : null;
+    extractPriceFromChart(data: any): number | null {
+        try {
+            const meta = data?.chart?.result?.[0]?.meta;
+            return meta?.regularMarketPrice || meta?.previousClose || null;
+        } catch (e) {
+            return null;
+        }
     }
 };
-
-function extractPriceFromChart(data: any): number | null {
-    try {
-        const meta = data?.chart?.result?.[0]?.meta;
-        return meta?.regularMarketPrice || meta?.previousClose || null;
-    } catch (e) {
-        return null;
-    }
-}

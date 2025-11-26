@@ -26,7 +26,9 @@ export default async function handler(request: any, response: any) {
         // 1. CN Stocks (Tencent API): sz000001, sh600519, bj839725
         if (/^(sh|sz|bj)\d{6}$/i.test(symbol)) {
             try {
-                const res = await fetch(`https://qt.gtimg.cn/q=${symbol}`);
+                const res = await fetch(`https://qt.gtimg.cn/q=${symbol}`, {
+                    headers: { 'Referer': 'https://gu.qq.com/' }
+                });
                 const text = await res.text();
                 // Response format: v_sz000001="51~Name~Code~CurrentPrice~..."
                 // Price is usually index 3
@@ -46,7 +48,9 @@ export default async function handler(request: any, response: any) {
         if (/^\d{6}$/.test(symbol)) {
             try {
                 // Use http/https based on availability. Node fetch supports both.
-                const res = await fetch(`http://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`);
+                const res = await fetch(`http://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`, {
+                    headers: { 'Referer': 'http://fund.eastmoney.com/' }
+                });
                 const text = await res.text();
                 // Response: jsonpgz({"fundcode":"...","gsz":"1.2345",...});
                 const match = text.match(/"gsz":"([\d.]+)"/);
