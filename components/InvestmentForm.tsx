@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Currency, Investment, InvestmentCategory, InvestmentType, CATEGORY_LABELS, Transaction, TransactionType } from '../types';
 import { ToastType } from './Toast';
@@ -62,13 +63,18 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       price: string;
       quantity: string;
       notes: string;
+      // New fields for merging terms on "Buy"
+      newMaturityDate: string;
+      newExpectedRate: string;
   }>({ 
       type: 'Buy', 
       date: new Date().toISOString().split('T')[0], 
       amount: '', 
       price: '', 
       quantity: '', 
-      notes: '' 
+      notes: '',
+      newMaturityDate: '',
+      newExpectedRate: ''
   });
 
   useEffect(() => {
@@ -106,7 +112,9 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           amount: '',
           price: '',
           quantity: '',
-          notes: ''
+          notes: '',
+          newMaturityDate: formData.maturityDate || '',
+          newExpectedRate: formData.expectedRate ? String(formData.expectedRate) : ''
       });
       setEditingTxId(null);
       setShowTxForm(true);
@@ -118,7 +126,9 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           return;
       }
 
-      const currentTxs = formData.transactions 
+      // 1. Prepare Transaction List
+      // Fix logic: Always fallback to initialData if formData.transactions is undefined/empty to avoid wiping history
+      const currentTxs = formData.transactions && formData.transactions.length > 0
           ? [...formData.transactions] 
           : (initialData?.transactions ? [...initialData.transactions] : []);
 
@@ -139,7 +149,16 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           currentTxs.push(newTx);
       }
 
-      setFormData(prev => ({ ...prev, transactions: currentTxs }));
+      // 2. Apply Updates to Parent State
+      const updatedFormData = { ...formData, transactions: currentTxs };
+
+      // If it's a Fixed Income 'Buy' (Add Principal), allow updating Maturity/Rate
+      if (!isFloating && txData.type === 'Buy') {
+          if (txData.newMaturityDate) updatedFormData.maturityDate = txData.newMaturityDate;
+          if (txData.newExpectedRate) updatedFormData.expectedRate = Number(txData.newExpectedRate);
+      }
+
+      setFormData(updatedFormData);
       
       setShowTxForm(false);
       setEditingTxId(null);
@@ -153,7 +172,9 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           amount: String(tx.amount),
           price: tx.price ? String(tx.price) : '',
           quantity: tx.quantity ? String(tx.quantity) : '',
-          notes: tx.notes || ''
+          notes: tx.notes || '',
+          newMaturityDate: formData.maturityDate || '',
+          newExpectedRate: formData.expectedRate ? String(formData.expectedRate) : ''
       });
       setEditingTxId(tx.id);
       setShowTxForm(true);
@@ -162,7 +183,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const handleDeleteTransaction = (id: string) => {
       if (!window.confirm("确定要删除这条交易记录吗？")) return;
       
-      const currentTxs = formData.transactions 
+      const currentTxs = formData.transactions && formData.transactions.length > 0
           ? [...formData.transactions] 
           : (initialData?.transactions ? [...initialData.transactions] : []);
 
@@ -199,7 +220,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     const quantity = formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined;
 
     // Logic to ensure initial transaction exists if this is a new item
-    let transactions: Transaction[] = formData.transactions 
+    let transactions: Transaction[] = formData.transactions && formData.transactions.length > 0
         ? [...formData.transactions] 
         : (initialData?.transactions ? [...initialData.transactions] : []);
     
@@ -215,11 +236,9 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         });
     } else {
         // Sync first Buy if needed (only if it's the initial one)
-        // Actually, with full tx history editing, we might not want to overwrite the first tx blindly.
-        // But for consistency with the Main Form inputs, we sync the first 'Buy' if present.
         const firstBuyIndex = transactions.findIndex(t => t.type === 'Buy');
         if (firstBuyIndex >= 0) {
-             // Only update if it looks like the initial one
+             // Only update if it looks like the initial one (simple heuristic)
              if (transactions[firstBuyIndex].notes === 'Initial Deposit' || transactions[firstBuyIndex].notes === 'Initial Deposit (Migrated)') {
                  transactions[firstBuyIndex] = {
                     ...transactions[firstBuyIndex],
@@ -281,7 +300,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
   return (
     <div className="bg-white/95 backdrop-blur-sm p-8 rounded-3xl shadow-xl shadow-slate-200/50 max-w-2xl mx-auto border border-white/50 animate-fade-in-up">
-      {/* Header & Form Fields (Mostly Unchanged) */}
+      {/* Header & Form Fields */}
       <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-100">
         <h2 className="text-2xl font-bold text-slate-800 tracking-tight">{initialData ? '编辑资产' : '录入新资产'}</h2>
         <span className="text-xs px-2.5 py-1 bg-slate-800 text-white rounded-lg font-medium shadow-sm">Smart Ledger</span>
@@ -500,6 +519,20 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                             <input type="number" step="0.01" name="amount" value={txData.amount} onChange={e => setTxData({...txData, amount: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300 font-bold" placeholder="0.00" />
                         </div>
                         
+                        {/* Term Updates for Fixed Buy */}
+                        {!isFloating && txData.type === 'Buy' && (
+                            <>
+                                <div className="col-span-1">
+                                    <label className="block text-[10px] font-bold text-orange-500 mb-1">更新到期时间</label>
+                                    <input type="date" value={txData.newMaturityDate} onChange={e => setTxData({...txData, newMaturityDate: e.target.value})} className="w-full p-2 border border-orange-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-orange-300" />
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="block text-[10px] font-bold text-orange-500 mb-1">更新综合利率(%)</label>
+                                    <input type="number" step="0.01" value={txData.newExpectedRate} onChange={e => setTxData({...txData, newExpectedRate: e.target.value})} className="w-full p-2 border border-orange-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-orange-300" placeholder="可选" />
+                                </div>
+                            </>
+                        )}
+
                         <div className="col-span-1 sm:col-span-2 md:col-span-4">
                             <label className="block text-[10px] font-bold text-indigo-400 mb-1">备注</label>
                             <input type="text" value={txData.notes} onChange={e => setTxData({...txData, notes: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" placeholder="可选备注" />
