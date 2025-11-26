@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { Investment, CATEGORY_LABELS, Currency, InvestmentCategory } from '../types';
 import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn } from '../utils';
@@ -86,7 +85,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
   }, [items, filter, productFilter, currencyFilter, categoryFilter, showCustomDate, customStart, customEnd, sortType]);
 
   // --- Summary Stats Calculation ---
-  const summaryStats = useMemo<Record<Currency, { totalProfit: number; dailyReturn: number }>>(() => {
+  const summaryStats = useMemo(() => {
       // Explicitly type the stats accumulator
       const stats: Record<Currency, { totalProfit: number; dailyReturn: number }> = {
           CNY: { totalProfit: 0, dailyReturn: 0 },
@@ -253,7 +252,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-wrap gap-8 items-center justify-around">
              {(['CNY', 'USD', 'HKD'] as Currency[]).filter(c => currencyFilter === 'all' || currencyFilter === c).map(c => {
                  const s = summaryStats[c];
-                 if (s.totalProfit === 0 && s.dailyReturn === 0 && currencyFilter !== 'all') return null;
+                 if (!s || (s.totalProfit === 0 && s.dailyReturn === 0 && currencyFilter !== 'all')) return null;
                  if (currencyFilter === 'all' && s.totalProfit === 0 && s.dailyReturn === 0) return null;
 
                  return (

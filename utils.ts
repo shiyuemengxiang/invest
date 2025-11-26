@@ -49,7 +49,7 @@ export const migrateInvestmentData = (item: any): Investment => {
     
     // 1. Initial Deposit
     transactions.push({
-        id: crypto.randomUUID(),
+        id: self.crypto.randomUUID(),
         date: item.depositDate,
         type: 'Buy',
         amount: Number(item.principal),
@@ -61,7 +61,7 @@ export const migrateInvestmentData = (item: any): Investment => {
     // 2. Withdrawal (if exists) -> Sell Transaction
     if (item.withdrawalDate) {
         transactions.push({
-            id: crypto.randomUUID(),
+            id: self.crypto.randomUUID(),
             date: item.withdrawalDate,
             type: 'Sell',
             amount: Number(item.principal), // Assuming full withdrawal in legacy model
@@ -147,6 +147,23 @@ export const formatDate = (dateStr: string | null): string => {
   });
 };
 
+export const formatDateTime = (dateStr: string | null): string => {
+    if (!dateStr) return '-';
+    // If strict YYYY-MM-DD, append time part for consistency if missing, 
+    // but typically we just want to format what we have.
+    // If it's ISO string, it has time. If just '2023-01-01', it defaults to 00:00.
+    const d = new Date(dateStr);
+    return d.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+};
+
 export const getDaysDiff = (start: string, end: string): number => {
   const d1 = new Date(start).setHours(0,0,0,0);
   const d2 = new Date(end).setHours(0,0,0,0);
@@ -177,6 +194,9 @@ export const calculateDailyReturn = (item: Investment): number => {
 
     if (item.type === 'Floating') {
         if (item.estGrowth && activePrincipal > 0) {
+            // Updated logic: Daily Return = Current Market Value * Growth %
+            // Current Market Value = Principal + Accumulated Return
+            // NOTE: item.currentReturn is usually 'unrealized P&L'.
             const currentTotalValue = activePrincipal + (item.currentReturn || 0);
             const baseValue = Math.max(0, currentTotalValue);
             return baseValue * (item.estGrowth / 100);

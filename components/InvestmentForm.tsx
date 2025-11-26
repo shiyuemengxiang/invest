@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Currency, Investment, InvestmentCategory, InvestmentType, CATEGORY_LABELS, Transaction } from '../types';
 import { ToastType } from './Toast';
-import { recalculateInvestmentState } from '../utils';
+import { recalculateInvestmentState, formatDateTime } from '../utils';
 
 interface Props {
   onSave: (investment: Investment) => void;
@@ -53,6 +53,10 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const [isCompleted, setIsCompleted] = useState(!!initialData?.withdrawalDate);
   const [isFloating, setIsFloating] = useState(initialData?.type === 'Floating');
 
+  // Phase 2: Dividend Modal State
+  const [showDividendForm, setShowDividendForm] = useState(false);
+  const [dividendData, setDividendData] = useState({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
+
   useEffect(() => {
     setIsCompleted(!!formData.withdrawalDate);
   }, [formData.withdrawalDate]);
@@ -69,6 +73,31 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     } else {
         setFormData(prev => ({ ...prev, [name]: value }));
     }
+  };
+
+  // Phase 2: Add Dividend Logic
+  const handleAddDividend = () => {
+      if (!dividendData.amount || Number(dividendData.amount) <= 0) {
+          onNotify("请输入有效的派息金额", "error");
+          return;
+      }
+
+      const newTx: Transaction = {
+          id: self.crypto.randomUUID(),
+          date: dividendData.date,
+          type: 'Dividend',
+          amount: Number(dividendData.amount),
+          notes: dividendData.notes || '派息/分红 (Manual)'
+      };
+
+      const currentTxs = formData.transactions ? [...formData.transactions] : [];
+      currentTxs.push(newTx);
+
+      // Optimistic update of formData
+      setFormData(prev => ({ ...prev, transactions: currentTxs }));
+      setShowDividendForm(false);
+      setDividendData({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
+      onNotify("派息记录已添加 (保存后生效)", "success");
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -94,13 +123,14 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     const quantity = formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined;
 
     // --- PHASE 1 REFACTOR: Construct Transactions for New Items ---
+    // Note: We respect existing transactions (e.g. newly added Dividends) and just sync the Primary Buy/Sell
     
-    let transactions: Transaction[] = initialData?.transactions ? [...initialData.transactions] : [];
+    let transactions: Transaction[] = formData.transactions ? [...formData.transactions] : (initialData?.transactions ? [...initialData.transactions] : []);
     
     if (transactions.length === 0) {
         // Create initial transaction if none exists
         transactions.push({
-            id: crypto.randomUUID(),
+            id: self.crypto.randomUUID(),
             date: formData.depositDate!,
             type: 'Buy',
             amount: principal,
@@ -110,6 +140,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         });
     } else {
         // Modify the first 'Buy' transaction (assuming it's the initial deposit)
+        // We look for the "Buy" transaction that corresponds to the main principal. 
+        // For simplicity in Phase 1, we assume the first "Buy" is the primary one.
         const firstBuyIndex = transactions.findIndex(t => t.type === 'Buy');
         if (firstBuyIndex >= 0) {
             transactions[firstBuyIndex] = {
@@ -122,8 +154,10 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         }
         
         // Handle Withdrawal/Sell
+        // If we have a withdrawal date, we enforce a matching "Sell" transaction.
+        const sellIndex = transactions.findIndex(t => t.type === 'Sell' && (t.notes === 'Full Withdrawal' || t.notes === 'Full Withdrawal (Migrated)'));
+        
         if (formData.withdrawalDate) {
-             const sellIndex = transactions.findIndex(t => t.type === 'Sell');
              if (sellIndex >= 0) {
                  transactions[sellIndex] = {
                      ...transactions[sellIndex],
@@ -133,7 +167,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                  };
              } else {
                  transactions.push({
-                     id: crypto.randomUUID(),
+                     id: self.crypto.randomUUID(),
                      date: formData.withdrawalDate,
                      type: 'Sell',
                      amount: principal,
@@ -142,8 +176,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                  });
              }
         } else {
-            // If withdrawal date removed, remove Sell tx
-            const sellIndex = transactions.findIndex(t => t.type === 'Sell');
+            // If withdrawal date removed, remove corresponding Sell tx
             if (sellIndex >= 0) {
                 transactions.splice(sellIndex, 1);
             }
@@ -151,7 +184,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     }
 
     const baseInvestment: Investment = {
-      id: initialData?.id || crypto.randomUUID(),
+      id: initialData?.id || self.crypto.randomUUID(),
       name: formData.name!,
       category: (formData.category as InvestmentCategory) || 'Fixed',
       type: (formData.type as InvestmentType) || 'Fixed',
@@ -186,6 +219,16 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
   const isFundOrStock = formData.category === 'Fund' || formData.category === 'Stock';
   const isCNYStock = formData.category === 'Stock' && formData.currency === 'CNY';
+
+  // Helper to translate tx type
+  const getTxTypeLabel = (type: string) => {
+      switch(type) {
+          case 'Buy': return '买入/存入';
+          case 'Sell': return '卖出/取出';
+          case 'Dividend': return '派息/分红';
+          default: return type;
+      }
+  };
 
   return (
     <div className="bg-white/95 backdrop-blur-sm p-8 rounded-3xl shadow-xl shadow-slate-200/50 max-w-2xl mx-auto border border-white/50 animate-fade-in-up">
@@ -346,50 +389,80 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         </div>
       </form>
 
-      {/* NEW DEBUG SECTION: Transaction History */}
-      {initialData?.transactions && initialData.transactions.length > 0 && (
-        <div className="mt-8 pt-6 border-t border-slate-100 animate-fade-in">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-slate-300"></span>
-                Transaction History (Debug/Phase 1)
-            </h3>
+      {/* --- Phase 2: Transaction History & Operations --- */}
+      <div className="mt-8 pt-6 border-t border-slate-100 animate-fade-in">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                    交易流水 (Transaction History)
+                </h3>
+                {initialData && !isCompleted && (
+                    <button 
+                        type="button" 
+                        onClick={() => setShowDividendForm(true)}
+                        className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg font-bold transition flex items-center gap-1"
+                    >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                        记录派息/分红
+                    </button>
+                )}
+            </div>
+
+            {/* Dividend Form Modal/Inline */}
+            {showDividendForm && (
+                <div className="mb-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 animate-fade-in">
+                    <h4 className="text-sm font-bold text-indigo-900 mb-3">新增派息记录 (Add Dividend)</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                        <input type="date" value={dividendData.date} onChange={e => setDividendData({...dividendData, date: e.target.value})} className="p-2 border border-indigo-200 rounded-lg text-sm" />
+                        <input type="number" placeholder="金额 (Amount)" value={dividendData.amount} onChange={e => setDividendData({...dividendData, amount: e.target.value})} className="p-2 border border-indigo-200 rounded-lg text-sm" />
+                        <input type="text" placeholder="备注 (选填)" value={dividendData.notes} onChange={e => setDividendData({...dividendData, notes: e.target.value})} className="p-2 border border-indigo-200 rounded-lg text-sm" />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <button type="button" onClick={() => setShowDividendForm(false)} className="px-3 py-1.5 bg-white text-slate-500 border border-slate-200 rounded-lg text-xs hover:bg-slate-50">取消</button>
+                        <button type="button" onClick={handleAddDividend} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm">确认添加</button>
+                    </div>
+                </div>
+            )}
+
             <div className="bg-slate-50 rounded-xl overflow-hidden border border-slate-200">
                 <table className="w-full text-left text-xs">
                     <thead className="bg-slate-100 text-slate-500 font-semibold border-b border-slate-200">
                         <tr>
-                            <th className="p-3">Date</th>
-                            <th className="p-3">Type</th>
-                            <th className="p-3 text-right">Amount</th>
-                            <th className="p-3">Notes</th>
+                            <th className="p-3">日期 (Date)</th>
+                            <th className="p-3">类型 (Type)</th>
+                            <th className="p-3 text-right">金额 (Amount)</th>
+                            <th className="p-3">备注 (Notes)</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {initialData.transactions.map(tx => (
+                        {(formData.transactions && formData.transactions.length > 0 ? formData.transactions : (initialData?.transactions || [])).map(tx => (
                             <tr key={tx.id} className="text-slate-700 hover:bg-white transition">
-                                <td className="p-3 font-mono">{tx.date}</td>
+                                <td className="p-3 font-mono text-slate-500">{formatDateTime(tx.date)}</td>
                                 <td className="p-3">
-                                    <span className={`px-1.5 py-0.5 rounded border font-medium ${
+                                    <span className={`px-1.5 py-0.5 rounded border font-medium text-[10px] ${
                                         tx.type === 'Buy' ? 'bg-blue-50 text-blue-600 border-blue-100' :
                                         tx.type === 'Sell' ? 'bg-orange-50 text-orange-600 border-orange-100' :
+                                        tx.type === 'Dividend' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
                                         'bg-slate-100 text-slate-600 border-slate-200'
                                     }`}>
-                                        {tx.type}
+                                        {getTxTypeLabel(tx.type)}
                                     </span>
                                 </td>
                                 <td className="p-3 text-right font-mono font-medium">
-                                    {tx.type === 'Sell' ? '-' : '+'}{tx.amount.toLocaleString()}
+                                    {tx.type === 'Sell' ? '-' : '+'}{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </td>
                                 <td className="p-3 text-slate-400 truncate max-w-[150px]">{tx.notes || '-'}</td>
                             </tr>
                         ))}
+                        {(!formData.transactions || formData.transactions.length === 0) && (!initialData?.transactions || initialData.transactions.length === 0) && (
+                            <tr>
+                                <td colSpan={4} className="p-4 text-center text-slate-300 italic">暂无交易流水</td>
+                            </tr>
+                        )}
                     </tbody>
                 </table>
             </div>
-            <p className="text-[10px] text-slate-400 mt-2 px-1">
-                * 本区域仅供调试。这些交易记录是根据上方表单自动生成的（第一阶段改造）。
-            </p>
-        </div>
-      )}
+      </div>
     </div>
   );
 };
