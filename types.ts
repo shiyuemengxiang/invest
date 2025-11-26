@@ -42,28 +42,65 @@ export interface MarketData {
     time?: string;
 }
 
+// --- NEW TRANSACTION MODEL ---
+export type TransactionType = 'Buy' | 'Sell' | 'Dividend' | 'Interest' | 'Fee' | 'Tax';
+
+export interface Transaction {
+    id: string;
+    date: string;          // YYYY-MM-DD
+    type: TransactionType;
+    amount: number;        // Cash flow amount (Positive for deposit/dividend, often negative for buy if tracking cash account, but here represents value involved)
+    price?: number;        // Unit price (Funds/Stocks)
+    quantity?: number;     // Units (Funds/Stocks)
+    fee?: number;          // Handling fee
+    notes?: string;
+}
+
 export interface Investment {
   id: string;
   userId?: string; 
   name: string; 
   category: InvestmentCategory;
-  type: InvestmentType; // New: Fixed or Floating
+  type: InvestmentType;
   currency: Currency;
-  depositDate: string; // ISO Date YYYY-MM-DD
-  maturityDate: string; // ISO Date YYYY-MM-DD (Optional for Floating)
-  withdrawalDate: string | null; 
-  principal: number;
-  quantity?: number; // New: For Stocks/Funds (Shares/Units)
-  symbol?: string; // New: Ticker Symbol (e.g., AAPL, 0700.HK)
-  isAutoQuote?: boolean; // New: Whether to auto-fetch price
-  estGrowth?: number; // New: Estimated Growth Rate % (e.g. from Fund Estimate)
-  lastUpdate?: string; // New: Timestamp of last market update
-  expectedRate?: number; // Optional for Floating
-  currentReturn?: number; // New: Manual entry for current position return (floating)
-  realizedReturn?: number; 
+  
+  // Metadata that might change rarely
+  symbol?: string; 
+  isAutoQuote?: boolean; 
+  notes?: string;
+  
+  // --- COMPUTED STATE (Derived from Transactions) ---
+  // These replace the static inputs for calculation
+  currentPrincipal: number;   // Current active principal (Total Buys - Total Sells cost)
+  currentQuantity?: number;   // Current holding units
+  totalCost: number;          // Total invested amount historically (sum of all Buys)
+  totalRealizedProfit: number; // Realized gains (Dividends + Sell Profit)
+  
+  // --- Transactions History ---
+  transactions: Transaction[];
+
+  // --- Legacy/Static Fields (Kept for compatibility or current single-entry logic) ---
+  depositDate: string; // Used as "First Buy Date"
+  maturityDate: string; 
+  withdrawalDate: string | null; // Used as "Fully Exited Date"
+  
+  // Market / External Data
+  estGrowth?: number; 
+  lastUpdate?: string; 
+  
+  // Settings
+  expectedRate?: number; // For Fixed: expected annual yield
+  
+  // For Floating Types (Manual Overrides)
+  currentReturn?: number; // Floating P&L (Unrealized)
+  
+  // Legacy fields kept for UI compatibility during migration, 
+  // but logic should prefer computed fields where possible.
+  principal: number; // @deprecated: Use currentPrincipal
+  quantity?: number; // @deprecated: Use currentQuantity
+  realizedReturn?: number; // @deprecated: Use totalRealizedProfit
   rebate: number; 
   isRebateReceived: boolean;
-  notes?: string;
 }
 
 export interface InvestmentStats {
@@ -75,8 +112,8 @@ export interface InvestmentStats {
   receivedRebate: number;
   realizedInterest: number; 
   comprehensiveYield: number;
-  projectedTotalProfit: number; // Sum of Realized + Projected/Current Profits
-  projectedTotalYield: number; // New: Total Profit / Total Invested %
+  projectedTotalProfit: number; 
+  projectedTotalYield: number; 
 }
 
 export type ViewState = 'dashboard' | 'list' | 'add' | 'calendar' | 'profile' | 'auth';

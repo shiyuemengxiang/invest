@@ -87,7 +87,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
 
   // --- Summary Stats Calculation ---
   const summaryStats = useMemo(() => {
-      const stats = {
+      const stats: Record<Currency, { totalProfit: number; dailyReturn: number }> = {
           CNY: { totalProfit: 0, dailyReturn: 0 },
           USD: { totalProfit: 0, dailyReturn: 0 },
           HKD: { totalProfit: 0, dailyReturn: 0 }

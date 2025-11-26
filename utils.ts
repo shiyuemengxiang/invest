@@ -1,8 +1,9 @@
 
-import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption } from './types';
+import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, Transaction } from './types';
 
 export const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
+// ... [Theme Config remains unchanged, re-including for file completeness] ...
 interface ThemeConfig {
     sidebar: string;
     accent: string;
@@ -13,147 +14,129 @@ interface ThemeConfig {
     navHover: string;
 }
 
-// Theme Configuration Map
 export const THEMES: Record<ThemeOption, ThemeConfig> = {
-    // --- Dark Themes ---
-    slate: {
-        sidebar: 'bg-slate-900 text-slate-300',
-        accent: 'from-slate-700 to-slate-900',
-        button: 'bg-slate-900 hover:bg-slate-800',
-        text: 'text-slate-600',
-        icon: 'text-slate-400',
-        navActive: 'bg-white/10 text-white font-bold',
-        navHover: 'hover:bg-white/5 opacity-80'
-    },
-    midnight: {
-        sidebar: 'bg-black text-gray-400',
-        accent: 'from-gray-800 to-black',
-        button: 'bg-black hover:bg-gray-900',
-        text: 'text-gray-600',
-        icon: 'text-gray-400',
-        navActive: 'bg-white/10 text-white font-bold',
-        navHover: 'hover:bg-white/5 opacity-80'
-    },
-    ocean: {
-        sidebar: 'bg-blue-900 text-blue-200',
-        accent: 'from-blue-600 to-blue-800',
-        button: 'bg-blue-600 hover:bg-blue-700',
-        text: 'text-blue-600',
-        icon: 'text-blue-400',
-        navActive: 'bg-white/10 text-white font-bold',
-        navHover: 'hover:bg-white/5 opacity-80'
-    },
-    forest: {
-        sidebar: 'bg-emerald-900 text-emerald-100',
-        accent: 'from-emerald-600 to-emerald-800',
-        button: 'bg-emerald-600 hover:bg-emerald-700',
-        text: 'text-emerald-600',
-        icon: 'text-emerald-400',
-        navActive: 'bg-white/10 text-white font-bold',
-        navHover: 'hover:bg-white/5 opacity-80'
-    },
-    sunset: {
-        sidebar: 'bg-rose-900 text-rose-100',
-        accent: 'from-rose-600 to-rose-800',
-        button: 'bg-rose-600 hover:bg-rose-700',
-        text: 'text-rose-600',
-        icon: 'text-rose-400',
-        navActive: 'bg-white/10 text-white font-bold',
-        navHover: 'hover:bg-white/5 opacity-80'
-    },
-    royal: {
-        sidebar: 'bg-indigo-950 text-indigo-100',
-        accent: 'from-indigo-600 to-purple-800',
-        button: 'bg-indigo-700 hover:bg-indigo-800',
-        text: 'text-indigo-700',
-        icon: 'text-indigo-400',
-        navActive: 'bg-white/10 text-white font-bold',
-        navHover: 'hover:bg-white/5 opacity-80'
-    },
-    teal: {
-        sidebar: 'bg-teal-900 text-teal-100',
-        accent: 'from-teal-600 to-cyan-800',
-        button: 'bg-teal-700 hover:bg-teal-800',
-        text: 'text-teal-700',
-        icon: 'text-teal-500',
-        navActive: 'bg-white/10 text-white font-bold',
-        navHover: 'hover:bg-white/5 opacity-80'
-    },
-    amber: {
-        sidebar: 'bg-amber-950 text-amber-100',
-        accent: 'from-amber-500 to-orange-700',
-        button: 'bg-amber-700 hover:bg-amber-800',
-        text: 'text-amber-700',
-        icon: 'text-amber-500',
-        navActive: 'bg-white/10 text-white font-bold',
-        navHover: 'hover:bg-white/5 opacity-80'
-    },
-    crimson: {
-        sidebar: 'bg-red-950 text-red-100',
-        accent: 'from-red-700 to-red-900',
-        button: 'bg-red-800 hover:bg-red-900',
-        text: 'text-red-800',
-        icon: 'text-red-500',
-        navActive: 'bg-white/10 text-white font-bold',
-        navHover: 'hover:bg-white/5 opacity-80'
-    },
-    pink: {
-        sidebar: 'bg-fuchsia-900 text-fuchsia-100',
-        accent: 'from-fuchsia-500 to-pink-700',
-        button: 'bg-fuchsia-700 hover:bg-fuchsia-800',
-        text: 'text-fuchsia-700',
-        icon: 'text-fuchsia-400',
-        navActive: 'bg-white/10 text-white font-bold',
-        navHover: 'hover:bg-white/5 opacity-80'
-    },
-    
-    // --- Light Themes ---
-    lavender: {
-        sidebar: 'bg-violet-50 text-violet-900 border-r border-violet-100',
-        accent: 'from-violet-400 to-violet-600',
-        button: 'bg-violet-500 hover:bg-violet-600',
-        text: 'text-violet-600',
-        icon: 'text-violet-400',
-        navActive: 'bg-violet-200 text-violet-900 font-bold shadow-sm',
-        navHover: 'hover:bg-violet-100 text-violet-700'
-    },
-    mint: {
-        sidebar: 'bg-emerald-50 text-emerald-900 border-r border-emerald-100',
-        accent: 'from-emerald-400 to-teal-500',
-        button: 'bg-emerald-500 hover:bg-emerald-600',
-        text: 'text-emerald-600',
-        icon: 'text-emerald-500',
-        navActive: 'bg-emerald-200 text-emerald-900 font-bold shadow-sm',
-        navHover: 'hover:bg-emerald-100 text-emerald-700'
-    },
-    sky: {
-        sidebar: 'bg-sky-50 text-sky-900 border-r border-sky-100',
-        accent: 'from-sky-400 to-blue-500',
-        button: 'bg-sky-500 hover:bg-sky-600',
-        text: 'text-sky-600',
-        icon: 'text-sky-500',
-        navActive: 'bg-sky-200 text-sky-900 font-bold shadow-sm',
-        navHover: 'hover:bg-sky-100 text-sky-700'
-    },
-    sakura: {
-        sidebar: 'bg-pink-50 text-pink-900 border-r border-pink-100',
-        accent: 'from-pink-400 to-rose-500',
-        button: 'bg-pink-500 hover:bg-pink-600',
-        text: 'text-pink-600',
-        icon: 'text-pink-400',
-        navActive: 'bg-pink-200 text-pink-900 font-bold shadow-sm',
-        navHover: 'hover:bg-pink-100 text-pink-700'
-    },
-    ivory: {
-        sidebar: 'bg-white text-slate-800 border-r border-slate-200',
-        accent: 'from-slate-400 to-slate-600',
-        button: 'bg-slate-700 hover:bg-slate-800',
-        text: 'text-slate-700',
-        icon: 'text-slate-400',
-        navActive: 'bg-slate-100 text-slate-900 font-bold shadow-sm',
-        navHover: 'hover:bg-slate-50 text-slate-600'
-    }
+    slate: { sidebar: 'bg-slate-900 text-slate-300', accent: 'from-slate-700 to-slate-900', button: 'bg-slate-900 hover:bg-slate-800', text: 'text-slate-600', icon: 'text-slate-400', navActive: 'bg-white/10 text-white font-bold', navHover: 'hover:bg-white/5 opacity-80' },
+    midnight: { sidebar: 'bg-black text-gray-400', accent: 'from-gray-800 to-black', button: 'bg-black hover:bg-gray-900', text: 'text-gray-600', icon: 'text-gray-400', navActive: 'bg-white/10 text-white font-bold', navHover: 'hover:bg-white/5 opacity-80' },
+    ocean: { sidebar: 'bg-blue-900 text-blue-200', accent: 'from-blue-600 to-blue-800', button: 'bg-blue-600 hover:bg-blue-700', text: 'text-blue-600', icon: 'text-blue-400', navActive: 'bg-white/10 text-white font-bold', navHover: 'hover:bg-white/5 opacity-80' },
+    forest: { sidebar: 'bg-emerald-900 text-emerald-100', accent: 'from-emerald-600 to-emerald-800', button: 'bg-emerald-600 hover:bg-emerald-700', text: 'text-emerald-600', icon: 'text-emerald-400', navActive: 'bg-white/10 text-white font-bold', navHover: 'hover:bg-white/5 opacity-80' },
+    sunset: { sidebar: 'bg-rose-900 text-rose-100', accent: 'from-rose-600 to-rose-800', button: 'bg-rose-600 hover:bg-rose-700', text: 'text-rose-600', icon: 'text-rose-400', navActive: 'bg-white/10 text-white font-bold', navHover: 'hover:bg-white/5 opacity-80' },
+    royal: { sidebar: 'bg-indigo-950 text-indigo-100', accent: 'from-indigo-600 to-purple-800', button: 'bg-indigo-700 hover:bg-indigo-800', text: 'text-indigo-700', icon: 'text-indigo-400', navActive: 'bg-white/10 text-white font-bold', navHover: 'hover:bg-white/5 opacity-80' },
+    teal: { sidebar: 'bg-teal-900 text-teal-100', accent: 'from-teal-600 to-cyan-800', button: 'bg-teal-700 hover:bg-teal-800', text: 'text-teal-700', icon: 'text-teal-500', navActive: 'bg-white/10 text-white font-bold', navHover: 'hover:bg-white/5 opacity-80' },
+    amber: { sidebar: 'bg-amber-950 text-amber-100', accent: 'from-amber-500 to-orange-700', button: 'bg-amber-700 hover:bg-amber-800', text: 'text-amber-700', icon: 'text-amber-500', navActive: 'bg-white/10 text-white font-bold', navHover: 'hover:bg-white/5 opacity-80' },
+    crimson: { sidebar: 'bg-red-950 text-red-100', accent: 'from-red-700 to-red-900', button: 'bg-red-800 hover:bg-red-900', text: 'text-red-800', icon: 'text-red-500', navActive: 'bg-white/10 text-white font-bold', navHover: 'hover:bg-white/5 opacity-80' },
+    pink: { sidebar: 'bg-fuchsia-900 text-fuchsia-100', accent: 'from-fuchsia-500 to-pink-700', button: 'bg-fuchsia-700 hover:bg-fuchsia-800', text: 'text-fuchsia-700', icon: 'text-fuchsia-400', navActive: 'bg-white/10 text-white font-bold', navHover: 'hover:bg-white/5 opacity-80' },
+    lavender: { sidebar: 'bg-violet-50 text-violet-900 border-r border-violet-100', accent: 'from-violet-400 to-violet-600', button: 'bg-violet-500 hover:bg-violet-600', text: 'text-violet-600', icon: 'text-violet-400', navActive: 'bg-violet-200 text-violet-900 font-bold shadow-sm', navHover: 'hover:bg-violet-100 text-violet-700' },
+    mint: { sidebar: 'bg-emerald-50 text-emerald-900 border-r border-emerald-100', accent: 'from-emerald-400 to-teal-500', button: 'bg-emerald-500 hover:bg-emerald-600', text: 'text-emerald-600', icon: 'text-emerald-500', navActive: 'bg-emerald-200 text-emerald-900 font-bold shadow-sm', navHover: 'hover:bg-emerald-100 text-emerald-700' },
+    sky: { sidebar: 'bg-sky-50 text-sky-900 border-r border-sky-100', accent: 'from-sky-400 to-blue-500', button: 'bg-sky-500 hover:bg-sky-600', text: 'text-sky-600', icon: 'text-sky-500', navActive: 'bg-sky-200 text-sky-900 font-bold shadow-sm', navHover: 'hover:bg-sky-100 text-sky-700' },
+    sakura: { sidebar: 'bg-pink-50 text-pink-900 border-r border-pink-100', accent: 'from-pink-400 to-rose-500', button: 'bg-pink-500 hover:bg-pink-600', text: 'text-pink-600', icon: 'text-pink-400', navActive: 'bg-pink-200 text-pink-900 font-bold shadow-sm', navHover: 'hover:bg-pink-100 text-pink-700' },
+    ivory: { sidebar: 'bg-white text-slate-800 border-r border-slate-200', accent: 'from-slate-400 to-slate-600', button: 'bg-slate-700 hover:bg-slate-800', text: 'text-slate-700', icon: 'text-slate-400', navActive: 'bg-slate-100 text-slate-900 font-bold shadow-sm', navHover: 'hover:bg-slate-50 text-slate-600' }
 };
+
+// --- DATA MIGRATION & CALCULATION UTILS ---
+
+/**
+ * Ensures an investment object has the new Transaction structure.
+ * Converts legacy snapshot data to transaction history.
+ */
+export const migrateInvestmentData = (item: any): Investment => {
+    // If already has transactions, just return (maybe recalculate to be safe)
+    if (item.transactions && Array.isArray(item.transactions) && item.transactions.length > 0) {
+        return recalculateInvestmentState(item);
+    }
+
+    // Create Initial Buy Transaction from legacy fields
+    const transactions: Transaction[] = [];
+    
+    // 1. Initial Deposit
+    transactions.push({
+        id: crypto.randomUUID(),
+        date: item.depositDate,
+        type: 'Buy',
+        amount: Number(item.principal),
+        quantity: item.quantity,
+        price: item.quantity ? Number(item.principal) / Number(item.quantity) : undefined,
+        notes: 'Initial Deposit (Migrated)'
+    });
+
+    // 2. Withdrawal (if exists) -> Sell Transaction
+    if (item.withdrawalDate) {
+        transactions.push({
+            id: crypto.randomUUID(),
+            date: item.withdrawalDate,
+            type: 'Sell',
+            amount: Number(item.principal), // Assuming full withdrawal in legacy model
+            quantity: item.quantity, // Assuming full exit
+            notes: 'Full Withdrawal (Migrated)'
+        });
+        
+        // Legacy 'realizedReturn' was stored separately. 
+        // In new model, profit is calculated from Sell Price vs Buy Cost.
+        // But for migration simplicity, we might add a 'Dividend' type or just rely on the 
+        // fact that we store 'realizedReturn' on the object for now.
+    }
+
+    const newItem: Investment = {
+        ...item,
+        transactions,
+        // Initialize computed fields (will be overwritten by recalculate)
+        currentPrincipal: 0,
+        totalCost: 0,
+        totalRealizedProfit: 0,
+        currentQuantity: 0
+    };
+
+    return recalculateInvestmentState(newItem);
+};
+
+/**
+ * Re-runs the ledger of transactions to calculate current state.
+ * Call this whenever a transaction is added/edited/removed.
+ */
+export const recalculateInvestmentState = (item: Investment): Investment => {
+    let currentPrincipal = 0;
+    let currentQuantity = 0;
+    let totalCost = 0;
+    let totalRealizedProfit = 0;
+
+    // Sort transactions by date
+    const sortedTxs = [...(item.transactions || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    for (const tx of sortedTxs) {
+        if (tx.type === 'Buy') {
+            currentPrincipal += tx.amount;
+            totalCost += tx.amount;
+            if (tx.quantity) currentQuantity += tx.quantity;
+        } else if (tx.type === 'Sell') {
+            // Simple FIFO or Avg Cost logic is complex. 
+            // For Phase 1: simple subtraction
+            currentPrincipal -= tx.amount; 
+            if (tx.quantity) currentQuantity -= tx.quantity;
+            
+            // Note: In a real system, we'd calc realized profit here based on cost basis.
+            // For Phase 1, we still rely on the 'realizedReturn' field for the financial math,
+            // or we treat 'Sell Amount' as Principal return.
+            
+        } else if (tx.type === 'Dividend') {
+            totalRealizedProfit += tx.amount;
+        }
+    }
+
+    // Prevent negative float errors
+    currentPrincipal = Math.max(0, currentPrincipal);
+    currentQuantity = Math.max(0, currentQuantity);
+
+    return {
+        ...item,
+        transactions: sortedTxs,
+        currentPrincipal,
+        currentQuantity,
+        totalCost,
+        totalRealizedProfit, // Note: This might need to merge with legacy realizedReturn
+        principal: currentPrincipal, // Sync legacy field for UI compatibility
+        quantity: currentQuantity    // Sync legacy field for UI compatibility
+    };
+};
+
 
 export const formatDate = (dateStr: string | null): string => {
   if (!dateStr) return '-';
@@ -177,207 +160,152 @@ export const getDaysRemaining = (targetDate: string): number => {
   return Math.round((target - today) / MS_PER_DAY);
 };
 
-// Convert any amount from source currency to target currency using DYNAMIC rates
 export const convertCurrency = (amount: number, from: Currency, to: Currency, rates: ExchangeRates): number => {
     if (from === to) return amount;
-    // Convert to CNY base then to target
     const inCNY = amount * rates[from];
     return inCNY / rates[to];
 };
 
-// Calculate estimated DAILY return (for Today's Est. Profit)
 export const calculateDailyReturn = (item: Investment): number => {
-    // 1. Pending: No return
     const todayStart = new Date().setHours(0,0,0,0);
     const depositStart = new Date(item.depositDate).setHours(0,0,0,0);
     if (todayStart < depositStart) return 0;
-    
-    // 2. Completed: No daily return (it's finished)
     if (item.withdrawalDate) return 0;
 
-    // 3. Floating (Fund/Stock): Based on estGrowth (today's change)
+    // Use currentPrincipal (calculated from txs) instead of raw principal
+    const activePrincipal = item.currentPrincipal; 
+
     if (item.type === 'Floating') {
-        if (item.estGrowth && item.principal > 0) {
-            // estGrowth is percent (e.g., 1.5 for 1.5%)
-            // UPDATE: Use Current Market Value (Principal + Returns) for more accurate daily P&L
-            const currentTotalValue = item.principal + (item.currentReturn || 0);
-            
-            // If we have negative return eating into principal, value could be < principal. 
-            // If value < 0 (unlikely unless leveraged), clamp to 0.
+        if (item.estGrowth && activePrincipal > 0) {
+            const currentTotalValue = activePrincipal + (item.currentReturn || 0);
             const baseValue = Math.max(0, currentTotalValue);
-            
             return baseValue * (item.estGrowth / 100);
         }
         return 0;
     }
 
-    // 4. Fixed Income: Principal * (Rate/100) / 365
     if (item.type === 'Fixed' && item.expectedRate) {
-        return item.principal * (item.expectedRate / 100) / 365;
+        return activePrincipal * (item.expectedRate / 100) / 365;
     }
 
     return 0;
 };
 
-// Calculate metrics for a single investment
 export const calculateItemMetrics = (item: Investment) => {
   const now = new Date();
-  // Reset time part for date-only comparison
   const todayStart = new Date().setHours(0,0,0,0);
-  
   const deposit = new Date(item.depositDate);
   const depositStart = new Date(item.depositDate).setHours(0,0,0,0);
-
   const maturity = item.maturityDate ? new Date(item.maturityDate) : null;
   const withdrawal = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
   const isCompleted = !!item.withdrawalDate;
-
-  // New Status Logic: Pending Entry (未入金) if Today < Deposit Date
   const isPending = todayStart < depositStart;
 
-  // Determine Duration
+  // Use Computed Fields from Transactions
+  const activePrincipal = item.currentPrincipal; 
+  const currentQuantity = item.currentQuantity || 0;
+
   let occupiedDurationMs = 0;
-  
   if (!isPending) {
       if (isCompleted && withdrawal) {
           occupiedDurationMs = withdrawal.getTime() - deposit.getTime();
       } else {
-          // For active items, duration is time held so far
           occupiedDurationMs = now.getTime() - deposit.getTime();
       }
   }
-
-  // Ensure non-negative duration
   occupiedDurationMs = Math.max(0, occupiedDurationMs);
-  
-  // Real Duration in Days (min 0)
   const realDurationDays = Math.round(occupiedDurationMs / MS_PER_DAY);
   
   let baseInterest = 0;
-  let annualizedYield = 0; // The Year-over-Year %
-  let holdingYield = 0; // The Absolute Return %
+  let annualizedYield = 0;
+  let holdingYield = 0;
   let hasYieldInfo = true;
-  let accruedReturn = 0; // Est. return as of TODAY for fixed items
+  let accruedReturn = 0;
 
+  // Logic adapted to use activePrincipal
   if (isPending) {
-      // Pending state: No returns calculated yet
-      hasYieldInfo = true; // Show expected if available
+      hasYieldInfo = true;
       if (item.type === 'Fixed' && item.expectedRate) {
            annualizedYield = item.expectedRate;
       }
-      // Everything else 0
   } else if (isCompleted && item.realizedReturn !== undefined) {
-      // 1. Completed Item (Realized)
-      // Strict calculation based on Realized Return and Actual Duration (Withdrawal - Deposit)
-      baseInterest = item.realizedReturn;
-      if (item.principal > 0) {
-        holdingYield = (baseInterest / item.principal) * 100;
+      baseInterest = item.realizedReturn + item.totalRealizedProfit; // Legacy + New Txs
+      
+      // Note: For completed items, principal is 0. 
+      // We use 'totalCost' or legacy 'principal' to calculate yield base?
+      // For migration safety, we use the original invested amount which we might track as totalCost
+      const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
+      
+      if (calcBase > 0) {
+        holdingYield = (baseInterest / calcBase) * 100;
         if (realDurationDays > 0) {
             annualizedYield = (holdingYield / (realDurationDays / 365));
         }
       }
 
   } else if (item.type === 'Fixed' && item.expectedRate) {
-      // 2. Fixed Income with Rate (Active)
-      // Display as "Expected Annualized"
       const rate = item.expectedRate;
       annualizedYield = rate;
       
-      // Calculate Projected Total Earnings at Maturity (for specific use cases if needed)
       if (maturity) {
           const fullTermMs = maturity.getTime() - deposit.getTime();
           const fullTermDays = Math.max(1, Math.round(fullTermMs / MS_PER_DAY));
-          // Calculate potential return at end of term
-          baseInterest = item.principal * (rate / 100) * (fullTermDays / 365);
+          baseInterest = activePrincipal * (rate / 100) * (fullTermDays / 365);
       }
       
-      // Calculate Accrued Interest (As of Today)
-      // Duration So Far: Today - Deposit (Already in realDurationDays)
-      accruedReturn = item.principal * (rate / 100) * (realDurationDays / 365);
+      accruedReturn = activePrincipal * (rate / 100) * (realDurationDays / 365);
       
-      if (item.principal > 0 && maturity) {
-         holdingYield = (baseInterest / item.principal) * 100; // Projected absolute return at maturity
+      if (activePrincipal > 0 && maturity) {
+         holdingYield = (baseInterest / activePrincipal) * 100;
       }
 
   } else if (item.type === 'Floating') {
-      // 3. Floating / Non-Fixed
       if (item.currentReturn !== undefined) {
-          // Manually entered current return (Active)
           baseInterest = item.currentReturn;
-          if (item.principal > 0) {
-            holdingYield = (baseInterest / item.principal) * 100;
-            
-            // Extrapolate annualized (Current Return / Current Duration * 365)
+          if (activePrincipal > 0) {
+            holdingYield = (baseInterest / activePrincipal) * 100;
             if (realDurationDays > 0) {
                 annualizedYield = (holdingYield / (realDurationDays / 365));
             }
           }
       } else if (item.expectedRate) {
-           // Treated as estimate if no current return entered
            const rate = item.expectedRate;
            annualizedYield = rate;
-           // Estimate accrued based on duration so far
-           baseInterest = item.principal * (rate / 100) * (realDurationDays / 365);
-           if (item.principal > 0) holdingYield = (baseInterest / item.principal) * 100;
+           baseInterest = activePrincipal * (rate / 100) * (realDurationDays / 365);
+           if (activePrincipal > 0) holdingYield = (baseInterest / activePrincipal) * 100;
       } else {
           hasYieldInfo = false;
-          baseInterest = 0;
-          annualizedYield = 0;
-          holdingYield = 0;
       }
   } else {
-      // Fallback
       hasYieldInfo = false;
-      baseInterest = 0;
-      annualizedYield = 0;
-      holdingYield = 0;
   }
   
   const totalReturn = baseInterest + item.rebate;
-
-  // Comprehensive Yield is the "Annualized Total Return" including Rebates
   let comprehensiveYield = 0;
-  if (!isPending && (hasYieldInfo || item.rebate > 0) && realDurationDays > 0 && item.principal > 0) {
-      // For Active Fixed items, use accrued return for comprehensive yield calc? 
-      // Usually users want to see "Expected Yield" which includes fixed rate + rebate annualized over full term.
-      // But for Completed items, we use realized.
-      // Let's stick to:
-      // - Completed: Realized / Duration
-      // - Active Fixed: Expected Rate + (Rebate annualized over CURRENT duration)
-      // - Active Floating: Current Return / Duration
-      
+  
+  // Use totalCost for completed, activePrincipal for active
+  const yieldBase = isCompleted ? item.totalCost : activePrincipal;
+
+  if (!isPending && (hasYieldInfo || item.rebate > 0) && realDurationDays > 0 && yieldBase > 0) {
       if (item.type === 'Fixed' && !isCompleted && item.expectedRate) {
-          // Special case for Active Fixed: Base is rate, rebate is extra
-          // Rebate annualized over current duration so far
-          const rebateYield = (item.rebate / item.principal) * 100 / (realDurationDays / 365);
+          const rebateYield = (item.rebate / yieldBase) * 100 / (realDurationDays / 365);
           comprehensiveYield = item.expectedRate + rebateYield;
       } else {
-          // Standard calculation
-          const totalHoldingYield = ((isCompleted ? item.realizedReturn! : baseInterest) + item.rebate) / item.principal * 100;
+          const totalHoldingYield = ((isCompleted ? (item.realizedReturn! + item.totalRealizedProfit) : baseInterest) + item.rebate) / yieldBase * 100;
           comprehensiveYield = totalHoldingYield / (realDurationDays / 365);
       }
-      
   } else if (isPending && item.type === 'Fixed' && item.expectedRate) {
       comprehensiveYield = item.expectedRate; 
   }
 
-  // Profit displayed in list: 
-  // - Completed: Realized + Rebate
-  // - Floating: Current + Rebate
-  // - Fixed Active: Usually user expects "Accrued" or "Expected at Maturity".
-  // Let's standardize on "Value Gained So Far" for Active, "Final Value" for Completed.
-  // Exception: Fixed lists often show "Expected Total" visually.
   const profit = totalReturn; 
   
-  // Unit Price Calculations (Funds/Stocks)
   let unitCost = 0;
   let currentPrice = 0;
-  if (item.quantity && item.quantity > 0) {
-      unitCost = item.principal / item.quantity;
-      // Current Value = Principal + (Realized/Current Return) + Rebate
-      // Note: Usually rebate is cash back, not part of NAV, but here we treat it as total return
-      const currentTotalValue = item.principal + (isCompleted ? baseInterest : (item.currentReturn || accruedReturn));
-      currentPrice = currentTotalValue / item.quantity;
+  if (currentQuantity && currentQuantity > 0) {
+      unitCost = activePrincipal / currentQuantity;
+      const currentTotalValue = activePrincipal + (isCompleted ? baseInterest : (item.currentReturn || accruedReturn));
+      currentPrice = currentTotalValue / currentQuantity;
   }
 
   return {
@@ -387,15 +315,15 @@ export const calculateItemMetrics = (item: Investment) => {
     profit,
     realDurationDays,
     annualizedYield,
-    holdingYield, // Absolute %
-    comprehensiveYield, // Annualized %
-    accruedReturn, // New: Return as of today for Fixed Active
+    holdingYield,
+    comprehensiveYield,
+    accruedReturn,
     isCompleted,
-    isPending, // New Status
+    isPending,
     hasYieldInfo,
     daysRemaining: item.maturityDate ? getDaysRemaining(item.maturityDate) : 0,
-    unitCost, // New
-    currentPrice // New
+    unitCost,
+    currentPrice
   };
 };
 
@@ -407,8 +335,8 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   let pendingRebate = 0;
   let receivedRebate = 0;
   let realizedInterest = 0;
-  let projectedTotalProfit = 0; // Accumulator for total profit (Realized + Projected)
-  let todayEstProfit = 0; // New: Today's Estimated Profit (Daily)
+  let projectedTotalProfit = 0;
+  let todayEstProfit = 0;
   
   let weightedYieldSum = 0;
   let totalWeight = 0;
@@ -416,21 +344,17 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   items.forEach(item => {
     const metrics = calculateItemMetrics(item);
     
-    totalInvested += item.principal;
+    // Note: Use item.totalCost or item.currentPrincipal? 
+    // totalInvested implies historical sum.
+    totalInvested += item.totalCost; 
     totalRebate += item.rebate;
     
-    // Summing up total estimated profit from all sources
-    // UPDATED LOGIC: For Active Fixed items, use Accrued (Current) Return instead of Full Maturity Return
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
-        // ONLY count accrued return up to today for unfinished fixed items
         projectedTotalProfit += (metrics.accruedReturn + item.rebate);
     } else {
-        // Floating (already current), Completed (realized), Pending (rebate only)
-        // For floating, 'metrics.profit' is derived from currentReturn + rebate
         projectedTotalProfit += metrics.profit;
     }
     
-    // Calculate Today's Profit
     if (!metrics.isCompleted) {
         todayEstProfit += calculateDailyReturn(item);
     }
@@ -442,22 +366,20 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     }
 
     if (metrics.isCompleted) {
-      completedPrincipal += item.principal;
+      completedPrincipal += item.totalCost; // Use totalCost for completed
       realizedInterest += metrics.baseInterest;
     } else {
-      activePrincipal += item.principal;
+      activePrincipal += item.currentPrincipal; // Use currentPrincipal for active
     }
 
-    // Only weight yields that make sense (exclude crazy outliers from short duration)
-    // Exclude Pending items from yield calc as duration is 0
     if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0) && metrics.comprehensiveYield > -100 && metrics.comprehensiveYield < 1000) { 
-        weightedYieldSum += metrics.comprehensiveYield * item.principal;
-        totalWeight += item.principal;
+        // Weight by active principal for accurate portfolio yield
+        const weight = metrics.isCompleted ? item.totalCost : item.currentPrincipal;
+        weightedYieldSum += metrics.comprehensiveYield * weight;
+        totalWeight += weight;
     }
   });
   
-  // Calculate Projected Total Yield
-  // (Total Profit / Total Invested) * 100
   const projectedTotalYield = totalInvested > 0 ? (projectedTotalProfit / totalInvested) * 100 : 0;
 
   return {
@@ -470,31 +392,26 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     realizedInterest,
     projectedTotalProfit,
     projectedTotalYield,
-    todayEstProfit, // New Field
+    todayEstProfit,
     comprehensiveYield: totalWeight > 0 ? weightedYieldSum / totalWeight : 0
   };
 };
 
-// New Helper: Calculate Total Net Worth Value in Target Currency using DYNAMIC rates
 export const calculateTotalValuation = (items: Investment[], targetCurrency: Currency, rates: ExchangeRates) => {
     let totalValuation = 0;
 
     items.forEach(item => {
         const metrics = calculateItemMetrics(item);
-        
-        let value = item.principal;
+        let value = item.currentPrincipal; // Start with active principal
 
         if (metrics.isCompleted) {
             value += metrics.totalReturn;
         } else if (metrics.isPending) {
-            value = item.principal; // Just the committed amount
+            value = item.currentPrincipal; 
         } else {
-            // Active
             if (item.type === 'Fixed') {
-                 // UPDATED LOGIC: Use Accrued Return for Fixed Active items to reflect current net worth
                  value += metrics.accruedReturn + item.rebate;
             } else {
-                 // Floating items: metrics.totalReturn is already based on currentReturn or time-based accrual
                  if (metrics.hasYieldInfo || item.currentReturn) {
                     value += metrics.totalReturn; 
                  } else {
@@ -502,27 +419,22 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
                  }
             }
         }
-
         totalValuation += convertCurrency(value, item.currency, targetCurrency, rates);
     });
 
     return totalValuation;
 };
 
+// ... [filterInvestmentsByTime, formatCurrency, formatPercent remain unchanged] ...
 export const filterInvestmentsByTime = (items: Investment[], filter: TimeFilter, customStart?: string, customEnd?: string): Investment[] => {
     if (filter === 'all') return items;
-    
     const now = new Date();
-    // Use setHours to normalize today comparisons
     const today = new Date();
     today.setHours(0,0,0,0);
     
     return items.filter(item => {
-        // Fix: Ensure we parse the string YYYY-MM-DD correctly in local time context or consistently
         const d = new Date(item.depositDate); 
-        // Normalize time to midnight for fair comparison
         d.setHours(0,0,0,0);
-        
         switch (filter) {
             case '1m': return d >= new Date(new Date().setMonth(now.getMonth() - 1));
             case '3m': return d >= new Date(new Date().setMonth(now.getMonth() - 3));
@@ -532,13 +444,10 @@ export const filterInvestmentsByTime = (items: Investment[], filter: TimeFilter,
             case 'ytd': return d >= new Date(now.getFullYear(), 0, 1);
             case 'custom': 
                 if (customStart && customEnd) {
-                    // Force start of day / end of day
                     const start = new Date(customStart);
                     start.setHours(0,0,0,0);
-                    
                     const end = new Date(customEnd);
                     end.setHours(23,59,59,999);
-                    
                     return d >= start && d <= end;
                 }
                 return true;
