@@ -34,20 +34,13 @@ export const THEMES: Record<ThemeOption, ThemeConfig> = {
 
 // --- DATA MIGRATION & CALCULATION UTILS ---
 
-/**
- * Ensures an investment object has the new Transaction structure.
- * Converts legacy snapshot data to transaction history.
- */
 export const migrateInvestmentData = (item: any): Investment => {
-    // If already has transactions, just return (maybe recalculate to be safe)
     if (item.transactions && Array.isArray(item.transactions) && item.transactions.length > 0) {
         return recalculateInvestmentState(item);
     }
 
-    // Create Initial Buy Transaction from legacy fields
     const transactions: Transaction[] = [];
     
-    // 1. Initial Deposit
     transactions.push({
         id: self.crypto.randomUUID(),
         date: item.depositDate,
@@ -58,14 +51,13 @@ export const migrateInvestmentData = (item: any): Investment => {
         notes: 'Initial Deposit (Migrated)'
     });
 
-    // 2. Withdrawal (if exists) -> Sell Transaction
     if (item.withdrawalDate) {
         transactions.push({
             id: self.crypto.randomUUID(),
             date: item.withdrawalDate,
             type: 'Sell',
-            amount: Number(item.principal), // Assuming full withdrawal in legacy model
-            quantity: item.quantity, // Assuming full exit
+            amount: Number(item.principal),
+            quantity: item.quantity,
             notes: 'Full Withdrawal (Migrated)'
         });
     }
@@ -73,7 +65,6 @@ export const migrateInvestmentData = (item: any): Investment => {
     const newItem: Investment = {
         ...item,
         transactions,
-        // Initialize computed fields (will be overwritten by recalculate)
         currentPrincipal: 0,
         totalCost: 0,
         totalRealizedProfit: 0,
@@ -84,37 +75,60 @@ export const migrateInvestmentData = (item: any): Investment => {
 };
 
 /**
- * Re-runs the ledger of transactions to calculate current state.
- * Call this whenever a transaction is added/edited/removed.
+ * Phase 3 Upgrade: Weighted Average Cost (AVCO) Support
  */
 export const recalculateInvestmentState = (item: Investment): Investment => {
-    let currentPrincipal = 0;
+    let currentPrincipal = 0; // Represents "Cost Basis" for Floating, or "Principal Balance" for Fixed
     let currentQuantity = 0;
-    let totalCost = 0;
+    let totalCost = 0; // Cumulative invested amount
     let totalRealizedProfit = 0;
 
-    // Sort transactions by date
     const sortedTxs = [...(item.transactions || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     for (const tx of sortedTxs) {
+        const amount = Number(tx.amount) || 0;
+        const qty = Number(tx.quantity) || 0;
+
         if (tx.type === 'Buy') {
-            currentPrincipal += tx.amount;
-            totalCost += tx.amount;
-            if (tx.quantity) currentQuantity += tx.quantity;
-        } else if (tx.type === 'Sell') {
-            // Simple FIFO or Avg Cost logic is complex. 
-            // For Phase 1: simple subtraction
-            currentPrincipal -= tx.amount; 
-            if (tx.quantity) currentQuantity -= tx.quantity;
+            // Buy/Add Position
+            currentPrincipal += amount;
+            totalCost += amount;
+            if (qty) currentQuantity += qty;
             
+        } else if (tx.type === 'Sell') {
+            // Sell/Reduce Position/Withdraw
+            
+            if (item.type === 'Floating' && currentQuantity > 0 && qty > 0) {
+                // Floating AVCO Logic:
+                // Cost of Sold = (Current Basis / Current Qty) * Sold Qty
+                const avgCostPerUnit = currentPrincipal / currentQuantity;
+                const costOfSold = avgCostPerUnit * qty;
+                
+                // Realized Profit = Sold Amount (Revenue) - Cost Basis of Sold
+                const realizedTxProfit = amount - costOfSold;
+                
+                totalRealizedProfit += realizedTxProfit;
+                currentPrincipal -= costOfSold; // Reduce Basis
+                currentQuantity -= qty; // Reduce Qty
+                
+            } else {
+                // Fixed Income (Withdrawal) OR Floating without Qty
+                // Simply reduce principal/basis. No immediate profit realized here for Fixed 
+                // (unless we explicitly track interest, which is usually Dividend type).
+                // For simplicity, Fixed 'Sell' = Principal Withdrawal.
+                currentPrincipal -= amount;
+                if (qty) currentQuantity -= qty;
+            }
+
         } else if (tx.type === 'Dividend') {
-            totalRealizedProfit += tx.amount;
+            totalRealizedProfit += amount;
         }
     }
 
-    // Prevent negative float errors
-    currentPrincipal = Math.max(0, currentPrincipal);
-    currentQuantity = Math.max(0, currentQuantity);
+    // Rounding to prevent float errors
+    currentPrincipal = Math.max(0, Number(currentPrincipal.toFixed(4)));
+    currentQuantity = Math.max(0, Number(currentQuantity.toFixed(4)));
+    totalRealizedProfit = Number(totalRealizedProfit.toFixed(4));
 
     return {
         ...item,
@@ -123,8 +137,8 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
         currentQuantity,
         totalCost,
         totalRealizedProfit, 
-        principal: currentPrincipal, // Sync legacy field for UI compatibility
-        quantity: currentQuantity    // Sync legacy field for UI compatibility
+        principal: currentPrincipal, // Sync legacy
+        quantity: currentQuantity    // Sync legacy
     };
 };
 
@@ -177,11 +191,13 @@ export const calculateDailyReturn = (item: Investment): number => {
     if (todayStart < depositStart) return 0;
     if (item.withdrawalDate) return 0;
 
-    // Use currentPrincipal (calculated from txs)
     const activePrincipal = item.currentPrincipal; 
 
     if (item.type === 'Floating') {
         if (item.estGrowth && activePrincipal > 0) {
+            // Daily Return = Current Market Value * Change%
+            // Market Value = Basis + Unrealized P&L. 
+            // Simplified: (Principal + TotalReturns) * Change%
             const currentTotalValue = activePrincipal + (item.currentReturn || 0);
             const baseValue = Math.max(0, currentTotalValue);
             return baseValue * (item.estGrowth / 100);
@@ -206,7 +222,6 @@ export const calculateItemMetrics = (item: Investment) => {
   const isCompleted = !!item.withdrawalDate;
   const isPending = todayStart < depositStart;
 
-  // Use Computed Fields from Transactions
   const activePrincipal = item.currentPrincipal; 
   const currentQuantity = item.currentQuantity || 0;
 
@@ -233,7 +248,6 @@ export const calculateItemMetrics = (item: Investment) => {
            annualizedYield = item.expectedRate;
       }
   } else if (isCompleted && item.realizedReturn !== undefined) {
-      // For completed, baseInterest implies Total Realized Gain
       baseInterest = item.realizedReturn + item.totalRealizedProfit; 
       
       const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
@@ -263,7 +277,6 @@ export const calculateItemMetrics = (item: Investment) => {
 
   } else if (item.type === 'Floating') {
       if (item.currentReturn !== undefined) {
-          // For floating, total return usually means unrealized P&L + realized dividends
           baseInterest = item.currentReturn; 
           const totalValueChange = item.currentReturn + item.totalRealizedProfit;
           
@@ -285,11 +298,6 @@ export const calculateItemMetrics = (item: Investment) => {
       hasYieldInfo = false;
   }
   
-  // Total Return displayed in UI: Base Interest + Rebate
-  // For completed: (Realized Gain + Dividends) + Rebate
-  // For Fixed Active: (Maturity Interest) + Rebate  [Note: this is projected]
-  // For Floating Active: (Unrealized P&L) + Rebate [Note: we typically add realized dividends to holding yield but maybe not to 'totalReturn' if that means 'unrealized']
-  // Let's standardize: totalReturn = Value Gain + Cash Received
   const totalReturn = baseInterest + item.rebate + (!isCompleted && item.type === 'Floating' ? item.totalRealizedProfit : 0);
   
   let comprehensiveYield = 0;
@@ -300,7 +308,6 @@ export const calculateItemMetrics = (item: Investment) => {
           const rebateYield = (item.rebate / yieldBase) * 100 / (realDurationDays / 365);
           comprehensiveYield = item.expectedRate + rebateYield;
       } else {
-          // Re-calc yield based on total return
           const yieldVal = (totalReturn / yieldBase) * 100;
           comprehensiveYield = yieldVal / (realDurationDays / 365);
       }
@@ -357,16 +364,11 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     totalInvested += item.totalCost; 
     totalRebate += item.rebate;
     
-    // 1. Projected/Total Profit Calculation
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
-        // For Active Fixed: Accrued Interest + Rebate + Realized Dividends
         projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
     } else if (!metrics.isCompleted && item.type === 'Floating') {
-        // For Active Floating: Unrealized P&L + Rebate + Realized Dividends
-        // metrics.profit currently includes currentReturn + rebate + totalRealizedProfit (via update above)
         projectedTotalProfit += metrics.profit;
     } else {
-        // Completed: Total Profit
         projectedTotalProfit += metrics.profit;
     }
     
@@ -380,13 +382,11 @@ export const calculatePortfolioStats = (items: Investment[]) => {
       pendingRebate += item.rebate;
     }
 
-    // 2. Realized Interest (Pocketed) Calculation
     if (metrics.isCompleted) {
       completedPrincipal += item.totalCost;
-      realizedInterest += metrics.baseInterest; // Base Interest includes Realized Return + Total Dividends
+      realizedInterest += metrics.baseInterest;
     } else {
       activePrincipal += item.currentPrincipal;
-      // CRITICAL FIX: Add dividends from ACTIVE investments to Realized Interest
       realizedInterest += item.totalRealizedProfit;
     }
 
@@ -414,13 +414,12 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   };
 };
 
-// ... [calculateTotalValuation, filterInvestmentsByTime, formatCurrency, formatPercent remain unchanged] ...
 export const calculateTotalValuation = (items: Investment[], targetCurrency: Currency, rates: ExchangeRates) => {
     let totalValuation = 0;
 
     items.forEach(item => {
         const metrics = calculateItemMetrics(item);
-        let value = item.currentPrincipal; // Start with active principal
+        let value = item.currentPrincipal;
 
         if (metrics.isCompleted) {
             value += metrics.totalReturn;
@@ -428,14 +427,10 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
             value = item.currentPrincipal; 
         } else {
             if (item.type === 'Fixed') {
-                 // For valuation: Principal + Accrued + Rebate + Dividends(Cash out? No, Valuation usually means current asset value)
-                 // If Dividends are "Cash Out", they are not part of the current asset value held.
-                 // But they are part of Net Worth if we consider them in a cash account.
-                 // Since we don't track a separate cash account, we add them to Total Worth for now.
                  value += metrics.accruedReturn + item.rebate + item.totalRealizedProfit;
             } else {
                  if (metrics.hasYieldInfo || item.currentReturn) {
-                    value += metrics.totalReturn; // totalReturn now includes dividends for floating
+                    value += metrics.totalReturn; 
                  } else {
                     value += item.rebate;
                  }
@@ -450,8 +445,6 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
 export const filterInvestmentsByTime = (items: Investment[], filter: TimeFilter, customStart?: string, customEnd?: string): Investment[] => {
     if (filter === 'all') return items;
     const now = new Date();
-    const today = new Date();
-    today.setHours(0,0,0,0);
     
     return items.filter(item => {
         const d = new Date(item.depositDate); 
