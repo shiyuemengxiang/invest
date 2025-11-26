@@ -212,6 +212,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                         let displayYield = 'N/A';
                         let displayYieldLabel = '收益率';
                         let yieldColorClass = 'text-slate-300';
+                        let yieldBasisNote = '';
 
                         if (metrics.isPending) {
                             displayYield = formatPercent(metrics.annualizedYield);
@@ -225,12 +226,18 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                             displayYield = formatPercent(metrics.holdingYield);
                             displayYieldLabel = '持仓收益率';
                             yieldColorClass = metrics.holdingYield > 0 ? 'text-indigo-600' : 'text-slate-500';
+                            if (item.category === 'Fund') yieldBasisNote = '(基于NAV)';
                         } else {
                             displayYield = formatPercent(metrics.annualizedYield);
                             displayYieldLabel = '预计年化';
                             yieldColorClass = metrics.annualizedYield > 0 ? 'text-indigo-600' : 'text-slate-500';
                         }
                         
+                        // Calculate Est Price for Funds
+                        const estPrice = item.category === 'Fund' && item.estGrowth !== undefined 
+                            ? metrics.currentPrice * (1 + item.estGrowth / 100)
+                            : undefined;
+
                         return (
                             <Draggable 
                                 key={item.id} 
@@ -367,9 +374,16 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                             <div className="space-y-1">
                                             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Yield</p>
                                             <div className="flex flex-col">
-                                                    <span className={`font-bold text-sm ${yieldColorClass}`}>
-                                                        {displayYield}
-                                                    </span>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`font-bold text-sm ${yieldColorClass}`}>
+                                                            {displayYield}
+                                                        </span>
+                                                        {yieldBasisNote && (
+                                                            <span className="text-[10px] text-red-500 bg-red-50 px-1 rounded border border-red-100 whitespace-nowrap">
+                                                                {yieldBasisNote}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     <span className="text-[10px] text-slate-400">
                                                         {displayYieldLabel}
                                                     </span>
@@ -402,16 +416,25 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                     </p>
                                                 </div>
 
-                                                {/* 4. Est. Valuation (Change % Only) */}
+                                                {/* 4. Est. Valuation (Price & Change %) */}
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
                                                         {item.category === 'Fund' ? '实时估值 (Est)' : 'Today\'s Change'}
                                                     </p>
                                                     
                                                     {item.estGrowth !== undefined ? (
-                                                        <div className={`flex items-center gap-1 w-fit px-1.5 py-0.5 rounded ${item.estGrowth >= 0 ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                                                            <span className="text-[9px] opacity-75 font-bold scale-90">估</span>
-                                                            <span className="text-[10px] font-bold font-mono">{item.estGrowth >= 0 ? '+' : ''}{item.estGrowth}%</span>
+                                                        <div className="flex flex-col gap-1">
+                                                            {/* Show Est Price for Funds */}
+                                                            {estPrice && (
+                                                                <span className={`font-mono text-xs font-bold ${item.estGrowth >= 0 ? 'text-orange-400' : 'text-emerald-400'}`}>
+                                                                    {formatCurrency(estPrice, item.currency)}
+                                                                </span>
+                                                            )}
+                                                            
+                                                            <div className={`flex items-center gap-1 w-fit px-1.5 py-0.5 rounded ${item.estGrowth >= 0 ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                                                <span className="text-[9px] opacity-75 font-bold scale-90">估</span>
+                                                                <span className="text-[10px] font-bold font-mono">{item.estGrowth >= 0 ? '+' : ''}{item.estGrowth}%</span>
+                                                            </div>
                                                         </div>
                                                     ) : (
                                                         item.isAutoQuote ? (
@@ -423,7 +446,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                         )
                                                     )}
                                                     
-                                                    {item.isAutoQuote && (
+                                                    {item.isAutoQuote && item.estGrowth === undefined && (
                                                          <div className="text-[9px] text-slate-400 mt-0.5">Cloud Auto ☁️</div>
                                                     )}
                                                 </div>
