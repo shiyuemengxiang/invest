@@ -57,14 +57,16 @@ export default async function handler(request: any, response: any) {
         }
 
         // 2. CN Funds (EastMoney fundgz): 6 digits (e.g. 320007)
+        // Strict check to ensure it's a 6-digit number string
         if (/^\d{6}$/.test(symbol)) {
             try {
                 // Use HTTPS to prevent mixed content blocking if run on client, and better security on server
+                // Random timestamp to prevent caching
                 const res = await fetch(`https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`, {
                     headers: { 'Referer': 'https://fund.eastmoney.com/' }
                 });
                 const text = await res.text();
-                // Response: jsonpgz({"fundcode":"...","gsz":"1.2345","dwjz":"1.2340",...});
+                // Response format: jsonpgz({"fundcode":"...","gsz":"1.2345","dwjz":"1.2340",...});
                 
                 // Try to get GSZ (Real-time Estimate) first
                 let match = text.match(/"gsz":"([\d.]+)"/);
@@ -81,6 +83,8 @@ export default async function handler(request: any, response: any) {
                     console.log(`[API Quotes] EastMoney Fund (DWJZ) success for ${symbol}: ${price}`);
                     return price;
                 }
+                
+                console.warn(`[API Quotes] EastMoney Fund parsing failed for ${symbol}: ${text.substring(0, 50)}...`);
 
             } catch (e: any) {
                 console.warn(`[API Quotes] EastMoney Fund failed for ${symbol}: ${e.message}`);
