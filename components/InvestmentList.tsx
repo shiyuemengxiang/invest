@@ -1,9 +1,9 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Investment, CATEGORY_LABELS, Currency, InvestmentCategory } from '../types';
 import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn } from '../utils';
 import ConfirmModal from './ConfirmModal';
-import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import { DragDropContext, Droppable, Draggable, DropResult, DroppableProps } from '@hello-pangea/dnd';
 
 interface Props {
   items: Investment[];
@@ -18,6 +18,22 @@ type ProductTypeFilter = 'all' | 'Fixed' | 'Floating';
 type CurrencyFilter = 'all' | Currency;
 type CategoryFilter = 'all' | InvestmentCategory;
 type SortType = 'date-asc' | 'date-desc' | 'custom';
+
+// StrictModeDroppable fix for React 18
+const StrictModeDroppable = ({ children, ...props }: DroppableProps) => {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    const animation = requestAnimationFrame(() => setEnabled(true));
+    return () => {
+      cancelAnimationFrame(animation);
+      setEnabled(false);
+    };
+  }, []);
+  if (!enabled) {
+    return null;
+  }
+  return <Droppable {...props}>{children}</Droppable>;
+};
 
 const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, onRefreshMarket }) => {
   const [filter, setFilter] = useState<FilterType>('all');
@@ -81,10 +97,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
           const metrics = calculateItemMetrics(item);
           const daily = calculateDailyReturn(item);
 
-          // Total Profit:
-          // For Active Fixed: Accrued Return + Rebate
-          // For Active Floating: Total Return (Current - Principal + Rebate)
-          // For Completed: Realized Return + Rebate
+          // Total Profit Logic
           let profit = 0;
           if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
               profit = metrics.accruedReturn + item.rebate;
@@ -237,11 +250,10 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
 
           {/* Row 3: Live Summary Stats */}
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-wrap gap-8 items-center justify-around">
-             {/* Only show stats for currencies present in the list or all if no filter */}
              {(['CNY', 'USD', 'HKD'] as Currency[]).filter(c => currencyFilter === 'all' || currencyFilter === c).map(c => {
                  const s = summaryStats[c];
-                 if (s.totalProfit === 0 && s.dailyReturn === 0 && currencyFilter !== 'all') return null; // Skip empty if filtering specific
-                 if (currencyFilter === 'all' && s.totalProfit === 0 && s.dailyReturn === 0) return null; // Skip empty if all
+                 if (s.totalProfit === 0 && s.dailyReturn === 0 && currencyFilter !== 'all') return null;
+                 if (currencyFilter === 'all' && s.totalProfit === 0 && s.dailyReturn === 0) return null;
 
                  return (
                      <div key={c} className="flex flex-col items-center min-w-[100px]">
@@ -263,13 +275,11 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                      </div>
                  );
              })}
-             {/* Empty State for Summary */}
              {currencyFilter === 'all' && Object.values(summaryStats).every(s => s.totalProfit === 0 && s.dailyReturn === 0) && (
                  <span className="text-xs text-slate-400">暂无收益数据</span>
              )}
           </div>
 
-          {/* Custom Date Inputs (Conditional) */}
           {showCustomDate && (
               <div className="flex flex-col sm:flex-row items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-fade-in">
                   <span className="text-xs font-bold text-slate-400 uppercase">Range:</span>
@@ -296,7 +306,6 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
           )}
       </div>
       
-      {/* Warning for DND when sorting/filtering */}
       {!isDragEnabled && sortType === 'custom' && (
           <div className="text-center text-xs text-orange-400 bg-orange-50 py-2 rounded-xl border border-orange-100">
               提示: 筛选或自定义时间模式下无法进行拖拽排序，请重置筛选条件。
@@ -305,7 +314,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
 
       {/* List - Drag and Drop Context */}
       <DragDropContext onDragEnd={handleDragEnd}>
-        <Droppable droppableId="investment-list">
+        <StrictModeDroppable droppableId="investment-list">
             {(provided) => (
                 <div 
                     {...provided.droppableProps} 
@@ -315,7 +324,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                     {filteredItems.map((item, index) => {
                         const metrics = calculateItemMetrics(item);
                         
-                        // Determine Display Logic for Yield
+                        // Display Logic
                         let displayYield = 'N/A';
                         let displayYieldLabel = '收益率';
                         let yieldColorClass = 'text-slate-300';
@@ -340,7 +349,6 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                             yieldColorClass = metrics.annualizedYield > 0 ? 'text-indigo-600' : 'text-slate-500';
                         }
                         
-                        // Calculate Est Price for Funds
                         const estPrice = item.category === 'Fund' && item.estGrowth !== undefined 
                             ? metrics.currentPrice * (1 + item.estGrowth / 100)
                             : undefined;
@@ -495,25 +503,21 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                     </span>
                                             </div>
                                             </div>
-                                            {/* Extra column if needed or adjust logic */}
                                         </div>
                                         
                                         {/* Unit Cost & Current Price for Stocks/Funds */}
                                         {item.quantity && item.quantity > 0 && (
                                             <div className="relative z-10 grid grid-cols-2 md:grid-cols-5 gap-4 py-4 mt-2 bg-slate-50/80 rounded-xl px-4 border border-dashed border-slate-200">
-                                                {/* 1. Holdings */}
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Holdings</p>
                                                     <p className="font-mono text-xs font-bold text-slate-700">{item.quantity} {item.symbol ? `(${item.symbol})` : '股/份'}</p>
                                                 </div>
 
-                                                {/* 2. Cost Price */}
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Cost Price</p>
                                                     <p className="font-mono text-xs font-bold text-slate-700">{formatCurrency(metrics.unitCost, item.currency)}</p>
                                                 </div>
 
-                                                {/* 3. Latest NAV (Price Only) */}
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
                                                         {item.category === 'Fund' ? '最新净值 (NAV)' : 'Current Price'}
@@ -523,7 +527,6 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                     </p>
                                                 </div>
 
-                                                {/* 4. Est. Valuation (Price & Change %) */}
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
                                                         {item.category === 'Fund' ? '实时估值 (Est)' : 'Today\'s Change'}
@@ -553,7 +556,6 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                     )}
                                                 </div>
                                                 
-                                                 {/* 5. Total Return % */}
                                                  <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Total Return %</p>
                                                     <span className={`text-xs font-bold ${metrics.currentPrice >= metrics.unitCost ? 'text-orange-600' : 'text-emerald-600'}`}>
@@ -577,7 +579,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                     {provided.placeholder}
                 </div>
             )}
-        </Droppable>
+        </StrictModeDroppable>
       </DragDropContext>
     </div>
   );
