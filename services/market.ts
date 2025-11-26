@@ -83,25 +83,34 @@ export const marketService = {
         const result: Record<string, number> = {};
         
         const promises = symbols.map(async (symbol) => {
-            // A. CN Stocks (Tencent): sh, sz, bj
+            // A. CN Stocks (EastMoney): sh, sz, bj
             if (/^(sh|sz|bj)\d{6}$/i.test(symbol)) {
                 try {
-                    // Use CORS Proxy for Tencent
-                    const target = `https://qt.gtimg.cn/q=${symbol}`;
+                    const prefix = symbol.slice(0, 2).toLowerCase();
+                    const code = symbol.slice(2);
+                    let market = '0';
+                    if (prefix === 'sh') market = '1';
+                    else if (prefix === 'sz') market = '0';
+                    else if (prefix === 'bj') market = '0';
+
+                    // Use AllOrigins Proxy for EastMoney push2
+                    const target = `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${code}&fields=f43`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
                     if (json.contents) {
-                        const parts = json.contents.split('~');
-                        if (parts.length > 3) return { symbol, price: parseFloat(parts[3]) };
+                        const data = JSON.parse(json.contents);
+                        if (data && data.data && data.data.f43) {
+                            return { symbol, price: data.data.f43 / 100 };
+                        }
                     }
-                } catch (e) { console.warn(`[MarketService] Tencent fallback failed for ${symbol}`, e); }
+                } catch (e) { console.warn(`[MarketService] EastMoney fallback failed for ${symbol}`, e); }
                 return null;
             }
 
             // B. CN Funds (EastMoney)
             if (/^\d{6}$/.test(symbol)) {
                 try {
-                    // Use CORS Proxy for EastMoney
+                    // Use AllOrigins Proxy
                     const target = `http://fundgz.1234567.com.cn/js/${symbol}.js`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
@@ -109,7 +118,7 @@ export const marketService = {
                         const match = json.contents.match(/"gsz":"([\d.]+)"/);
                         if (match && match[1]) return { symbol, price: parseFloat(match[1]) };
                     }
-                } catch (e) { console.warn(`[MarketService] EastMoney fallback failed for ${symbol}`, e); }
+                } catch (e) { console.warn(`[MarketService] EastMoney Fund fallback failed for ${symbol}`, e); }
                 return null;
             }
 

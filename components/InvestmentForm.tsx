@@ -11,6 +11,21 @@ interface Props {
 }
 
 const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNotify }) => {
+  // Helper to extract symbol parts if editing
+  const parseInitialSymbol = () => {
+      if (!initialData?.symbol) return { code: '', market: 'sh' };
+      const s = initialData.symbol;
+      if (initialData.category === 'Stock' && initialData.currency === 'CNY') {
+          // Check for prefix
+          if (s.startsWith('sh')) return { code: s.slice(2), market: 'sh' };
+          if (s.startsWith('sz')) return { code: s.slice(2), market: 'sz' };
+          if (s.startsWith('bj')) return { code: s.slice(2), market: 'bj' };
+      }
+      return { code: s, market: 'sh' };
+  };
+
+  const initialSym = parseInitialSymbol();
+
   const [formData, setFormData] = useState<Partial<Investment>>(
     initialData || {
       name: '',
@@ -32,6 +47,10 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       notes: ''
     }
   );
+
+  // Separate states for Stock Symbol construction
+  const [stockCode, setStockCode] = useState(initialSym.code);
+  const [stockMarket, setStockMarket] = useState(initialSym.market);
 
   const [isCompleted, setIsCompleted] = useState(!!initialData?.withdrawalDate);
   const [isFloating, setIsFloating] = useState(initialData?.type === 'Floating');
@@ -67,6 +86,14 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         return;
     }
 
+    // Construct Symbol
+    let finalSymbol = formData.symbol;
+    if (formData.category === 'Stock' && formData.currency === 'CNY' && stockCode) {
+        finalSymbol = `${stockMarket}${stockCode}`;
+    } else if (isFundOrStock && stockCode) {
+        finalSymbol = stockCode; // For funds or non-CNY stocks, just use the code input directly or as mapped
+    }
+
     const newInvestment: Investment = {
       id: initialData?.id || crypto.randomUUID(),
       name: formData.name,
@@ -78,7 +105,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       withdrawalDate: formData.withdrawalDate || null,
       principal: Number(formData.principal),
       quantity: formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined,
-      symbol: formData.symbol || undefined,
+      symbol: finalSymbol || undefined,
       isAutoQuote: !!formData.isAutoQuote,
       expectedRate: formData.expectedRate && formData.expectedRate !== 0 ? Number(formData.expectedRate) : undefined,
       currentReturn: formData.currentReturn ? Number(formData.currentReturn) : undefined,
@@ -91,6 +118,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   };
 
   const isFundOrStock = formData.category === 'Fund' || formData.category === 'Stock';
+  const isCNYStock = formData.category === 'Stock' && formData.currency === 'CNY';
 
   return (
     <div className="bg-white/95 backdrop-blur-sm p-8 rounded-3xl shadow-xl shadow-slate-200/50 max-w-2xl mx-auto border border-white/50 animate-fade-in-up">
@@ -209,31 +237,52 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                         />
                     </div>
                     <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">交易代码 (Symbol)</label>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
+                            {isCNYStock ? '股票代码 (Code)' : '交易代码 (Symbol)'}
+                        </label>
                         <input
                             type="text"
-                            name="symbol"
-                            value={formData.symbol || ''}
-                            onChange={handleChange}
-                            placeholder="如: AAPL, 0700.HK, 600519.SS"
+                            value={isCNYStock ? stockCode : (formData.symbol || '')}
+                            onChange={(e) => {
+                                if (isCNYStock) setStockCode(e.target.value);
+                                else setFormData(prev => ({ ...prev, symbol: e.target.value }));
+                            }}
+                            placeholder={isCNYStock ? "如: 600519" : "如: AAPL, 0700.HK"}
                             className="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono uppercase"
                         />
                     </div>
                 </div>
-                
-                {formData.symbol && (
-                     <label className="flex items-center cursor-pointer select-none group">
-                        <input
-                            type="checkbox"
-                            name="isAutoQuote"
-                            checked={!!formData.isAutoQuote}
-                            onChange={handleChange}
-                            className="sr-only peer"
-                        />
-                        <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 transition-colors duration-200"></div>
-                        <span className="ml-2 text-sm text-slate-600">开启自动行情更新 (Yahoo Finance)</span>
-                    </label>
+
+                {/* A-Share Market Selector */}
+                {isCNYStock && (
+                    <div className="flex gap-2 items-center bg-white p-2 rounded-lg border border-slate-200">
+                        <span className="text-sm font-bold text-slate-600 px-2">A股市场:</span>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                            <input type="radio" name="market" value="sh" checked={stockMarket === 'sh'} onChange={() => setStockMarket('sh')} className="text-indigo-600 focus:ring-indigo-500"/>
+                            <span className="text-sm text-slate-700">上证 (SH)</span>
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer ml-2">
+                            <input type="radio" name="market" value="sz" checked={stockMarket === 'sz'} onChange={() => setStockMarket('sz')} className="text-indigo-600 focus:ring-indigo-500"/>
+                            <span className="text-sm text-slate-700">深证 (SZ)</span>
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer ml-2">
+                            <input type="radio" name="market" value="bj" checked={stockMarket === 'bj'} onChange={() => setStockMarket('bj')} className="text-indigo-600 focus:ring-indigo-500"/>
+                            <span className="text-sm text-slate-700">北证 (BJ)</span>
+                        </label>
+                    </div>
                 )}
+                
+                <label className="flex items-center cursor-pointer select-none group pt-2">
+                    <input
+                        type="checkbox"
+                        name="isAutoQuote"
+                        checked={!!formData.isAutoQuote}
+                        onChange={handleChange}
+                        className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 transition-colors duration-200"></div>
+                    <span className="ml-2 text-sm text-slate-600">开启自动行情更新 (Yahoo/EastMoney)</span>
+                </label>
              </div>
         )}
 
