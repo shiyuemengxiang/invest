@@ -86,7 +86,8 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
   }, [items, filter, productFilter, currencyFilter, categoryFilter, showCustomDate, customStart, customEnd, sortType]);
 
   // --- Summary Stats Calculation ---
-  const summaryStats = useMemo(() => {
+  const summaryStats = useMemo<Record<Currency, { totalProfit: number; dailyReturn: number }>>(() => {
+      // Explicitly type the stats accumulator
       const stats: Record<Currency, { totalProfit: number; dailyReturn: number }> = {
           CNY: { totalProfit: 0, dailyReturn: 0 },
           USD: { totalProfit: 0, dailyReturn: 0 },
@@ -479,7 +480,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                         <div className="flex items-center gap-1">
                                                             <span className="text-[10px] text-slate-400">截止今日:</span>
                                                             <span className="text-[10px] font-bold text-slate-600">
-                                                                {formatCurrency(metrics.accruedReturn, item.currency)}
+                                                                {metrics.accruedReturn > 0 ? formatCurrency(metrics.accruedReturn, item.currency) : '—'}
                                                             </span>
                                                         </div>
                                                     )}

@@ -95,10 +95,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
     // --- PHASE 1 REFACTOR: Construct Transactions for New Items ---
     
-    // If editing existing item, we preserve its transactions if they exist, 
-    // BUT since we don't have a transaction UI yet, editing the "Principal" input 
-    // implies we are modifying the INITIAL BUY transaction.
-    
     let transactions: Transaction[] = initialData?.transactions ? [...initialData.transactions] : [];
     
     if (transactions.length === 0) {
@@ -114,7 +110,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         });
     } else {
         // Modify the first 'Buy' transaction (assuming it's the initial deposit)
-        // This is a temporary measure until full transaction UI is built
         const firstBuyIndex = transactions.findIndex(t => t.type === 'Buy');
         if (firstBuyIndex >= 0) {
             transactions[firstBuyIndex] = {
@@ -127,7 +122,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         }
         
         // Handle Withdrawal/Sell
-        // If user sets withdrawal date in form, we update/create a Sell transaction
         if (formData.withdrawalDate) {
              const sellIndex = transactions.findIndex(t => t.type === 'Sell');
              if (sellIndex >= 0) {
@@ -201,8 +195,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       </div>
       
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* ... [Form fields remain identical to previous version, just handling submit differently] ... */}
-        
         <div className="flex gap-4 p-1 bg-slate-100 rounded-xl mb-4">
             <button 
                 type="button"
@@ -353,6 +345,51 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           <button type="submit" className="px-8 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl shadow-lg shadow-slate-300 transition transform active:scale-95 font-medium">保存记录</button>
         </div>
       </form>
+
+      {/* NEW DEBUG SECTION: Transaction History */}
+      {initialData?.transactions && initialData.transactions.length > 0 && (
+        <div className="mt-8 pt-6 border-t border-slate-100 animate-fade-in">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-slate-300"></span>
+                Transaction History (Debug/Phase 1)
+            </h3>
+            <div className="bg-slate-50 rounded-xl overflow-hidden border border-slate-200">
+                <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 text-slate-500 font-semibold border-b border-slate-200">
+                        <tr>
+                            <th className="p-3">Date</th>
+                            <th className="p-3">Type</th>
+                            <th className="p-3 text-right">Amount</th>
+                            <th className="p-3">Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {initialData.transactions.map(tx => (
+                            <tr key={tx.id} className="text-slate-700 hover:bg-white transition">
+                                <td className="p-3 font-mono">{tx.date}</td>
+                                <td className="p-3">
+                                    <span className={`px-1.5 py-0.5 rounded border font-medium ${
+                                        tx.type === 'Buy' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                                        tx.type === 'Sell' ? 'bg-orange-50 text-orange-600 border-orange-100' :
+                                        'bg-slate-100 text-slate-600 border-slate-200'
+                                    }`}>
+                                        {tx.type}
+                                    </span>
+                                </td>
+                                <td className="p-3 text-right font-mono font-medium">
+                                    {tx.type === 'Sell' ? '-' : '+'}{tx.amount.toLocaleString()}
+                                </td>
+                                <td className="p-3 text-slate-400 truncate max-w-[150px]">{tx.notes || '-'}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-2 px-1">
+                * 本区域仅供调试。这些交易记录是根据上方表单自动生成的（第一阶段改造）。
+            </p>
+        </div>
+      )}
     </div>
   );
 };
