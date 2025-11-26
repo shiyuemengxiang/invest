@@ -115,14 +115,17 @@ const App: React.FC = () => {
   const handleRefreshMarketData = async () => {
       const itemsToUpdate = items.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
       if (itemsToUpdate.length === 0) {
-          showToast('没有开启“自动行情”的持仓资产', 'info');
+          // Silent on auto-refresh if no items, unless triggered manually
+          // showToast('没有开启“自动行情”的持仓资产', 'info');
           return;
       }
       const symbols = itemsToUpdate.map(i => i.symbol as string);
       
+      // Only show toast on manual refresh, or maybe small indicator
+      // For now, silent refresh is better for navigation UX unless errors occur
+      
       const quotes = await marketService.getQuotes(symbols);
       
-      let updatedCount = 0;
       if (quotes) {
           const updatedList = items.map(item => {
               if (item.isAutoQuote && item.symbol && quotes[item.symbol] && item.quantity) {
@@ -132,7 +135,6 @@ const App: React.FC = () => {
                   const qty = item.currentQuantity || item.quantity || 0;
                   const currentVal = newPrice * qty;
                   const newReturn = currentVal - item.currentPrincipal; // Profit = Value - Principal
-                  updatedCount++;
                   
                   return { 
                       ...item, 
@@ -150,9 +152,6 @@ const App: React.FC = () => {
            const newRates = await marketService.getRates();
            if (newRates) handleRatesChange(newRates, 'auto');
       }
-      
-      if (updatedCount > 0) showToast(`行情更新成功！已更新 ${updatedCount} 个资产`, 'success');
-      else showToast('行情更新完成，暂无数据变化', 'info');
   };
 
   const handleLogin = (loggedInUser: User) => {
@@ -198,6 +197,14 @@ const App: React.FC = () => {
   const handleNav = (targetView: ViewState) => {
       setView(targetView);
       setIsMobileMenuOpen(false);
+      
+      // Auto refresh market data when entering list view
+      if (targetView === 'list') {
+          // Add a small delay to allow view transition
+          setTimeout(() => {
+              handleRefreshMarketData();
+          }, 100);
+      }
   };
   
   const themeConfig = THEMES[theme];
@@ -217,7 +224,7 @@ const App: React.FC = () => {
   const NavItems = () => (
       <>
         <button onClick={() => handleNav('dashboard')} className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center gap-3 ${view === 'dashboard' ? themeConfig.navActive : themeConfig.navHover}`}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> 总览 Dashboard
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> 总览 Dashboard
         </button>
         <button onClick={() => handleNav('list')} className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center gap-3 ${view === 'list' ? themeConfig.navActive : themeConfig.navHover}`}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2-2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg> 明细 List

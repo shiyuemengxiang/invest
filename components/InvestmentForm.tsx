@@ -134,13 +134,22 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             if (batchConfig.mode === 'fixed') {
                 txAmount = Number(batchConfig.amount);
             } else if (batchConfig.mode === 'annual') {
-                // Annual Rate based: Principal * Rate% / Frequency Divisor
-                let divisor = 1;
-                if (batchConfig.frequency === 'monthly') divisor = 12;
-                else if (batchConfig.frequency === 'quarterly') divisor = 4;
-                else if (batchConfig.frequency === 'weekly') divisor = 52;
+                // Annual Rate based calculation
+                const principal = formData.currentPrincipal;
+                const rateVal = Number(batchConfig.rate) / 100;
                 
-                txAmount = (formData.currentPrincipal * (Number(batchConfig.rate) / 100)) / divisor;
+                if (batchConfig.frequency === 'weekly') {
+                    // Precise Weekly: Principal * Rate / Basis * 7
+                    const basis = Number(formData.interestBasis || 365);
+                    txAmount = (principal * rateVal / basis) * 7;
+                } else {
+                    // Standard Division for Monthly/Quarterly/Yearly
+                    let divisor = 1;
+                    if (batchConfig.frequency === 'monthly') divisor = 12;
+                    else if (batchConfig.frequency === 'quarterly') divisor = 4;
+                    
+                    txAmount = (principal * rateVal) / divisor;
+                }
                 txAmount = parseFloat(txAmount.toFixed(2));
             } else {
                 // Single Period Rate: Principal * Rate%
@@ -346,7 +355,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                 <div>
                     <div className="flex justify-between items-center mb-3">
                         <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                            <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                            <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                             交易流水 (Transactions)
                         </label>
                         <div className="flex gap-2">
