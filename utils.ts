@@ -68,7 +68,8 @@ export const migrateInvestmentData = (item: any): Investment => {
         currentPrincipal: 0,
         totalCost: 0,
         totalRealizedProfit: 0,
-        currentQuantity: 0
+        currentQuantity: 0,
+        interestBasis: item.interestBasis || '365'
     };
 
     return recalculateInvestmentState(newItem);
@@ -189,7 +190,9 @@ export const calculateDailyReturn = (item: Investment): number => {
     }
 
     if (item.type === 'Fixed' && item.expectedRate) {
-        return activePrincipal * (item.expectedRate / 100) / 365;
+        // Support 360 or 365 day basis
+        const basis = Number(item.interestBasis || 365);
+        return activePrincipal * (item.expectedRate / 100) / basis;
     }
 
     return 0;
@@ -207,6 +210,8 @@ export const calculateItemMetrics = (item: Investment) => {
 
   const activePrincipal = item.currentPrincipal; 
   const currentQuantity = item.currentQuantity || 0;
+  
+  const interestBasis = Number(item.interestBasis || 365); // Default to 365
 
   // Duration Logic
   let occupiedDurationMs = 0;
@@ -238,6 +243,9 @@ export const calculateItemMetrics = (item: Investment) => {
       if (calcBase > 0) {
         holdingYield = (baseInterest / calcBase) * 100;
         if (realDurationDays > 0) {
+            // For Annualized, standardizing to 365 for comparison is common, 
+            // but if product is 360 basis, maybe yield should reflect that?
+            // Usually Yield% is comparable across products, so * 365 / days is standard.
             annualizedYield = (holdingYield / (realDurationDays / 365));
         }
       }
@@ -247,48 +255,34 @@ export const calculateItemMetrics = (item: Investment) => {
       annualizedYield = rate;
       
       // --- NEW LOGIC: Transaction-Weighted Accrual ---
-      // Instead of using global principal * global duration, we iterate transactions.
       
       let calculatedAccrued = 0;
       let calculatedProjected = 0;
       
       const relevantTxs = (item.transactions || []).filter(t => t.type === 'Buy' || t.type === 'Sell');
       
-      // 1. Calculate Accrued (Up to Now)
-      // We need to simulate the balance day by day or segment by segment.
-      // Simplification: Each 'Buy' creates a tranche that earns interest from TxDate to Now/End.
-      // 'Sell' reduces the earliest tranche (FIFO) or just negative interest?
-      // Better: Calculate interest for each specific segment of time where balance was constant.
-      
-      // Sort transactions by date
       const sortedTxs = [...relevantTxs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
-      // Add 'Now' as a checkpoint for accrued
-      // Add 'Maturity' as a checkpoint for projected
       
       const calculateSegmentedInterest = (endDate: Date) => {
           let totalInterest = 0;
           let currentBalance = 0;
           
-          // We iterate through time segments defined by transactions
           for (let i = 0; i < sortedTxs.length; i++) {
               const tx = sortedTxs[i];
               const txDate = new Date(tx.date);
               const nextTx = sortedTxs[i+1];
               const nextDate = nextTx ? new Date(nextTx.date) : endDate;
               
-              // Update Balance based on this tx
               if (tx.type === 'Buy') currentBalance += tx.amount;
               else if (tx.type === 'Sell') currentBalance -= tx.amount;
               
-              // Calculate interest for the period [txDate, nextDate]
-              // Cap nextDate at endDate
               const segmentEnd = nextDate < endDate ? nextDate : endDate;
               
               if (segmentEnd > txDate) {
                   const days = (segmentEnd.getTime() - txDate.getTime()) / MS_PER_DAY;
                   if (days > 0 && currentBalance > 0) {
-                      totalInterest += currentBalance * (rate / 100) * (days / 365);
+                      // Use configured interest basis (360 or 365)
+                      totalInterest += currentBalance * (rate / 100) * (days / interestBasis);
                   }
               }
               
@@ -400,7 +394,6 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
         // Projected Profit = Accrued (Earned so far) + Rebate + Dividends
-        // This is a conservative 'Estimated Value if I exit today' or 'Current Value'
         projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
     } else if (!metrics.isCompleted && item.type === 'Floating') {
         projectedTotalProfit += metrics.profit;

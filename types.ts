@@ -90,6 +90,7 @@ export interface Investment {
   
   // Settings
   expectedRate?: number; // For Fixed: expected annual yield
+  interestBasis?: '360' | '365'; // Days per year basis for interest calculation
   
   // For Floating Types (Manual Overrides)
   currentReturn?: number; // Floating P&L (Unrealized)

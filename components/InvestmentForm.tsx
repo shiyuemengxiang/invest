@@ -47,6 +47,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       symbol: '',
       isAutoQuote: false,
       expectedRate: undefined,
+      interestBasis: '365', // Default to 365
       currentReturn: undefined,
       realizedReturn: undefined,
       rebate: 0,
@@ -64,7 +65,9 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
   // --- Phase 3: Transaction Modal State ---
   const [showTxForm, setShowTxForm] = useState(false);
+  const [showBatchForm, setShowBatchForm] = useState(false); // New: Batch Generator
   const [editingTxId, setEditingTxId] = useState<string | null>(null);
+  
   const [txData, setTxData] = useState<{
       type: TransactionType;
       date: string;
@@ -72,7 +75,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       price: string;
       quantity: string;
       notes: string;
-      // New fields for merging terms on "Buy"
       newMaturityDate: string;
       newExpectedRate: string;
   }>({ 
@@ -84,6 +86,15 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       notes: '',
       newMaturityDate: '',
       newExpectedRate: ''
+  });
+
+  // Batch Generator State
+  const [batchData, setBatchData] = useState({
+      startDate: '',
+      frequency: 'Monthly', // Monthly, Quarterly, Yearly
+      amount: '',
+      endDate: '',
+      notes: '自动派息'
   });
 
   useEffect(() => {
@@ -127,6 +138,58 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       });
       setEditingTxId(null);
       setShowTxForm(true);
+      setShowBatchForm(false);
+  };
+
+  const openBatchForm = () => {
+      setBatchData({
+          startDate: formData.depositDate || '',
+          frequency: 'Monthly',
+          amount: '',
+          endDate: formData.maturityDate || '',
+          notes: '自动派息'
+      });
+      setShowBatchForm(true);
+      setShowTxForm(false);
+  };
+
+  const handleSaveBatch = () => {
+      if (!batchData.startDate || !batchData.amount || Number(batchData.amount) <= 0 || !batchData.endDate) {
+          onNotify("请完整填写批量生成信息", "error");
+          return;
+      }
+
+      const currentTxs = formData.transactions && formData.transactions.length > 0
+          ? [...formData.transactions] 
+          : (initialData?.transactions ? [...initialData.transactions] : []);
+
+      const start = new Date(batchData.startDate);
+      const end = new Date(batchData.endDate);
+      const amount = Number(batchData.amount);
+      let current = new Date(start);
+      let count = 0;
+
+      while (current <= end) {
+          // Generate TX
+          currentTxs.push({
+              id: self.crypto.randomUUID(),
+              date: current.toISOString().split('T')[0] + 'T08:00', // Default morning time
+              type: 'Dividend',
+              amount: amount,
+              notes: batchData.notes + ` (${current.toISOString().split('T')[0]})`
+          });
+          count++;
+
+          // Increment Date
+          if (batchData.frequency === 'Monthly') current.setMonth(current.getMonth() + 1);
+          else if (batchData.frequency === 'Quarterly') current.setMonth(current.getMonth() + 3);
+          else if (batchData.frequency === 'Yearly') current.setFullYear(current.getFullYear() + 1);
+          else break;
+      }
+
+      setFormData({ ...formData, transactions: currentTxs });
+      setShowBatchForm(false);
+      onNotify(`已批量生成 ${count} 条派息记录`, "success");
   };
 
   const handleSaveTx = () => {
@@ -142,7 +205,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
       const newTx: Transaction = {
           id: editingTxId || self.crypto.randomUUID(),
-          date: txData.date, // Now contains HH:mm
+          date: txData.date, 
           type: txData.type,
           amount: Number(txData.amount),
           price: txData.price ? Number(txData.price) : undefined,
@@ -174,7 +237,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   };
 
   const handleEditTransaction = (tx: Transaction) => {
-      // Convert stored date string (potentially ISO) to local datetime-local string
       let dateVal = tx.date;
       if (tx.date.endsWith('Z') || tx.date.includes('T')) {
           const d = new Date(tx.date);
@@ -194,6 +256,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       });
       setEditingTxId(tx.id);
       setShowTxForm(true);
+      setShowBatchForm(false);
   };
 
   const handleDeleteTransaction = (id: string) => {
@@ -235,7 +298,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     const principal = Number(formData.principal);
     const quantity = formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined;
 
-    // Logic to ensure initial transaction exists if this is a new item
     let transactions: Transaction[] = formData.transactions && formData.transactions.length > 0
         ? [...formData.transactions] 
         : (initialData?.transactions ? [...initialData.transactions] : []);
@@ -251,7 +313,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             notes: 'Initial Deposit'
         });
     } else {
-        // Sync first Buy if needed
         const firstBuyIndex = transactions.findIndex(t => t.type === 'Buy');
         if (firstBuyIndex >= 0) {
              if (transactions[firstBuyIndex].notes === 'Initial Deposit' || transactions[firstBuyIndex].notes === 'Initial Deposit (Migrated)') {
@@ -280,6 +341,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       symbol: finalSymbol || undefined,
       isAutoQuote: !!formData.isAutoQuote,
       expectedRate: formData.expectedRate && formData.expectedRate !== 0 ? Number(formData.expectedRate) : undefined,
+      interestBasis: formData.interestBasis as '360' | '365' || '365',
       currentReturn: formData.currentReturn ? Number(formData.currentReturn) : undefined,
       realizedReturn: formData.realizedReturn ? Number(formData.realizedReturn) : undefined,
       rebate: Number(formData.rebate || 0),
@@ -315,7 +377,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
   return (
     <div className="bg-white/95 backdrop-blur-sm p-8 rounded-3xl shadow-xl shadow-slate-200/50 max-w-2xl mx-auto border border-white/50 animate-fade-in-up">
-      {/* Header & Form Fields */}
       <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-100">
         <h2 className="text-2xl font-bold text-slate-800 tracking-tight">{initialData ? '编辑资产' : '录入新资产'}</h2>
         <span className="text-xs px-2.5 py-1 bg-slate-800 text-white rounded-lg font-medium shadow-sm">Smart Ledger</span>
@@ -339,7 +400,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             </button>
         </div>
 
-        {/* ... (Inputs for Name, Category, Principal, Rates etc. remain same) ... */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="md:col-span-3">
                 <label className="block text-sm font-semibold text-slate-700 mb-2">资产名称</label>
@@ -353,7 +413,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             </div>
         </div>
 
-        {/* Principal & Rates */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
              <label className="block text-sm font-semibold text-slate-700 mb-2">币种</label>
@@ -369,11 +428,18 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           </div>
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">{isFloating ? '预计年化 (%)' : '预计年化 (%)'} <span className="text-slate-400 text-xs">{isFloating ? '(可选)' : '(必填)'}</span></label>
-            <input type="number" step="0.01" name="expectedRate" value={formData.expectedRate === undefined ? '' : formData.expectedRate} onChange={handleChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono text-lg" required={!isFloating} />
+            <div className="flex gap-2">
+                <input type="number" step="0.01" name="expectedRate" value={formData.expectedRate === undefined ? '' : formData.expectedRate} onChange={handleChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono text-lg" required={!isFloating} />
+                {!isFloating && (
+                    <select name="interestBasis" value={formData.interestBasis || '365'} onChange={handleChange} className="w-24 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none">
+                        <option value="365">365天</option>
+                        <option value="360">360天</option>
+                    </select>
+                )}
+            </div>
           </div>
         </div>
         
-        {/* Stock/Fund Details */}
         {isFundOrStock && (
              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -402,7 +468,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
              </div>
         )}
 
-        {/* Dates */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">买入/存入时间</label>
@@ -458,7 +523,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         </div>
       </form>
 
-      {/* --- Phase 3: Advanced Transaction History & Operations --- */}
       <div className="mt-8 pt-6 border-t border-slate-100 animate-fade-in">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
@@ -466,9 +530,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                     交易流水 (Transaction History)
                 </h3>
                 
-                {/* Operation Buttons */}
-                {initialData && !isCompleted && !showTxForm && (
-                    <div className="flex gap-2">
+                {initialData && !isCompleted && !showTxForm && !showBatchForm && (
+                    <div className="flex gap-2 flex-wrap">
                         {isFloating ? (
                             <>
                                 <button onClick={() => openTxForm('Buy')} className="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg font-bold transition flex items-center gap-1">
@@ -498,11 +561,51 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                     记录利息
                                 </button>
+                                <button onClick={openBatchForm} className="text-xs px-3 py-1.5 bg-purple-50 text-purple-600 hover:bg-purple-100 rounded-lg font-bold transition flex items-center gap-1">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                    批量生成利息
+                                </button>
                             </>
                         )}
                     </div>
                 )}
             </div>
+
+            {/* Batch Generator Modal */}
+            {showBatchForm && (
+                <div className="mb-4 bg-purple-50/50 p-4 rounded-xl border border-purple-100 animate-fade-in">
+                    <h4 className="text-sm font-bold text-purple-900 mb-3 flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                        批量生成派息计划 (Batch Generate)
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div>
+                            <label className="block text-[10px] font-bold text-purple-400 mb-1">开始日期</label>
+                            <input type="date" value={batchData.startDate} onChange={e => setBatchData({...batchData, startDate: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-purple-400 mb-1">频率</label>
+                            <select value={batchData.frequency} onChange={e => setBatchData({...batchData, frequency: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300">
+                                <option value="Monthly">每月 (Monthly)</option>
+                                <option value="Quarterly">每季 (Quarterly)</option>
+                                <option value="Yearly">每年 (Yearly)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-purple-400 mb-1">每次金额</label>
+                            <input type="number" step="0.01" value={batchData.amount} onChange={e => setBatchData({...batchData, amount: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-purple-400 mb-1">结束日期 (含)</label>
+                            <input type="date" value={batchData.endDate} onChange={e => setBatchData({...batchData, endDate: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300" />
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2 border-t border-purple-100 pt-3">
+                        <button type="button" onClick={() => setShowBatchForm(false)} className="px-3 py-1.5 bg-white text-slate-500 border border-slate-200 rounded-lg text-xs hover:bg-slate-50">取消</button>
+                        <button type="button" onClick={handleSaveBatch} className="px-4 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 shadow-sm">立即生成</button>
+                    </div>
+                </div>
+            )}
 
             {/* Transaction Modal */}
             {showTxForm && (
@@ -511,7 +614,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                         {editingTxId ? '编辑交易' : `新增: ${getTxTypeLabel(txData.type)}`}
                     </h4>
                     
-                    {/* Warning for Fixed Add Principal */}
                     {!isFloating && txData.type === 'Buy' && (
                         <div className="mb-3 text-[10px] text-orange-600 bg-orange-50/80 p-2 rounded border border-orange-100">
                             <strong>注意：</strong> 系统将根据每笔交易的实际存续天数自动计算“分段利息”。<br/>
@@ -525,7 +627,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                             <input type="datetime-local" value={txData.date} onChange={e => setTxData({...txData, date: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
                         </div>
                         
-                        {/* Price/Qty only for Floating Buy/Sell */}
                         {isFloating && txData.type !== 'Dividend' && (
                             <>
                                 <div className="col-span-1">
@@ -544,7 +645,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                             <input type="number" step="0.01" name="amount" value={txData.amount} onChange={e => setTxData({...txData, amount: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300 font-bold" placeholder="0.00" />
                         </div>
                         
-                        {/* Term Updates for Fixed Buy */}
                         {!isFloating && txData.type === 'Buy' && (
                             <>
                                 <div className="col-span-1">
