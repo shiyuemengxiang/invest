@@ -33,7 +33,7 @@ export default async function handler(request: any, response: any) {
                 let market = '0';
                 if (prefix === 'sh') market = '1';
                 else if (prefix === 'sz') market = '0';
-                else if (prefix === 'bj') market = '0'; // EastMoney usually puts BJ in 0 with SZ
+                else if (prefix === 'bj') market = '0'; 
                 
                 const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${code}&fields=f43`;
                 
@@ -43,7 +43,6 @@ export default async function handler(request: any, response: any) {
                 
                 const json = await res.json();
                 // Data format: { data: { f43: 1234 } } -> Price is 12.34
-                // f43 is "Latest Price" in Fen (cents) usually, or scaled int
                 if (json && json.data && json.data.f43) {
                     const rawPrice = json.data.f43;
                     const price = rawPrice / 100; // Convert Fen to Yuan
@@ -56,36 +55,34 @@ export default async function handler(request: any, response: any) {
             return null;
         }
 
-        // 2. CN Funds (EastMoney fundgz): 6 digits (e.g. 320007)
-        // Strict check to ensure it's a 6-digit number string
+        // 2. CN Funds (EastMoney F10 Data): 6 digits (e.g. 320007)
         if (/^\d{6}$/.test(symbol)) {
             try {
-                // Use HTTPS to prevent mixed content blocking if run on client, and better security on server
-                // Random timestamp to prevent caching
-                const res = await fetch(`https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`, {
+                // Use F10DataApi for historical NAV list (Confirmed values)
+                const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${symbol}&page=1`;
+                const res = await fetch(url, {
                     headers: { 'Referer': 'https://fund.eastmoney.com/' }
                 });
                 const text = await res.text();
-                // Response format: jsonpgz({"fundcode":"...","gsz":"1.2345","dwjz":"1.2340",...});
+                // Format: var apidata={ content:"<table...><tr><td>2025-11-25</td><td class='tor bold'>1.7680</td>...</table>", ... };
                 
-                // Try to get GSZ (Real-time Estimate) first
-                let match = text.match(/"gsz":"([\d.]+)"/);
-                if (match && match[1]) {
-                    const price = parseFloat(match[1]);
-                    console.log(`[API Quotes] EastMoney Fund (GSZ) success for ${symbol}: ${price}`);
-                    return price;
+                // Extract content string
+                const contentMatch = text.match(/content:"([^"]+)"/);
+                if (contentMatch && contentMatch[1]) {
+                    const html = contentMatch[1];
+                    // Regex to find first data row: Date cell followed by NAV cell
+                    // <td>2023-01-01</td><td class='tor bold'>1.2345</td>
+                    const rowMatch = html.match(/<td>(\d{4}-\d{2}-\d{2})<\/td><td[^>]*>([\d\.]+)<\/td>/);
+                    
+                    if (rowMatch && rowMatch[2]) {
+                        const price = parseFloat(rowMatch[2]);
+                        const date = rowMatch[1];
+                        console.log(`[API Quotes] EastMoney Fund (F10) success for ${symbol}: ${price} (${date})`);
+                        return price;
+                    }
                 }
                 
-                // Fallback to DWJZ (Confirmed Net Value) if GSZ is missing/empty
-                match = text.match(/"dwjz":"([\d.]+)"/);
-                if (match && match[1]) {
-                    const price = parseFloat(match[1]);
-                    console.log(`[API Quotes] EastMoney Fund (DWJZ) success for ${symbol}: ${price}`);
-                    return price;
-                }
-                
-                console.warn(`[API Quotes] EastMoney Fund parsing failed for ${symbol}: ${text.substring(0, 50)}...`);
-
+                console.warn(`[API Quotes] EastMoney Fund parsing failed for ${symbol}`);
             } catch (e: any) {
                 console.warn(`[API Quotes] EastMoney Fund failed for ${symbol}: ${e.message}`);
             }
@@ -94,7 +91,6 @@ export default async function handler(request: any, response: any) {
 
         // 3. International (Yahoo Finance)
         try {
-            // Suppress validation errors
             const quote = await yahooFinance.quote(symbol, { validateResult: false }) as any;
             const price = quote.regularMarketPrice || quote.ask || quote.bid;
             console.log(`[API Quotes] YahooLib success for ${symbol}: ${price}`);
@@ -142,7 +138,6 @@ export default async function handler(request: any, response: any) {
         }
     });
 
-    console.log(`[API Quotes] Returning result: ${JSON.stringify(result)}`);
     return response.status(200).json(result);
   } catch (error: any) {
     console.error("[API Quotes] Critical Error:", error);

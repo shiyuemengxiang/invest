@@ -5,7 +5,6 @@ const API_BASE = '/api/market';
 
 export const marketService = {
     async getRates(): Promise<ExchangeRates | null> {
-        // Strategy 1: Try Backend API
         try {
             const res = await fetch(`${API_BASE}/rates`);
             if (res.ok) {
@@ -16,7 +15,6 @@ export const marketService = {
             console.warn("[MarketService] Backend rates API failed, switching to client-side fallback...", e);
         }
 
-        // Strategy 2: Client-side Direct Fetch (open.er-api.com supports CORS)
         try {
             console.log("[MarketService] Fetching rates from client-side fallback...");
             const res = await fetch('https://open.er-api.com/v6/latest/CNY');
@@ -43,7 +41,6 @@ export const marketService = {
         let result: Record<string, number> = {};
         const uniqueSymbols = Array.from(new Set(symbols));
         
-        // 1. Try Backend API first
         try {
             const res = await fetch(`${API_BASE}/quotes`, {
                 method: 'POST',
@@ -59,26 +56,20 @@ export const marketService = {
             console.warn("[MarketService] Backend quotes API failed/network error:", e);
         }
 
-        // 2. Identify Missing Symbols (Differential Backfill)
+        // Differential Backfill: Identify Missing Symbols
         const missingSymbols = uniqueSymbols.filter(sym => result[sym] === undefined || result[sym] === null);
         
         if (missingSymbols.length > 0) {
             console.log(`[MarketService] Backend missed ${missingSymbols.length} symbols. Triggering client-side fallback for:`, missingSymbols);
-            
-            // 3. Client-Side Fallback for MISSING symbols only
             const fallbackQuotes = await this.fetchClientSideQuotes(missingSymbols);
-            
-            // Merge results
             result = { ...result, ...fallbackQuotes };
         } else {
             console.log("[MarketService] Backend returned all symbols. No fallback needed.");
         }
 
-        console.log("[MarketService] Final Combined Quotes:", result);
         return Object.keys(result).length > 0 ? result : null;
     },
 
-    // Helper for Client-Side Fetching
     async fetchClientSideQuotes(symbols: string[]): Promise<Record<string, number>> {
         const result: Record<string, number> = {};
         
@@ -93,7 +84,6 @@ export const marketService = {
                     else if (prefix === 'sz') market = '0';
                     else if (prefix === 'bj') market = '0';
 
-                    // Use AllOrigins Proxy for EastMoney push2
                     const target = `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${code}&fields=f43`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
@@ -107,23 +97,27 @@ export const marketService = {
                 return null;
             }
 
-            // B. CN Funds (EastMoney)
+            // B. CN Funds (EastMoney F10 Data)
             if (/^\d{6}$/.test(symbol)) {
                 try {
-                    // Use HTTPS for Fund API via AllOrigins
-                    const target = `https://fundgz.1234567.com.cn/js/${symbol}.js`;
+                    // Use F10DataApi via proxy
+                    const target = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${symbol}&page=1`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
+                    
                     if (json.contents) {
-                        // Priority: gsz (Realtime) > dwjz (Last Close)
-                        let match = json.contents.match(/"gsz":"([\d.]+)"/);
-                        if (match && match[1]) {
-                             return { symbol, price: parseFloat(match[1]) };
-                        }
+                        // contents is the raw response body string from target
+                        // It looks like: var apidata={ content:"..." };
+                        // We need to parse inside that string.
                         
-                        match = json.contents.match(/"dwjz":"([\d.]+)"/);
-                        if (match && match[1]) {
-                            return { symbol, price: parseFloat(match[1]) };
+                        const contentMatch = json.contents.match(/content:"([^"]+)"/);
+                        if (contentMatch && contentMatch[1]) {
+                            const html = contentMatch[1];
+                            // Parse HTML table row
+                            const rowMatch = html.match(/<td>(\d{4}-\d{2}-\d{2})<\/td><td[^>]*>([\d\.]+)<\/td>/);
+                            if (rowMatch && rowMatch[2]) {
+                                return { symbol, price: parseFloat(rowMatch[2]) };
+                            }
                         }
                     }
                 } catch (e) { console.warn(`[MarketService] EastMoney Fund fallback failed for ${symbol}`, e); }
@@ -133,7 +127,6 @@ export const marketService = {
             // C. Yahoo Finance (International)
             const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
             
-            // Try CorsProxy.io first
             try {
                 const proxyUrlA = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
                 const resA = await fetch(proxyUrlA);
@@ -144,7 +137,6 @@ export const marketService = {
                 }
             } catch (e) {}
 
-            // Try AllOrigins second
             try {
                 const proxyUrlB = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
                 const resB = await fetch(proxyUrlB);
