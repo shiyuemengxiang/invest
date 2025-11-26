@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Investment, Transaction, CATEGORY_LABELS } from '../types';
+import { Investment, Transaction, CATEGORY_LABELS, TransactionType } from '../types';
 import { recalculateInvestmentState, formatCurrency } from '../utils';
 
 interface Props {
@@ -45,12 +45,22 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
     const [showBatchForm, setShowBatchForm] = useState(false);
     const [batchConfig, setBatchConfig] = useState({
+        mode: 'fixed', // 'fixed' | 'rate' | 'annual'
         amount: 0,
+        rate: 0,
+        type: 'Dividend' as TransactionType,
         frequency: 'monthly', // weekly, monthly, quarterly, yearly
         startDate: '',
         endDate: '',
         count: 12
     });
+    
+    // Auto-fill rate when opening batch form
+    useEffect(() => {
+        if (showBatchForm && formData.expectedRate) {
+            setBatchConfig(prev => ({ ...prev, rate: formData.expectedRate || 0, mode: 'annual' }));
+        }
+    }, [showBatchForm]);
 
     // Update computed state whenever transactions change
     useEffect(() => {
@@ -120,12 +130,30 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         while (count < maxCount) {
             if (endDate && currentDate > endDate) break;
 
+            let txAmount = 0;
+            if (batchConfig.mode === 'fixed') {
+                txAmount = Number(batchConfig.amount);
+            } else if (batchConfig.mode === 'annual') {
+                // Annual Rate based: Principal * Rate% / Frequency Divisor
+                let divisor = 1;
+                if (batchConfig.frequency === 'monthly') divisor = 12;
+                else if (batchConfig.frequency === 'quarterly') divisor = 4;
+                else if (batchConfig.frequency === 'weekly') divisor = 52;
+                
+                txAmount = (formData.currentPrincipal * (Number(batchConfig.rate) / 100)) / divisor;
+                txAmount = parseFloat(txAmount.toFixed(2));
+            } else {
+                // Single Period Rate: Principal * Rate%
+                txAmount = formData.currentPrincipal * (Number(batchConfig.rate) / 100);
+                txAmount = parseFloat(txAmount.toFixed(2));
+            }
+
             newTxs.push({
                 id: self.crypto.randomUUID(),
                 date: currentDate.toISOString().split('T')[0],
-                type: 'Dividend',
-                amount: Number(batchConfig.amount),
-                notes: 'Batch Generated'
+                type: batchConfig.type,
+                amount: txAmount,
+                notes: `Batch: ${batchConfig.mode === 'fixed' ? 'Fixed' : `${batchConfig.rate}%/${batchConfig.mode === 'annual' ? 'Yr' : 'Pd'}`}`
             });
 
             // Increment date
@@ -159,7 +187,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
            </h2>
            
            <form onSubmit={handleSubmit} className="space-y-8">
-                {/* Section 1: Basic Information */}
+                {/* Section 1: Basic Information (Grid Layout) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-1.5">资产名称</label>
@@ -192,15 +220,15 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                     </div>
                 </div>
 
-                {/* Section 2: Dates & Terms */}
+                {/* Section 2: Dates */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                      <div>
                         <label className="block text-sm font-bold text-slate-700 mb-1.5">开始日期 (Deposit)</label>
                         <input type="date" name="depositDate" value={formData.depositDate} onChange={handleInputChange} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none" required />
                      </div>
                      
-                     {/* Maturity: Only relevant for Fixed or if explicitly set */}
-                     <div className={formData.type === 'Floating' && !formData.maturityDate ? 'opacity-50 hover:opacity-100 transition' : ''}>
+                     {/* Maturity is primary for Fixed, optional for Floating */}
+                     <div className={formData.type === 'Floating' ? 'opacity-70' : ''}>
                         <label className="block text-sm font-bold text-slate-700 mb-1.5">
                             到期日期 (Maturity)
                             {formData.type === 'Floating' && <span className="text-xs font-normal text-slate-400 ml-1">(选填)</span>}
@@ -217,55 +245,77 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                      </div>
                 </div>
 
-                {/* Section 3: Financial Specifics (Conditional) */}
+                {/* Section 3: Type Specifics (Clean Layout) */}
                 <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {/* Fixed Income Specifics */}
-                        {formData.type === 'Fixed' && (
-                            <>
-                                <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-1.5">预期年化 (%)</label>
-                                    <div className="relative">
-                                        <input type="number" step="0.01" name="expectedRate" value={formData.expectedRate || ''} onChange={handleInputChange} className="w-full p-3 bg-white rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-100" placeholder="0.00" />
-                                        <span className="absolute right-4 top-3.5 text-slate-400 text-sm">%</span>
-                                    </div>
+                    
+                    {/* Fixed Income Row */}
+                    {formData.type === 'Fixed' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1.5">预期年化 (%)</label>
+                                <div className="relative">
+                                    <input type="number" step="0.01" name="expectedRate" value={formData.expectedRate || ''} onChange={handleInputChange} className="w-full p-3 bg-white rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-100" placeholder="0.00" />
+                                    <span className="absolute right-4 top-3.5 text-slate-400 text-sm">%</span>
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-1.5">计息基准 (Days)</label>
-                                    <select name="interestBasis" value={formData.interestBasis || '365'} onChange={handleInputChange} className="w-full p-3 bg-white rounded-xl border border-slate-200 outline-none">
-                                        <option value="365">365天 / 年</option>
-                                        <option value="360">360天 / 年 (银行)</option>
-                                    </select>
-                                </div>
-                            </>
-                        )}
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1.5">计息基准 (Days)</label>
+                                <select name="interestBasis" value={formData.interestBasis || '365'} onChange={handleInputChange} className="w-full p-3 bg-white rounded-xl border border-slate-200 outline-none">
+                                    <option value="365">365天 / 年</option>
+                                    <option value="360">360天 / 年 (银行)</option>
+                                </select>
+                            </div>
+                        </div>
+                    )}
 
-                        {/* Floating Asset Specifics */}
-                        {formData.type === 'Floating' && (
-                            <div className="md:col-span-2">
+                    {/* Floating Asset Row */}
+                    {formData.type === 'Floating' && (
+                        <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
+                            <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-1.5">
                                     行情代码 (Symbol) 
-                                    <span className="text-xs font-normal text-slate-400 ml-2">用于自动更新净值</span>
+                                    <span className="text-xs font-normal text-slate-400 ml-2">支持 sh/sz/bj, 基金代码, 美股代码</span>
                                 </label>
                                 <div className="flex gap-3">
-                                    <input name="symbol" value={formData.symbol || ''} onChange={handleInputChange} className="flex-1 p-3 bg-white rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-100" placeholder="如: sh600519, 000001" />
-                                    <label className="flex items-center gap-2 cursor-pointer bg-white px-4 rounded-xl border border-slate-200 hover:bg-slate-50 transition">
-                                        <input type="checkbox" checked={formData.isAutoQuote || false} onChange={(e) => setFormData({...formData, isAutoQuote: e.target.checked})} className="w-4 h-4 rounded text-indigo-600" />
-                                        <span className="text-sm font-bold text-slate-600">自动更新</span>
-                                    </label>
+                                    <input name="symbol" value={formData.symbol || ''} onChange={handleInputChange} className="flex-1 p-3 bg-white rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-100" placeholder="如: sh600519, 000001, AAPL" />
+                                    
+                                    {/* Auto Quote Toggle Button */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, isAutoQuote: !formData.isAutoQuote })}
+                                        className={`px-4 rounded-xl border flex items-center gap-2 transition-all ${
+                                            formData.isAutoQuote 
+                                            ? 'bg-indigo-50 border-indigo-200 text-indigo-700' 
+                                            : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <div className={`w-3 h-3 rounded-full ${formData.isAutoQuote ? 'bg-indigo-500' : 'bg-slate-300'}`}></div>
+                                        <span className="text-sm font-bold">自动行情</span>
+                                    </button>
                                 </div>
                             </div>
-                        )}
+                        </div>
+                    )}
 
-                        {/* Rebate (Common) */}
-                        <div className={formData.type === 'Floating' ? 'md:col-span-1' : ''}>
-                            <label className="block text-sm font-bold text-slate-700 mb-1.5">返利/红包 (Rebate)</label>
-                            <div className="flex gap-2">
-                                <input type="number" step="0.01" name="rebate" value={formData.rebate || ''} onChange={handleInputChange} className="w-full p-3 bg-white rounded-xl border border-slate-200 outline-none" placeholder="0.00" />
-                                <div className="flex items-center">
-                                    <input type="checkbox" name="isRebateReceived" checked={formData.isRebateReceived} onChange={(e) => setFormData({...formData, isRebateReceived: e.target.checked})} className="w-5 h-5 rounded text-emerald-500 focus:ring-emerald-500" title="已到账" />
-                                </div>
-                            </div>
+                    {/* Rebate Row (Common) */}
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1.5">返利/红包 (Rebate)</label>
+                        <div className="flex gap-3">
+                            <input type="number" step="0.01" name="rebate" value={formData.rebate || ''} onChange={handleInputChange} className="flex-1 p-3 bg-white rounded-xl border border-slate-200 outline-none" placeholder="0.00" />
+                            
+                            {/* Rebate Received Toggle Button */}
+                            <button
+                                type="button"
+                                onClick={() => setFormData({ ...formData, isRebateReceived: !formData.isRebateReceived })}
+                                className={`px-4 rounded-xl border flex items-center gap-2 transition-all ${
+                                    formData.isRebateReceived 
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+                                    : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
+                                }`}
+                            >
+                                <div className={`w-3 h-3 rounded-full ${formData.isRebateReceived ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+                                <span className="text-sm font-bold">{formData.isRebateReceived ? '已到账' : '未到账'}</span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -296,12 +346,12 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                 <div>
                     <div className="flex justify-between items-center mb-3">
                         <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                            <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                            <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                             交易流水 (Transactions)
                         </label>
                         <div className="flex gap-2">
                             <button type="button" onClick={() => setShowBatchForm(!showBatchForm)} className="text-xs px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 font-bold border border-purple-100 transition">
-                                ⚡ 批量生成利息
+                                ⚡ 批量生成工具
                             </button>
                             <button type="button" onClick={addTransaction} className="text-xs px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 font-bold transition">
                                 + 添加记录
@@ -313,22 +363,48 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                     {showBatchForm && (
                         <div className="mb-4 bg-purple-50 p-5 rounded-2xl border border-purple-100 animate-fade-in shadow-sm">
                             <div className="flex justify-between items-center mb-4">
-                                <h4 className="text-sm font-bold text-purple-800">批量生成派息计划 (Batch Generator)</h4>
+                                <h4 className="text-sm font-bold text-purple-800">批量生成流水 (Batch Generator)</h4>
                                 <button type="button" onClick={() => setShowBatchForm(false)} className="text-purple-400 hover:text-purple-600"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                             </div>
                             
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                                 <div>
-                                    <label className="text-xs font-bold text-purple-700 block mb-1.5">单次金额</label>
-                                    <input type="number" value={batchConfig.amount} onChange={e => setBatchConfig({...batchConfig, amount: parseFloat(e.target.value)})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none" />
+                                    <label className="text-xs font-bold text-purple-700 block mb-1.5">交易类型</label>
+                                    <select value={batchConfig.type} onChange={e => setBatchConfig({...batchConfig, type: e.target.value as TransactionType})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none">
+                                        <option value="Dividend">分红/派息 (Dividend)</option>
+                                        <option value="Interest">利息 (Interest)</option>
+                                        <option value="Buy">定投/存入 (Buy)</option>
+                                        <option value="Fee">费用 (Fee)</option>
+                                    </select>
                                 </div>
+                                <div>
+                                    <label className="text-xs font-bold text-purple-700 block mb-1.5">计算模式</label>
+                                    <select value={batchConfig.mode} onChange={e => setBatchConfig({...batchConfig, mode: e.target.value})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none">
+                                        <option value="annual">年化利率 (自动按周期分摊)</option>
+                                        <option value="fixed">固定金额 (Fixed Amount)</option>
+                                        <option value="rate">单期比例 (Single Period %)</option>
+                                    </select>
+                                </div>
+                                {batchConfig.mode === 'fixed' ? (
+                                    <div>
+                                        <label className="text-xs font-bold text-purple-700 block mb-1.5">单次金额</label>
+                                        <input type="number" value={batchConfig.amount} onChange={e => setBatchConfig({...batchConfig, amount: parseFloat(e.target.value)})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none" placeholder="0.00" />
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <label className="text-xs font-bold text-purple-700 block mb-1.5">
+                                            {batchConfig.mode === 'annual' ? '年化利率 (%)' : '单次比例 (%)'}
+                                        </label>
+                                        <input type="number" value={batchConfig.rate} onChange={e => setBatchConfig({...batchConfig, rate: parseFloat(e.target.value)})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none" placeholder="e.g. 4.0" />
+                                    </div>
+                                )}
                                 <div>
                                     <label className="text-xs font-bold text-purple-700 block mb-1.5">频率</label>
                                     <select value={batchConfig.frequency} onChange={e => setBatchConfig({...batchConfig, frequency: e.target.value})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none">
-                                        <option value="weekly">每周 (Weekly)</option>
-                                        <option value="monthly">每月 (Monthly)</option>
-                                        <option value="quarterly">每季 (Quarterly)</option>
-                                        <option value="yearly">每年 (Yearly)</option>
+                                        <option value="monthly">每月 (Monthly) / 12</option>
+                                        <option value="quarterly">每季 (Quarterly) / 4</option>
+                                        <option value="weekly">每周 (Weekly) / 52</option>
+                                        <option value="yearly">每年 (Yearly) / 1</option>
                                     </select>
                                 </div>
                                 <div>
