@@ -55,6 +55,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
   // Phase 2: Dividend Modal State
   const [showDividendForm, setShowDividendForm] = useState(false);
+  const [editingTxId, setEditingTxId] = useState<string | null>(null);
   const [dividendData, setDividendData] = useState({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
 
   useEffect(() => {
@@ -75,29 +76,79 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     }
   };
 
-  // Phase 2: Add Dividend Logic
-  const handleAddDividend = () => {
+  // Phase 2: Add/Edit Dividend Logic
+  const handleSaveDividend = () => {
       if (!dividendData.amount || Number(dividendData.amount) <= 0) {
           onNotify("请输入有效的派息金额", "error");
           return;
       }
 
-      const newTx: Transaction = {
-          id: self.crypto.randomUUID(),
-          date: dividendData.date,
-          type: 'Dividend',
-          amount: Number(dividendData.amount),
-          notes: dividendData.notes || '派息/分红 (Manual)'
-      };
-
       const currentTxs = formData.transactions ? [...formData.transactions] : [];
-      currentTxs.push(newTx);
+
+      if (editingTxId) {
+          // Update existing
+          const index = currentTxs.findIndex(t => t.id === editingTxId);
+          if (index >= 0) {
+              currentTxs[index] = {
+                  ...currentTxs[index],
+                  date: dividendData.date,
+                  amount: Number(dividendData.amount),
+                  notes: dividendData.notes || '派息/分红 (Edited)'
+              };
+              onNotify("交易记录已更新", "success");
+          }
+      } else {
+          // Add new
+          const newTx: Transaction = {
+              id: self.crypto.randomUUID(),
+              date: dividendData.date,
+              type: 'Dividend',
+              amount: Number(dividendData.amount),
+              notes: dividendData.notes || '派息/分红 (Manual)'
+          };
+          currentTxs.push(newTx);
+          onNotify("派息记录已添加 (保存后生效)", "success");
+      }
 
       // Optimistic update of formData
       setFormData(prev => ({ ...prev, transactions: currentTxs }));
+      
+      // Reset form
       setShowDividendForm(false);
+      setEditingTxId(null);
       setDividendData({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
-      onNotify("派息记录已添加 (保存后生效)", "success");
+  };
+
+  const handleEditTransaction = (tx: Transaction) => {
+      setDividendData({
+          date: tx.date.split('T')[0], // Ensure YYYY-MM-DD for input type="date"
+          amount: String(tx.amount),
+          notes: tx.notes || ''
+      });
+      setEditingTxId(tx.id);
+      setShowDividendForm(true);
+  };
+
+  const handleDeleteTransaction = (id: string) => {
+      if (!window.confirm("确定要删除这条交易记录吗？")) return;
+      
+      const currentTxs = formData.transactions ? [...formData.transactions] : [];
+      const updatedTxs = currentTxs.filter(t => t.id !== id);
+      setFormData(prev => ({ ...prev, transactions: updatedTxs }));
+      onNotify("交易记录已删除", "info");
+      
+      // If we were editing this one, close the form
+      if (editingTxId === id) {
+          setShowDividendForm(false);
+          setEditingTxId(null);
+          setDividendData({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
+      }
+  };
+
+  const handleCancelDividend = () => {
+      setShowDividendForm(false);
+      setEditingTxId(null);
+      setDividendData({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -396,10 +447,14 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                     <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
                     交易流水 (Transaction History)
                 </h3>
-                {initialData && !isCompleted && (
+                {initialData && !isCompleted && !showDividendForm && (
                     <button 
                         type="button" 
-                        onClick={() => setShowDividendForm(true)}
+                        onClick={() => {
+                            setDividendData({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
+                            setEditingTxId(null);
+                            setShowDividendForm(true);
+                        }}
                         className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg font-bold transition flex items-center gap-1"
                     >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
@@ -411,15 +466,15 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             {/* Dividend Form Modal/Inline */}
             {showDividendForm && (
                 <div className="mb-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 animate-fade-in">
-                    <h4 className="text-sm font-bold text-indigo-900 mb-3">新增派息记录 (Add Dividend)</h4>
+                    <h4 className="text-sm font-bold text-indigo-900 mb-3">{editingTxId ? '编辑派息记录 (Edit Dividend)' : '新增派息记录 (Add Dividend)'}</h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-                        <input type="date" value={dividendData.date} onChange={e => setDividendData({...dividendData, date: e.target.value})} className="p-2 border border-indigo-200 rounded-lg text-sm" />
-                        <input type="number" placeholder="金额 (Amount)" value={dividendData.amount} onChange={e => setDividendData({...dividendData, amount: e.target.value})} className="p-2 border border-indigo-200 rounded-lg text-sm" />
-                        <input type="text" placeholder="备注 (选填)" value={dividendData.notes} onChange={e => setDividendData({...dividendData, notes: e.target.value})} className="p-2 border border-indigo-200 rounded-lg text-sm" />
+                        <input type="date" value={dividendData.date} onChange={e => setDividendData({...dividendData, date: e.target.value})} className="p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
+                        <input type="number" placeholder="金额 (Amount)" value={dividendData.amount} onChange={e => setDividendData({...dividendData, amount: e.target.value})} className="p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
+                        <input type="text" placeholder="备注 (选填)" value={dividendData.notes} onChange={e => setDividendData({...dividendData, notes: e.target.value})} className="p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
                     </div>
                     <div className="flex justify-end gap-2">
-                        <button type="button" onClick={() => setShowDividendForm(false)} className="px-3 py-1.5 bg-white text-slate-500 border border-slate-200 rounded-lg text-xs hover:bg-slate-50">取消</button>
-                        <button type="button" onClick={handleAddDividend} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm">确认添加</button>
+                        <button type="button" onClick={handleCancelDividend} className="px-3 py-1.5 bg-white text-slate-500 border border-slate-200 rounded-lg text-xs hover:bg-slate-50">取消</button>
+                        <button type="button" onClick={handleSaveDividend} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm">{editingTxId ? '确认修改' : '确认添加'}</button>
                     </div>
                 </div>
             )}
@@ -432,11 +487,12 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                             <th className="p-3">类型 (Type)</th>
                             <th className="p-3 text-right">金额 (Amount)</th>
                             <th className="p-3">备注 (Notes)</th>
+                            <th className="p-3 text-right">操作</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                         {(formData.transactions && formData.transactions.length > 0 ? formData.transactions : (initialData?.transactions || [])).map(tx => (
-                            <tr key={tx.id} className="text-slate-700 hover:bg-white transition">
+                            <tr key={tx.id} className="text-slate-700 hover:bg-white transition group">
                                 <td className="p-3 font-mono text-slate-500">{formatDateTime(tx.date)}</td>
                                 <td className="p-3">
                                     <span className={`px-1.5 py-0.5 rounded border font-medium text-[10px] ${
@@ -452,11 +508,33 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                                     {tx.type === 'Sell' ? '-' : '+'}{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </td>
                                 <td className="p-3 text-slate-400 truncate max-w-[150px]">{tx.notes || '-'}</td>
+                                <td className="p-3 text-right">
+                                    {tx.type === 'Dividend' && (
+                                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button 
+                                                type="button" 
+                                                onClick={() => handleEditTransaction(tx)}
+                                                className="text-indigo-500 hover:text-indigo-700"
+                                                title="编辑"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                            </button>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => handleDeleteTransaction(tx.id)}
+                                                className="text-red-400 hover:text-red-600"
+                                                title="删除"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            </button>
+                                        </div>
+                                    )}
+                                </td>
                             </tr>
                         ))}
                         {(!formData.transactions || formData.transactions.length === 0) && (!initialData?.transactions || initialData.transactions.length === 0) && (
                             <tr>
-                                <td colSpan={4} className="p-4 text-center text-slate-300 italic">暂无交易流水</td>
+                                <td colSpan={5} className="p-4 text-center text-slate-300 italic">暂无交易流水</td>
                             </tr>
                         )}
                     </tbody>
