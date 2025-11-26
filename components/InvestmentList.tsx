@@ -390,7 +390,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                 </div>
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
-                                                        {item.category === 'Fund' ? 'Today\'s Val' : 'Current Price'}
+                                                        {item.category === 'Fund' ? '最新净值 (NAV)' : 'Current Price'}
                                                     </p>
                                                     <div className="flex flex-wrap items-center gap-1">
                                                         <p className={`font-mono text-xs font-bold ${metrics.currentPrice >= metrics.unitCost ? 'text-orange-600' : 'text-emerald-600'}`}>
@@ -399,12 +399,13 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                         
                                                         {/* Show Estimated Growth if available */}
                                                         {item.estGrowth !== undefined ? (
-                                                            <span className={`text-[9px] px-1 rounded ${item.estGrowth >= 0 ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                                                                {item.estGrowth >= 0 ? '+' : ''}{item.estGrowth}%
-                                                            </span>
+                                                            <div className={`flex items-center gap-0.5 px-1 py-0.5 rounded ${item.estGrowth >= 0 ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                                                <span className="text-[8px] opacity-75 font-bold scale-90">估</span>
+                                                                <span className="text-[9px] font-bold">{item.estGrowth >= 0 ? '+' : ''}{item.estGrowth}%</span>
+                                                            </div>
                                                         ) : (
                                                             item.isAutoQuote && (
-                                                                <span className="text-[9px] px-1 rounded bg-slate-200 text-slate-500">
+                                                                <span className="text-[9px] px-1 rounded bg-slate-100 text-slate-400 border border-slate-200">
                                                                     暂无估值
                                                                 </span>
                                                             )

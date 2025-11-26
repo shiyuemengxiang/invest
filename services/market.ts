@@ -141,7 +141,8 @@ export const marketService = {
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
                     if (json.contents) {
-                        const navMatch = json.contents.match(/<td>(\d{4}-\d{2}-\d{2})<\/td><td class='tor bold'>([\d\.]+)<\/td>/);
+                        // Loose regex for table parsing
+                        const navMatch = json.contents.match(/<td>(\d{4}-\d{2}-\d{2})<\/td>\s*<td[^>]*>([\d\.]+)<\/td>/);
                          if (navMatch && navMatch[2]) {
                             return { 
                                 symbol, 

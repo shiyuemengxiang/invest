@@ -104,8 +104,8 @@ export default async function handler(request: any, response: any) {
                 const text = await res.text();
                 // var apidata={ content:"... <tr><td>2023-01-01</td><td class='tor bold'>1.2345</td>..." }
                 
-                // Extract First Row NAV
-                const navMatch = text.match(/<td>(\d{4}-\d{2}-\d{2})<\/td><td class='tor bold'>([\d\.]+)<\/td>/);
+                // Extract First Row NAV - loosen regex for attributes
+                const navMatch = text.match(/<td>(\d{4}-\d{2}-\d{2})<\/td>\s*<td[^>]*>([\d\.]+)<\/td>/);
                 if (navMatch && navMatch[2]) {
                     const price = parseFloat(navMatch[2]);
                     console.log(`[API Quotes] EastMoney Fund (F10) success for ${symbol}: ${price}`);
