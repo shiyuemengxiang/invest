@@ -40,7 +40,7 @@ export const marketService = {
     async getQuotes(symbols: string[]): Promise<Record<string, number> | null> {
         console.log(`[MarketService] Requesting quotes for: ${symbols.join(', ')}`);
         
-        // Strategy 1: Try Backend API (Often Blocked on Vercel Free Tier IP)
+        // Strategy 1: Try Backend API
         try {
             const res = await fetch(`${API_BASE}/quotes`, {
                 method: 'POST',
@@ -50,60 +50,75 @@ export const marketService = {
             if (res.ok) {
                 const data = await res.json();
                 console.log("[MarketService] Backend API response:", data);
-                // If we got some data, return it.
                 if (Object.keys(data).length > 0) return data;
-            } else {
-                console.warn(`[MarketService] Backend API returned status ${res.status}`);
             }
         } catch (e) {
             console.warn("[MarketService] Backend quotes API failed/network error:", e);
         }
 
-        // Strategy 2: Client-Side Multi-Proxy Fallback
-        console.log("[MarketService] Triggering Client-Side Multi-Proxy Fallback...");
+        // Strategy 2: Client-Side Fallback (Intelligent Routing)
+        console.log("[MarketService] Triggering Client-Side Fallback...");
         
         const result: Record<string, number> = {};
         const uniqueSymbols = Array.from(new Set(symbols));
 
         const promises = uniqueSymbols.map(async (symbol) => {
+            // A. CN Stocks (Tencent): sh, sz, bj
+            if (/^(sh|sz|bj)\d{6}$/i.test(symbol)) {
+                try {
+                    // Use CORS Proxy because Tencent endpoint might not enable CORS for all origins or HTTP/S mix
+                    const target = `https://qt.gtimg.cn/q=${symbol}`;
+                    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
+                    const json = await res.json();
+                    if (json.contents) {
+                        const parts = json.contents.split('~');
+                        if (parts.length > 3) return { symbol, price: parseFloat(parts[3]) };
+                    }
+                } catch (e) { console.warn(`[MarketService] Tencent fallback failed for ${symbol}`, e); }
+                return null;
+            }
+
+            // B. CN Funds (EastMoney)
+            if (/^\d{6}$/.test(symbol)) {
+                try {
+                    const target = `http://fundgz.1234567.com.cn/js/${symbol}.js`;
+                    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
+                    const json = await res.json();
+                    if (json.contents) {
+                        const match = json.contents.match(/"gsz":"([\d.]+)"/);
+                        if (match && match[1]) return { symbol, price: parseFloat(match[1]) };
+                    }
+                } catch (e) { console.warn(`[MarketService] EastMoney fallback failed for ${symbol}`, e); }
+                return null;
+            }
+
+            // C. Yahoo Finance (International)
             const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
             
-            // Sub-Strategy A: corsproxy.io (Fastest)
+            // Try CorsProxy.io first
             try {
                 const proxyUrlA = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-                console.log(`[MarketService] Proxy A Fetching: ${symbol}`);
                 const resA = await fetch(proxyUrlA);
                 if (resA.ok) {
                     const data = await resA.json();
                     const price = extractPriceFromChart(data);
-                    if (price) {
-                        console.log(`[MarketService] Proxy A Success for ${symbol}:`, price);
-                        return { symbol, price };
-                    }
+                    if (price) return { symbol, price };
                 }
-            } catch (e) {
-                console.warn(`[MarketService] Proxy A failed for ${symbol}`, e);
-            }
+            } catch (e) {}
 
-            // Sub-Strategy B: allorigins.win (Reliable Fallback)
+            // Try AllOrigins second
             try {
                 const proxyUrlB = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-                console.log(`[MarketService] Proxy B Fetching: ${symbol}`);
                 const resB = await fetch(proxyUrlB);
                 if (resB.ok) {
                     const json = await resB.json();
                     if (json.contents) {
                         const data = JSON.parse(json.contents);
                         const price = extractPriceFromChart(data);
-                        if (price) {
-                            console.log(`[MarketService] Proxy B Success for ${symbol}:`, price);
-                            return { symbol, price };
-                        }
+                        if (price) return { symbol, price };
                     }
                 }
-            } catch (e) {
-                console.warn(`[MarketService] Proxy B failed for ${symbol}`, e);
-            }
+            } catch (e) {}
 
             return null;
         });
@@ -120,7 +135,6 @@ export const marketService = {
     }
 };
 
-// Helper to parse Yahoo Chart JSON
 function extractPriceFromChart(data: any): number | null {
     try {
         const meta = data?.chart?.result?.[0]?.meta;

@@ -23,10 +23,47 @@ export default async function handler(request: any, response: any) {
     const result: Record<string, number> = {};
 
     const fetchQuote = async (symbol: string) => {
-        // Method 1: Library
+        // 1. CN Stocks (Tencent API): sz000001, sh600519, bj839725
+        if (/^(sh|sz|bj)\d{6}$/i.test(symbol)) {
+            try {
+                const res = await fetch(`https://qt.gtimg.cn/q=${symbol}`);
+                const text = await res.text();
+                // Response format: v_sz000001="51~Name~Code~CurrentPrice~..."
+                // Price is usually index 3
+                const parts = text.split('~');
+                if (parts.length > 3) {
+                    const price = parseFloat(parts[3]);
+                    console.log(`[API Quotes] Tencent success for ${symbol}: ${price}`);
+                    return price;
+                }
+            } catch (e: any) {
+                console.warn(`[API Quotes] Tencent failed for ${symbol}: ${e.message}`);
+            }
+            return null;
+        }
+
+        // 2. CN Funds (EastMoney API): 6 digits (e.g. 320007)
+        if (/^\d{6}$/.test(symbol)) {
+            try {
+                // Use http/https based on availability. Node fetch supports both.
+                const res = await fetch(`http://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`);
+                const text = await res.text();
+                // Response: jsonpgz({"fundcode":"...","gsz":"1.2345",...});
+                const match = text.match(/"gsz":"([\d.]+)"/);
+                if (match && match[1]) {
+                    const price = parseFloat(match[1]);
+                    console.log(`[API Quotes] EastMoney success for ${symbol}: ${price}`);
+                    return price;
+                }
+            } catch (e: any) {
+                console.warn(`[API Quotes] EastMoney failed for ${symbol}: ${e.message}`);
+            }
+            return null;
+        }
+
+        // 3. International (Yahoo Finance)
         try {
             // Suppress validation errors
-            // Cast to any to bypass TS inference issues with the library types
             const quote = await yahooFinance.quote(symbol, { validateResult: false }) as any;
             const price = quote.regularMarketPrice || quote.ask || quote.bid;
             console.log(`[API Quotes] YahooLib success for ${symbol}: ${price}`);
@@ -34,7 +71,7 @@ export default async function handler(request: any, response: any) {
         } catch (libError: any) {
             console.warn(`[API Quotes] YahooLib failed for ${symbol}: ${libError.message}`);
             
-            // Method 2: Direct Fetch with Browser Headers (Fallback)
+            // HTTP Fallback for Yahoo
             try {
                 const fetchUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
                 const res = await fetch(fetchUrl, {
@@ -50,8 +87,6 @@ export default async function handler(request: any, response: any) {
                         console.log(`[API Quotes] HTTP Fallback success for ${symbol}: ${meta.regularMarketPrice}`);
                         return meta.regularMarketPrice;
                     }
-                } else {
-                    console.warn(`[API Quotes] HTTP Fallback status ${res.status} for ${symbol}`);
                 }
             } catch (fallbackError) {
                 console.error(`[API Quotes] HTTP Fallback error for ${symbol}`, fallbackError);
@@ -70,7 +105,7 @@ export default async function handler(request: any, response: any) {
     outcomes.forEach(outcome => {
         if (outcome.status === 'fulfilled' && outcome.value) {
             const { symbol, price } = outcome.value;
-            if (price !== undefined && price !== null) {
+            if (price !== undefined && price !== null && !isNaN(price)) {
                 result[symbol] = price;
             }
         }
@@ -80,7 +115,6 @@ export default async function handler(request: any, response: any) {
     return response.status(200).json(result);
   } catch (error: any) {
     console.error("[API Quotes] Critical Error:", error);
-    // Always return 200 with empty object on crash to prevent frontend 500
     return response.status(200).json({});
   }
 }
