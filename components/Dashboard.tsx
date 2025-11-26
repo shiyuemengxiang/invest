@@ -169,36 +169,10 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         </div>
       </div>
 
-      {/* Detailed Stats Grid - Now 4 Columns on Large Screens */}
+      {/* Detailed Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Active Principal */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group">
-          <div className="flex justify-between items-start mb-4">
-            <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-600">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-            </div>
-            <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
-          </div>
-          <p className="text-slate-500 text-sm font-medium">在途本金</p>
-          <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.activePrincipal, selectedCurrency)}</p>
-          <div className="w-full bg-slate-100 h-1.5 mt-4 rounded-full overflow-hidden">
-             <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000" style={{ width: `${stats.totalInvested ? (stats.activePrincipal / stats.totalInvested) * 100 : 0}%` }}></div>
-          </div>
-        </div>
-
-        {/* Realized Profit */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group">
-          <div className="flex justify-between items-start mb-4">
-             <div className="p-3 bg-amber-50 rounded-2xl text-amber-600">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            </div>
-             <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
-          </div>
-          <p className="text-slate-500 text-sm font-medium">已落袋收益</p>
-          <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.realizedInterest, selectedCurrency)}</p>
-        </div>
-
-        {/* Estimated Total Profit (Active + Realized) + Yield */}
+        
+        {/* Estimated Total Profit (Active + Realized) */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-indigo-100/50">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
@@ -214,6 +188,33 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
               </span>
           </p>
           <p className="text-[10px] text-slate-400 mt-1">含已完结、浮动及固收(截止今日)</p>
+        </div>
+
+        {/* Today's Estimated Profit (Daily Return) */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group">
+          <div className="flex justify-between items-start mb-4">
+             <div className="p-3 bg-orange-50 rounded-2xl text-orange-600">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+            </div>
+             <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Today/Est</span>
+          </div>
+          <p className="text-slate-500 text-sm font-medium">今日/昨日预估收益</p>
+          <p className={`text-2xl font-bold mt-1 tabular-nums ${stats.todayEstProfit >= 0 ? 'text-orange-500' : 'text-emerald-500'}`}>
+              {stats.todayEstProfit > 0 ? '+' : ''}{formatCurrency(stats.todayEstProfit, selectedCurrency)}
+          </p>
+          <p className="text-[10px] text-slate-400 mt-1">含基金/股票今日估值及固收日息</p>
+        </div>
+
+        {/* Realized Profit */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group">
+          <div className="flex justify-between items-start mb-4">
+             <div className="p-3 bg-amber-50 rounded-2xl text-amber-600">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+             <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
+          </div>
+          <p className="text-slate-500 text-sm font-medium">已落袋收益</p>
+          <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.realizedInterest, selectedCurrency)}</p>
         </div>
 
         {/* Weighted Yield */}

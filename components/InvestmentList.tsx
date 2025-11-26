@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
-import { Investment, CATEGORY_LABELS, Currency } from '../types';
-import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime } from '../utils';
+import { Investment, CATEGORY_LABELS, Currency, InvestmentCategory } from '../types';
+import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn } from '../utils';
 import ConfirmModal from './ConfirmModal';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 
@@ -16,11 +16,14 @@ interface Props {
 type FilterType = 'all' | 'active' | 'completed';
 type ProductTypeFilter = 'all' | 'Fixed' | 'Floating';
 type CurrencyFilter = 'all' | Currency;
+type CategoryFilter = 'all' | InvestmentCategory;
 
 const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, onRefreshMarket }) => {
   const [filter, setFilter] = useState<FilterType>('all');
   const [productFilter, setProductFilter] = useState<ProductTypeFilter>('all');
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('all');
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
+  
   const [isRefreshing, setIsRefreshing] = useState(false);
   
   // Custom Date Filter State
@@ -42,16 +45,52 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
       // 3. Currency Filter
       if (currencyFilter !== 'all' && item.currency !== currencyFilter) return false;
 
+      // 4. Category Filter
+      if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
+
       return true;
     });
 
-    // 4. Custom Date Filter (using helper)
+    // 5. Custom Date Filter
     if (showCustomDate && customStart && customEnd) {
          result = filterInvestmentsByTime(result, 'custom', customStart, customEnd);
     }
     
     return result;
-  }, [items, filter, productFilter, currencyFilter, showCustomDate, customStart, customEnd]);
+  }, [items, filter, productFilter, currencyFilter, categoryFilter, showCustomDate, customStart, customEnd]);
+
+  // --- Summary Stats Calculation ---
+  const summaryStats = useMemo(() => {
+      const stats = {
+          CNY: { totalProfit: 0, dailyReturn: 0 },
+          USD: { totalProfit: 0, dailyReturn: 0 },
+          HKD: { totalProfit: 0, dailyReturn: 0 }
+      };
+
+      filteredItems.forEach(item => {
+          const metrics = calculateItemMetrics(item);
+          const daily = calculateDailyReturn(item);
+
+          // Total Profit:
+          // For Active Fixed: Accrued Return + Rebate
+          // For Active Floating: Total Return (Current - Principal + Rebate)
+          // For Completed: Realized Return + Rebate
+          let profit = 0;
+          if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
+              profit = metrics.accruedReturn + item.rebate;
+          } else {
+              profit = metrics.profit;
+          }
+
+          if (stats[item.currency]) {
+              stats[item.currency].totalProfit += profit;
+              stats[item.currency].dailyReturn += daily;
+          }
+      });
+
+      return stats;
+  }, [filteredItems]);
+
 
   const handleDeleteConfirm = () => {
     if (deleteId) {
@@ -70,14 +109,13 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
   const handleRefreshClick = async () => {
       setIsRefreshing(true);
       await onRefreshMarket();
-      setTimeout(() => setIsRefreshing(false), 1000); // Visual feedback min duration
+      setTimeout(() => setIsRefreshing(false), 1000); 
   };
 
-  const isDragEnabled = filter === 'all' && productFilter === 'all' && currencyFilter === 'all' && !showCustomDate;
+  const isDragEnabled = filter === 'all' && productFilter === 'all' && currencyFilter === 'all' && categoryFilter === 'all' && !showCustomDate;
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
-      {/* Delete Confirmation Modal */}
       <ConfirmModal 
         isOpen={!!deleteId}
         title="确认删除"
@@ -88,11 +126,11 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
         onCancel={() => setDeleteId(null)}
       />
 
-      {/* Filters Container */}
+      {/* --- Filter & Summary Panel --- */}
       <div className="bg-white/80 backdrop-blur-sm p-4 rounded-3xl border border-white/50 shadow-sm space-y-4">
           {/* Row 1: Status, Currency & Refresh */}
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                <div className="flex flex-wrap gap-2 w-full md:w-auto">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                <div className="flex flex-wrap gap-2 w-full lg:w-auto">
                     {/* Status Tabs */}
                     <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl">
                         {(['all', 'active', 'completed'] as FilterType[]).map(f => (
@@ -120,7 +158,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+                <div className="flex items-center gap-3 w-full lg:w-auto justify-end">
                     <button
                         onClick={handleRefreshClick}
                         className={`flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors ${isRefreshing ? 'opacity-70 cursor-wait' : ''}`}
@@ -136,28 +174,76 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                 </div>
           </div>
 
-          {/* Row 2: Type Tabs & Date Filter */}
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                {/* Product Type Tabs */}
-                <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl w-full md:w-auto overflow-x-auto no-scrollbar">
-                    {(['all', 'Fixed', 'Floating'] as ProductTypeFilter[]).map(p => (
-                        <button
-                            key={p}
-                            onClick={() => setProductFilter(p)}
-                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${productFilter === p ? 'bg-white text-indigo-600 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            {p === 'all' ? '全部类型' : p === 'Fixed' ? '固收型' : '浮动型'}
-                        </button>
-                    ))}
+          {/* Row 2: Type, Category & Date */}
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+                    {/* Product Type */}
+                    <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl">
+                        {(['all', 'Fixed', 'Floating'] as ProductTypeFilter[]).map(p => (
+                            <button
+                                key={p}
+                                onClick={() => setProductFilter(p)}
+                                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${productFilter === p ? 'bg-white text-indigo-600 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                {p === 'all' ? '全部类型' : p === 'Fixed' ? '固收型' : '浮动型'}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Category Filter */}
+                     <select 
+                        value={categoryFilter}
+                        onChange={(e) => setCategoryFilter(e.target.value as CategoryFilter)}
+                        className="px-3 py-1.5 bg-slate-100 rounded-xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-slate-200 border-none h-[34px]"
+                     >
+                        <option value="all">所有分类</option>
+                        {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+                            <option key={key} value={key}>{label}</option>
+                        ))}
+                    </select>
                 </div>
 
                 <button 
                     onClick={() => setShowCustomDate(!showCustomDate)}
-                    className={`w-full md:w-auto flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${showCustomDate ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
+                    className={`w-full lg:w-auto flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${showCustomDate ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
                 >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                     自定义时间
                 </button>
+          </div>
+
+          {/* Row 3: Live Summary Stats (Based on Filter) */}
+          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-wrap gap-8 items-center justify-around">
+             {/* Only show stats for currencies present in the list or all if no filter */}
+             {(['CNY', 'USD', 'HKD'] as Currency[]).filter(c => currencyFilter === 'all' || currencyFilter === c).map(c => {
+                 const s = summaryStats[c];
+                 if (s.totalProfit === 0 && s.dailyReturn === 0 && currencyFilter !== 'all') return null; // Skip empty if filtering specific
+                 if (currencyFilter === 'all' && s.totalProfit === 0 && s.dailyReturn === 0) return null; // Skip empty if all
+
+                 return (
+                     <div key={c} className="flex flex-col items-center min-w-[100px]">
+                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{c} Summary</span>
+                         <div className="flex gap-6">
+                             <div className="text-center">
+                                 <p className="text-[10px] text-slate-500">累计收益 (预估)</p>
+                                 <p className={`font-mono font-bold text-sm ${s.totalProfit >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                                     {formatCurrency(s.totalProfit, c)}
+                                 </p>
+                             </div>
+                             <div className="text-center">
+                                 <p className="text-[10px] text-slate-500">昨日/今日收益</p>
+                                 <p className={`font-mono font-bold text-sm ${s.dailyReturn >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                                     {s.dailyReturn >= 0 ? '+' : ''}{formatCurrency(s.dailyReturn, c)}
+                                 </p>
+                             </div>
+                         </div>
+                     </div>
+                 );
+             })}
+             {/* Empty State for Summary */}
+             {currencyFilter === 'all' && Object.values(summaryStats).every(s => s.totalProfit === 0 && s.dailyReturn === 0) && (
+                 <span className="text-xs text-slate-400">暂无收益数据</span>
+             )}
           </div>
 
           {/* Custom Date Inputs (Conditional) */}
@@ -196,15 +282,6 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                     ref={provided.innerRef} 
                     className="grid grid-cols-1 gap-4"
                 >
-                    {filteredItems.length === 0 && (
-                        <div className="text-center py-20 bg-white rounded-[2rem] border border-slate-100 border-dashed">
-                            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-50 mb-4 text-slate-300 shadow-inner">
-                                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                            </div>
-                            <p className="text-slate-400 font-medium">暂无相关记录</p>
-                        </div>
-                    )}
-                    
                     {filteredItems.map((item, index) => {
                         const metrics = calculateItemMetrics(item);
                         
@@ -299,7 +376,6 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                 </div>
                                                 
                                                 <div className="flex gap-2 items-center">
-                                                    {/* Handle for Dragging - Visible always on Mobile, Hover on Desktop */}
                                                     {isDragEnabled && (
                                                         <div 
                                                             {...provided.dragHandleProps}
@@ -391,7 +467,7 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                             </div>
                                         </div>
                                         
-                                        {/* Unit Cost & Current Price for Stocks/Funds - 5 Column Layout */}
+                                        {/* Unit Cost & Current Price for Stocks/Funds */}
                                         {item.quantity && item.quantity > 0 && (
                                             <div className="relative z-10 grid grid-cols-2 md:grid-cols-5 gap-4 py-4 mt-2 bg-slate-50/80 rounded-xl px-4 border border-dashed border-slate-200">
                                                 {/* 1. Holdings */}
@@ -424,7 +500,6 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                     
                                                     {item.estGrowth !== undefined ? (
                                                         <div className="flex flex-col gap-1">
-                                                            {/* Show Est Price for Funds */}
                                                             {estPrice && (
                                                                 <span className={`font-mono text-xs font-bold ${item.estGrowth >= 0 ? 'text-orange-400' : 'text-emerald-400'}`}>
                                                                     {formatCurrency(estPrice, item.currency)}
@@ -444,10 +519,6 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                         ) : (
                                                             <span className="text-[10px] text-slate-300">-</span>
                                                         )
-                                                    )}
-                                                    
-                                                    {item.isAutoQuote && item.estGrowth === undefined && (
-                                                         <div className="text-[9px] text-slate-400 mt-0.5">Cloud Auto ☁️</div>
                                                     )}
                                                 </div>
                                                 

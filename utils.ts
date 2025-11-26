@@ -185,6 +185,38 @@ export const convertCurrency = (amount: number, from: Currency, to: Currency, ra
     return inCNY / rates[to];
 };
 
+// Calculate estimated DAILY return (for Today's Est. Profit)
+export const calculateDailyReturn = (item: Investment): number => {
+    // 1. Pending: No return
+    const todayStart = new Date().setHours(0,0,0,0);
+    const depositStart = new Date(item.depositDate).setHours(0,0,0,0);
+    if (todayStart < depositStart) return 0;
+    
+    // 2. Completed: No daily return (it's finished)
+    if (item.withdrawalDate) return 0;
+
+    // 3. Floating (Fund/Stock): Based on estGrowth (today's change)
+    if (item.type === 'Floating') {
+        if (item.estGrowth && item.principal > 0) {
+            // estGrowth is percent (e.g., 1.5 for 1.5%)
+            // Daily Return = Current Value * (Growth/100) or Principal * (Growth/100)
+            // Using Principal as base for simplicity, or if we have currentReturn, add it.
+            // Let's use (Principal + CurrentReturn) * Growth% ideally, but simpler is Principal * Growth%
+            // Better: use Quantity * Price * Growth% ?
+            // Let's stick to: Principal * (estGrowth / 100)
+            return item.principal * (item.estGrowth / 100);
+        }
+        return 0;
+    }
+
+    // 4. Fixed Income: Principal * (Rate/100) / 365
+    if (item.type === 'Fixed' && item.expectedRate) {
+        return item.principal * (item.expectedRate / 100) / 365;
+    }
+
+    return 0;
+};
+
 // Calculate metrics for a single investment
 export const calculateItemMetrics = (item: Investment) => {
   const now = new Date();
@@ -254,8 +286,6 @@ export const calculateItemMetrics = (item: Investment) => {
           const fullTermMs = maturity.getTime() - deposit.getTime();
           const fullTermDays = Math.max(1, Math.round(fullTermMs / MS_PER_DAY));
           // Calculate potential return at end of term
-          // We store this mainly for UI reference if needed, but 'baseInterest' is used for profit in list logic usually
-          // For consistency with other types, baseInterest usually holds "Current/Realized" value
           baseInterest = item.principal * (rate / 100) * (fullTermDays / 365);
       }
       
@@ -376,6 +406,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   let receivedRebate = 0;
   let realizedInterest = 0;
   let projectedTotalProfit = 0; // Accumulator for total profit (Realized + Projected)
+  let todayEstProfit = 0; // New: Today's Estimated Profit (Daily)
   
   let weightedYieldSum = 0;
   let totalWeight = 0;
@@ -395,6 +426,11 @@ export const calculatePortfolioStats = (items: Investment[]) => {
         // Floating (already current), Completed (realized), Pending (rebate only)
         // For floating, 'metrics.profit' is derived from currentReturn + rebate
         projectedTotalProfit += metrics.profit;
+    }
+    
+    // Calculate Today's Profit
+    if (!metrics.isCompleted) {
+        todayEstProfit += calculateDailyReturn(item);
     }
 
     if (item.isRebateReceived) {
@@ -431,7 +467,8 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     receivedRebate,
     realizedInterest,
     projectedTotalProfit,
-    projectedTotalYield, // New Field
+    projectedTotalYield,
+    todayEstProfit, // New Field
     comprehensiveYield: totalWeight > 0 ? weightedYieldSum / totalWeight : 0
   };
 };
