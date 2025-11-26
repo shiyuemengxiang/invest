@@ -46,16 +46,12 @@ export default async function handler(request: any, response: any) {
                 // f43 is "Latest Price" in Fen (cents) usually, or scaled int
                 if (json && json.data && json.data.f43) {
                     const rawPrice = json.data.f43;
-                    // EastMoney push2 usually returns value * 100 or * 10 depending on asset
-                    // But standard A-share is 2 decimals. 
-                    // Let's verify: Construction Bank 601939. f43 returns 716 (for 7.16). So / 100.
-                    // ETF funds might be 3 decimals? Usually A-share is 2.
                     const price = rawPrice / 100; // Convert Fen to Yuan
-                    console.log(`[API Quotes] EastMoney success for ${symbol}: ${price}`);
+                    console.log(`[API Quotes] EastMoney Stock success for ${symbol}: ${price}`);
                     return price;
                 }
             } catch (e: any) {
-                console.warn(`[API Quotes] EastMoney failed for ${symbol}: ${e.message}`);
+                console.warn(`[API Quotes] EastMoney Stock failed for ${symbol}: ${e.message}`);
             }
             return null;
         }
@@ -63,18 +59,29 @@ export default async function handler(request: any, response: any) {
         // 2. CN Funds (EastMoney fundgz): 6 digits (e.g. 320007)
         if (/^\d{6}$/.test(symbol)) {
             try {
-                // Use http/https based on availability. Node fetch supports both.
-                const res = await fetch(`http://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`, {
-                    headers: { 'Referer': 'http://fund.eastmoney.com/' }
+                // Use HTTPS to prevent mixed content blocking if run on client, and better security on server
+                const res = await fetch(`https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`, {
+                    headers: { 'Referer': 'https://fund.eastmoney.com/' }
                 });
                 const text = await res.text();
-                // Response: jsonpgz({"fundcode":"...","gsz":"1.2345",...});
-                const match = text.match(/"gsz":"([\d.]+)"/);
+                // Response: jsonpgz({"fundcode":"...","gsz":"1.2345","dwjz":"1.2340",...});
+                
+                // Try to get GSZ (Real-time Estimate) first
+                let match = text.match(/"gsz":"([\d.]+)"/);
                 if (match && match[1]) {
                     const price = parseFloat(match[1]);
-                    console.log(`[API Quotes] EastMoney Fund success for ${symbol}: ${price}`);
+                    console.log(`[API Quotes] EastMoney Fund (GSZ) success for ${symbol}: ${price}`);
                     return price;
                 }
+                
+                // Fallback to DWJZ (Confirmed Net Value) if GSZ is missing/empty
+                match = text.match(/"dwjz":"([\d.]+)"/);
+                if (match && match[1]) {
+                    const price = parseFloat(match[1]);
+                    console.log(`[API Quotes] EastMoney Fund (DWJZ) success for ${symbol}: ${price}`);
+                    return price;
+                }
+
             } catch (e: any) {
                 console.warn(`[API Quotes] EastMoney Fund failed for ${symbol}: ${e.message}`);
             }

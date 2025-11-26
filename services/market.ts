@@ -103,20 +103,28 @@ export const marketService = {
                             return { symbol, price: data.data.f43 / 100 };
                         }
                     }
-                } catch (e) { console.warn(`[MarketService] EastMoney fallback failed for ${symbol}`, e); }
+                } catch (e) { console.warn(`[MarketService] EastMoney Stock fallback failed for ${symbol}`, e); }
                 return null;
             }
 
             // B. CN Funds (EastMoney)
             if (/^\d{6}$/.test(symbol)) {
                 try {
-                    // Use AllOrigins Proxy
-                    const target = `http://fundgz.1234567.com.cn/js/${symbol}.js`;
+                    // Use HTTPS for Fund API via AllOrigins
+                    const target = `https://fundgz.1234567.com.cn/js/${symbol}.js`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
                     if (json.contents) {
-                        const match = json.contents.match(/"gsz":"([\d.]+)"/);
-                        if (match && match[1]) return { symbol, price: parseFloat(match[1]) };
+                        // Priority: gsz (Realtime) > dwjz (Last Close)
+                        let match = json.contents.match(/"gsz":"([\d.]+)"/);
+                        if (match && match[1]) {
+                             return { symbol, price: parseFloat(match[1]) };
+                        }
+                        
+                        match = json.contents.match(/"dwjz":"([\d.]+)"/);
+                        if (match && match[1]) {
+                            return { symbol, price: parseFloat(match[1]) };
+                        }
                     }
                 } catch (e) { console.warn(`[MarketService] EastMoney Fund fallback failed for ${symbol}`, e); }
                 return null;
