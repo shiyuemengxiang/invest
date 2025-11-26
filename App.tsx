@@ -130,14 +130,21 @@ const App: React.FC = () => {
       if (quotes) {
           const updatedList = items.map(item => {
               if (item.isAutoQuote && item.symbol && quotes[item.symbol] && item.quantity) {
-                  const newPrice = quotes[item.symbol];
+                  const marketData = quotes[item.symbol];
+                  const newPrice = marketData.price;
+                  
                   // Calculate new Current Return
                   // Current Return = (Current Price * Quantity) - Principal
-                  // Logic assumes Principal is total cost basis.
                   const currentVal = newPrice * item.quantity;
                   const newReturn = currentVal - item.principal;
                   updatedCount++;
-                  return { ...item, currentReturn: newReturn };
+                  
+                  return { 
+                      ...item, 
+                      currentReturn: newReturn,
+                      estGrowth: marketData.change, // Save the estimated growth rate
+                      lastUpdate: new Date().toISOString()
+                  };
               }
               return item;
           });
@@ -252,7 +259,7 @@ const App: React.FC = () => {
             onClick={() => handleNav('list')} 
             className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center gap-3 ${view === 'list' ? themeConfig.navActive : themeConfig.navHover}`}
         >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2-2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
             明细 List
         </button>
         <button 

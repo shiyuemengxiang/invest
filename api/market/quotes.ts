@@ -1,6 +1,12 @@
 
 import yahooFinance from 'yahoo-finance2';
 
+interface QuoteResult {
+    price: number;
+    change?: number;
+    time?: string;
+}
+
 export default async function handler(request: any, response: any) {
   if (request.method !== 'POST') {
       return response.status(405).json({ error: 'Method not allowed' });
@@ -20,9 +26,9 @@ export default async function handler(request: any, response: any) {
     }
 
     const uniqueSymbols = Array.from(new Set(symbols as string[]));
-    const result: Record<string, number> = {};
+    const result: Record<string, QuoteResult> = {};
 
-    const fetchQuote = async (symbol: string) => {
+    const fetchQuote = async (symbol: string): Promise<QuoteResult | null> => {
         // 1. CN Stocks (EastMoney push2): sh000001, sz000001, bj839725
         if (/^(sh|sz|bj)\d{6}$/i.test(symbol)) {
             try {
@@ -35,19 +41,19 @@ export default async function handler(request: any, response: any) {
                 else if (prefix === 'sz') market = '0';
                 else if (prefix === 'bj') market = '0'; 
                 
-                const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${code}&fields=f43`;
+                const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${code}&fields=f43,f170`;
                 
                 const res = await fetch(url, {
                     headers: { 'Referer': 'https://eastmoney.com/' }
                 });
                 
                 const json = await res.json();
-                // Data format: { data: { f43: 1234 } } -> Price is 12.34
+                // f43: Price (fen), f170: Change (basis points, 100 = 1%)
                 if (json && json.data && json.data.f43) {
-                    const rawPrice = json.data.f43;
-                    const price = rawPrice / 100; // Convert Fen to Yuan
-                    console.log(`[API Quotes] EastMoney Stock success for ${symbol}: ${price}`);
-                    return price;
+                    const price = json.data.f43 / 100;
+                    const change = json.data.f170 ? json.data.f170 / 100 : 0;
+                    console.log(`[API Quotes] EastMoney Stock success for ${symbol}: ${price} (${change}%)`);
+                    return { price, change, time: new Date().toISOString() };
                 }
             } catch (e: any) {
                 console.warn(`[API Quotes] EastMoney Stock failed for ${symbol}: ${e.message}`);
@@ -55,34 +61,28 @@ export default async function handler(request: any, response: any) {
             return null;
         }
 
-        // 2. CN Funds (EastMoney F10 Data): 6 digits (e.g. 320007)
+        // 2. CN Funds (EastMoney fundgz): 6 digits (e.g. 320007)
         if (/^\d{6}$/.test(symbol)) {
             try {
-                // Use F10DataApi for historical NAV list (Confirmed values)
-                const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${symbol}&page=1`;
+                // Use fundgz for Real-time Estimate (GSZ)
+                const url = `https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`;
                 const res = await fetch(url, {
                     headers: { 'Referer': 'https://fund.eastmoney.com/' }
                 });
                 const text = await res.text();
-                // Format: var apidata={ content:"<table...><tr><td>2025-11-25</td><td class='tor bold'>1.7680</td>...</table>", ... };
+                // Format: jsonpgz({"fundcode":"320007","name":"...","jzrq":"...","dwjz":"1.7680","gsz":"1.7692","gszzl":"0.07","gztime":"..."});
                 
-                // Extract content string
-                const contentMatch = text.match(/content:"([^"]+)"/);
-                if (contentMatch && contentMatch[1]) {
-                    const html = contentMatch[1];
-                    // Regex to find first data row: Date cell followed by NAV cell
-                    // <td>2023-01-01</td><td class='tor bold'>1.2345</td>
-                    const rowMatch = html.match(/<td>(\d{4}-\d{2}-\d{2})<\/td><td[^>]*>([\d\.]+)<\/td>/);
-                    
-                    if (rowMatch && rowMatch[2]) {
-                        const price = parseFloat(rowMatch[2]);
-                        const date = rowMatch[1];
-                        console.log(`[API Quotes] EastMoney Fund (F10) success for ${symbol}: ${price} (${date})`);
-                        return price;
+                const match = text.match(/jsonpgz\((.*?)\)/);
+                if (match && match[1]) {
+                    const data = JSON.parse(match[1]);
+                    // gsz: Estimate, gszzl: Growth Rate %
+                    if (data.gsz) {
+                        const price = parseFloat(data.gsz);
+                        const change = parseFloat(data.gszzl || '0');
+                        console.log(`[API Quotes] EastMoney Fund (GSZ) success for ${symbol}: ${price} (${change}%)`);
+                        return { price, change, time: data.gztime || new Date().toISOString() };
                     }
                 }
-                
-                console.warn(`[API Quotes] EastMoney Fund parsing failed for ${symbol}`);
             } catch (e: any) {
                 console.warn(`[API Quotes] EastMoney Fund failed for ${symbol}: ${e.message}`);
             }
@@ -93,8 +93,9 @@ export default async function handler(request: any, response: any) {
         try {
             const quote = await yahooFinance.quote(symbol, { validateResult: false }) as any;
             const price = quote.regularMarketPrice || quote.ask || quote.bid;
+            const change = quote.regularMarketChangePercent || 0;
             console.log(`[API Quotes] YahooLib success for ${symbol}: ${price}`);
-            return price;
+            return { price, change, time: new Date().toISOString() };
         } catch (libError: any) {
             console.warn(`[API Quotes] YahooLib failed for ${symbol}: ${libError.message}`);
             
@@ -112,7 +113,10 @@ export default async function handler(request: any, response: any) {
                     const meta = data?.chart?.result?.[0]?.meta;
                     if (meta && meta.regularMarketPrice) {
                         console.log(`[API Quotes] HTTP Fallback success for ${symbol}: ${meta.regularMarketPrice}`);
-                        return meta.regularMarketPrice;
+                        return { 
+                            price: meta.regularMarketPrice,
+                            change: meta.regularMarketPrice - (meta.chartPreviousClose || meta.previousClose || 0) // Approximation if percent not avail
+                        };
                     }
                 }
             } catch (fallbackError) {
@@ -123,17 +127,17 @@ export default async function handler(request: any, response: any) {
     };
 
     const promises = uniqueSymbols.map(async (symbol) => {
-        const price = await fetchQuote(symbol);
-        return { symbol, price };
+        const data = await fetchQuote(symbol);
+        return { symbol, data };
     });
 
     const outcomes = await Promise.allSettled(promises);
 
     outcomes.forEach(outcome => {
         if (outcome.status === 'fulfilled' && outcome.value) {
-            const { symbol, price } = outcome.value;
-            if (price !== undefined && price !== null && !isNaN(price)) {
-                result[symbol] = price;
+            const { symbol, data } = outcome.value;
+            if (data && data.price !== undefined && !isNaN(data.price)) {
+                result[symbol] = data;
             }
         }
     });

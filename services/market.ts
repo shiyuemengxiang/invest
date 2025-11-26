@@ -1,5 +1,5 @@
 
-import { ExchangeRates } from "../types";
+import { ExchangeRates, MarketData } from "../types";
 
 const API_BASE = '/api/market';
 
@@ -35,10 +35,10 @@ export const marketService = {
         return null;
     },
 
-    async getQuotes(symbols: string[]): Promise<Record<string, number> | null> {
+    async getQuotes(symbols: string[]): Promise<Record<string, MarketData> | null> {
         console.log(`[MarketService] Requesting quotes for: ${symbols.join(', ')}`);
         
-        let result: Record<string, number> = {};
+        let result: Record<string, MarketData> = {};
         const uniqueSymbols = Array.from(new Set(symbols));
         
         try {
@@ -70,8 +70,8 @@ export const marketService = {
         return Object.keys(result).length > 0 ? result : null;
     },
 
-    async fetchClientSideQuotes(symbols: string[]): Promise<Record<string, number>> {
-        const result: Record<string, number> = {};
+    async fetchClientSideQuotes(symbols: string[]): Promise<Record<string, MarketData>> {
+        const result: Record<string, MarketData> = {};
         
         const promises = symbols.map(async (symbol) => {
             // A. CN Stocks (EastMoney): sh, sz, bj
@@ -84,39 +84,46 @@ export const marketService = {
                     else if (prefix === 'sz') market = '0';
                     else if (prefix === 'bj') market = '0';
 
-                    const target = `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${code}&fields=f43`;
+                    const target = `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${code}&fields=f43,f170`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
                     if (json.contents) {
                         const data = JSON.parse(json.contents);
                         if (data && data.data && data.data.f43) {
-                            return { symbol, price: data.data.f43 / 100 };
+                            return { 
+                                symbol, 
+                                data: {
+                                    price: data.data.f43 / 100,
+                                    change: data.data.f170 ? data.data.f170 / 100 : 0
+                                }
+                            };
                         }
                     }
                 } catch (e) { console.warn(`[MarketService] EastMoney Stock fallback failed for ${symbol}`, e); }
                 return null;
             }
 
-            // B. CN Funds (EastMoney F10 Data)
+            // B. CN Funds (EastMoney fundgz for Estimate)
             if (/^\d{6}$/.test(symbol)) {
                 try {
-                    // Use F10DataApi via proxy
-                    const target = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${symbol}&page=1`;
+                    // Use fundgz via proxy
+                    const target = `https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                     const json = await res.json();
                     
                     if (json.contents) {
-                        // contents is the raw response body string from target
-                        // It looks like: var apidata={ content:"..." };
-                        // We need to parse inside that string.
-                        
-                        const contentMatch = json.contents.match(/content:"([^"]+)"/);
-                        if (contentMatch && contentMatch[1]) {
-                            const html = contentMatch[1];
-                            // Parse HTML table row
-                            const rowMatch = html.match(/<td>(\d{4}-\d{2}-\d{2})<\/td><td[^>]*>([\d\.]+)<\/td>/);
-                            if (rowMatch && rowMatch[2]) {
-                                return { symbol, price: parseFloat(rowMatch[2]) };
+                        const match = json.contents.match(/jsonpgz\((.*?)\)/);
+                        if (match && match[1]) {
+                            const data = JSON.parse(match[1]);
+                            if (data.gsz) {
+                                return { 
+                                    symbol, 
+                                    data: {
+                                        price: parseFloat(data.gsz),
+                                        change: parseFloat(data.gszzl || '0'),
+                                        time: data.gztime
+                                    }
+                                };
                             }
                         }
                     }
@@ -132,8 +139,8 @@ export const marketService = {
                 const resA = await fetch(proxyUrlA);
                 if (resA.ok) {
                     const data = await resA.json();
-                    const price = this.extractPriceFromChart(data);
-                    if (price) return { symbol, price };
+                    const info = this.extractPriceFromChart(data);
+                    if (info) return { symbol, data: info };
                 }
             } catch (e) {}
 
@@ -144,8 +151,8 @@ export const marketService = {
                     const json = await resB.json();
                     if (json.contents) {
                         const data = JSON.parse(json.contents);
-                        const price = this.extractPriceFromChart(data);
-                        if (price) return { symbol, price };
+                        const info = this.extractPriceFromChart(data);
+                        if (info) return { symbol, data: info };
                     }
                 }
             } catch (e) {}
@@ -156,17 +163,26 @@ export const marketService = {
         const outcomes = await Promise.allSettled(promises);
         outcomes.forEach(outcome => {
             if (outcome.status === 'fulfilled' && outcome.value) {
-                result[outcome.value.symbol] = outcome.value.price;
+                result[outcome.value.symbol] = outcome.value.data;
             }
         });
         
         return result;
     },
 
-    extractPriceFromChart(data: any): number | null {
+    extractPriceFromChart(data: any): MarketData | null {
         try {
             const meta = data?.chart?.result?.[0]?.meta;
-            return meta?.regularMarketPrice || meta?.previousClose || null;
+            const price = meta?.regularMarketPrice || meta?.previousClose;
+            if (price) {
+                // Calculate rough change % if not directly available
+                let change = 0;
+                if (meta.previousClose) {
+                    change = ((price - meta.previousClose) / meta.previousClose) * 100;
+                }
+                return { price, change };
+            }
+            return null;
         } catch (e) {
             return null;
         }

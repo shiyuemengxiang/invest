@@ -389,19 +389,40 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                     <p className="font-mono text-xs font-bold text-slate-700">{formatCurrency(metrics.unitCost, item.currency)}</p>
                                                 </div>
                                                 <div className="space-y-0.5">
-                                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Current Price</p>
-                                                    <div className="flex items-center gap-1">
+                                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                                                        {item.category === 'Fund' ? 'Today\'s Val' : 'Current Price'}
+                                                    </p>
+                                                    <div className="flex flex-wrap items-center gap-1">
                                                         <p className={`font-mono text-xs font-bold ${metrics.currentPrice >= metrics.unitCost ? 'text-orange-600' : 'text-emerald-600'}`}>
                                                             {formatCurrency(metrics.currentPrice, item.currency)}
                                                         </p>
-                                                        <span className={`text-[9px] px-1 rounded ${metrics.currentPrice >= metrics.unitCost ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                                                            {metrics.unitCost > 0 ? ((metrics.currentPrice - metrics.unitCost)/metrics.unitCost * 100).toFixed(1) : 0}%
-                                                        </span>
+                                                        
+                                                        {/* Show Estimated Growth if available */}
+                                                        {item.estGrowth !== undefined ? (
+                                                            <span className={`text-[9px] px-1 rounded ${item.estGrowth >= 0 ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                                                {item.estGrowth >= 0 ? '+' : ''}{item.estGrowth}%
+                                                            </span>
+                                                        ) : (
+                                                            item.isAutoQuote && (
+                                                                <span className="text-[9px] px-1 rounded bg-slate-200 text-slate-500">
+                                                                    No Val Info
+                                                                </span>
+                                                            )
+                                                        )}
+
                                                         {item.isAutoQuote && (
                                                             <span className="text-[9px] text-slate-400 ml-1" title="Auto Update">☁️</span>
                                                         )}
                                                     </div>
                                                 </div>
+                                                
+                                                 {/* Total Return % */}
+                                                 <div className="space-y-0.5">
+                                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Total Return %</p>
+                                                    <span className={`text-xs font-bold ${metrics.currentPrice >= metrics.unitCost ? 'text-orange-600' : 'text-emerald-600'}`}>
+                                                        {metrics.unitCost > 0 ? ((metrics.currentPrice - metrics.unitCost)/metrics.unitCost * 100).toFixed(2) : 0}%
+                                                    </span>
+                                                 </div>
                                             </div>
                                         )}
                                         

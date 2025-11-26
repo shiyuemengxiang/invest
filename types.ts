@@ -36,6 +36,12 @@ export const DEFAULT_EXCHANGE_RATES: ExchangeRates = {
     HKD: 0.92
 };
 
+export interface MarketData {
+    price: number;
+    change?: number; // Percent change (e.g., 1.5 for 1.5%)
+    time?: string;
+}
+
 export interface Investment {
   id: string;
   userId?: string; 
@@ -50,6 +56,8 @@ export interface Investment {
   quantity?: number; // New: For Stocks/Funds (Shares/Units)
   symbol?: string; // New: Ticker Symbol (e.g., AAPL, 0700.HK)
   isAutoQuote?: boolean; // New: Whether to auto-fetch price
+  estGrowth?: number; // New: Estimated Growth Rate % (e.g. from Fund Estimate)
+  lastUpdate?: string; // New: Timestamp of last market update
   expectedRate?: number; // Optional for Floating
   currentReturn?: number; // New: Manual entry for current position return (floating)
   realizedReturn?: number; 
