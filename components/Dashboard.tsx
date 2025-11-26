@@ -59,7 +59,15 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
 
   // Upcoming
   const upcoming = currencyItems
-    .filter(i => !i.withdrawalDate && i.maturityDate)
+    .filter(i => {
+        // Must have maturity date
+        if (!i.maturityDate) return false;
+        // Must not be explicitly withdrawn
+        if (i.withdrawalDate) return false;
+        // Must have active principal (filters out items fully sold via transactions but not marked closed)
+        if (i.currentPrincipal <= 0.01) return false; 
+        return true;
+    })
     .sort((a, b) => new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime())
     .slice(0, 5)
     .map(i => {
@@ -332,7 +340,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                                     <p className="text-xs text-slate-400 mt-0.5">{item.maturityDate}</p>
                                 </div>
                                 <div className="text-right whitespace-nowrap pl-4">
-                                     <p className="font-bold text-slate-700 text-sm font-mono tabular-nums">{formatCurrency(item.principal, selectedCurrency)}</p>
+                                     <p className="font-bold text-slate-700 text-sm font-mono tabular-nums">{formatCurrency(item.currentPrincipal, selectedCurrency)}</p>
                                      <p className={`text-xs font-bold mt-0.5 ${item.daysRemaining < 0 ? 'text-red-500' : item.daysRemaining <= 7 ? 'text-orange-500' : 'text-emerald-600'}`}>
                                         {item.daysRemaining < 0 ? `逾期 ${Math.abs(item.daysRemaining)} 天` : 
                                          item.daysRemaining === 0 ? '今天到期' : 
