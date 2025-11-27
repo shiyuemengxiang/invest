@@ -506,7 +506,7 @@ const InvestmentList: React.FC<Props> = ({
                                         </div>
                                         
                                         {/* Unit Cost & Current Price for Stocks/Funds */}
-                                        {item.quantity && item.quantity > 0 && (
+                                        {(item.quantity || 0) > 0 && (
                                             <div className="relative z-10 grid grid-cols-2 md:grid-cols-5 gap-4 py-4 mt-2 bg-slate-50/80 rounded-xl px-4 border border-dashed border-slate-200">
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Holdings</p>
