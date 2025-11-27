@@ -95,6 +95,7 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
             
         } else if (tx.type === 'Sell') {
             if (item.type === 'Floating' && currentQuantity > 0 && qty > 0) {
+                // AVCO Logic
                 const avgCostPerUnit = currentPrincipal / currentQuantity;
                 const costOfSold = avgCostPerUnit * qty;
                 const realizedTxProfit = amount - costOfSold;
@@ -103,15 +104,30 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
                 currentPrincipal -= costOfSold;
                 currentQuantity -= qty;
             } else {
+                // Cash Basis / Fixed Logic
                 currentPrincipal -= amount;
+                
+                // If principal goes negative (sold more than cost/principal), treat excess as profit
+                // This handles cases where user doesn't track quantity but sells at a profit
+                if (currentPrincipal < 0) {
+                    if (item.type === 'Floating') {
+                        // For Floating, selling all + profit = pure profit realization
+                        totalRealizedProfit += Math.abs(currentPrincipal);
+                    }
+                    currentPrincipal = 0;
+                }
+                
                 if (qty) currentQuantity -= qty;
             }
 
         } else if (tx.type === 'Dividend' || tx.type === 'Interest') {
+            // Only count if date is <= Today
             if (txDateStr <= todayISO) {
                 totalRealizedProfit += amount;
             }
         } else if (tx.type === 'Fee' || tx.type === 'Tax') {
+             // Only deduct from Realized if date is <= Today. 
+             // Future fees are handled in Projected Profit elsewhere.
              if (txDateStr <= todayISO) {
                 totalRealizedProfit -= amount;
             }
@@ -187,6 +203,7 @@ export const calculateDailyReturn = (item: Investment): number => {
 
     if (item.type === 'Floating') {
         if (item.estGrowth && activePrincipal > 0) {
+            // For Floating, daily change applies to current market value (Principal + Returns)
             const currentTotalValue = activePrincipal + (item.currentReturn || 0);
             const baseValue = Math.max(0, currentTotalValue);
             dailyVal = baseValue * (item.estGrowth / 100);
@@ -196,6 +213,7 @@ export const calculateDailyReturn = (item: Investment): number => {
         dailyVal = activePrincipal * (item.expectedRate / 100) / basis;
     }
 
+    // Subtract Today's Fees/Taxes from daily return
     const todayISO = new Date().toISOString().split('T')[0];
     if (item.transactions) {
         item.transactions.forEach(tx => {
@@ -246,6 +264,10 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
     
     let weightedYieldSum = 0;
     let totalWeight = 0;
+    
+    let totalRebate = 0;
+    let pendingRebate = 0;
+    let receivedRebate = 0;
 
     const isBetween = (dateStr: string) => {
         const d = new Date(dateStr);
@@ -275,10 +297,15 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
             itemPeriodProfit += item.currentPrincipal * (item.expectedRate / 100) * (overlapDays / basis);
         }
         
+        // Count Rebate if the deposit event happened in this period
         if (isBetween(item.depositDate)) {
+            totalRebate += item.rebate;
             itemPeriodProfit += item.rebate;
             if (item.isRebateReceived) {
                 realizedInPeriod += item.rebate;
+                receivedRebate += item.rebate;
+            } else {
+                pendingRebate += item.rebate;
             }
         }
 
@@ -322,9 +349,10 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         comprehensiveYield: portfolioYield,
         totalInvested: totalInvested,
         completedPrincipal: 0,
-        totalRebate: 0, 
-        pendingRebate: 0, 
-        receivedRebate: 0,
+        // FIX: Return the calculated rebate stats instead of 0
+        totalRebate: totalRebate, 
+        pendingRebate: pendingRebate, 
+        receivedRebate: receivedRebate,
         projectedTotalYield: 0,
         todayEstProfit: 0
     };
@@ -512,9 +540,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
         projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
     } else if (!metrics.isCompleted && item.type === 'Floating') {
         // Floating: profit (which is Unrealized + Realized + Rebate)
-        // BUG FIX: metrics.profit already includes item.totalRealizedProfit. 
-        // Previously we were adding it again: (metrics.profit + item.totalRealizedProfit)
-        // Correct is just metrics.profit.
+        // Correct logic: profit includes everything
         projectedTotalProfit += metrics.profit;
     } else {
         projectedTotalProfit += metrics.profit;
