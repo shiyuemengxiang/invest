@@ -164,8 +164,16 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   };
 
   const openBatchForm = () => {
+      // Default start date is Deposit Date + 1 Month (Assuming Monthly frequency default)
+      let defaultStart = formData.depositDate || new Date().toISOString().split('T')[0];
+      if (defaultStart) {
+          const d = new Date(defaultStart);
+          d.setMonth(d.getMonth() + 1);
+          defaultStart = d.toISOString().split('T')[0];
+      }
+
       setBatchData({
-          startDate: formData.depositDate || '',
+          startDate: defaultStart,
           frequency: 'Monthly',
           calcMode: formData.expectedRate ? 'rate' : 'fixed',
           amount: '',
@@ -469,6 +477,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           case 'Dividend': return '派息/分红';
           case 'Interest': return '利息';
           case 'Fee': return '手续费';
+          case 'Tax': return '税费';
           default: return type;
       }
   };
@@ -687,9 +696,10 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                         <div>
                             <label className="block text-[10px] font-bold text-purple-400 mb-1">类型 (Type)</label>
                             <select value={batchData.txType} onChange={e => setBatchData({...batchData, txType: e.target.value as TransactionType})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300">
-                                <option value="Dividend">分红 (Dividend)</option>
+                                <option value="Dividend">派息/分红 (Dividend)</option>
                                 <option value="Interest">利息 (Interest)</option>
                                 <option value="Fee">手续费 (Fee)</option>
+                                <option value="Tax">税费 (Tax)</option>
                             </select>
                         </div>
                         <div>
@@ -724,11 +734,11 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                         )}
 
                         <div>
-                            <label className="block text-[10px] font-bold text-purple-400 mb-1">开始日期</label>
+                            <label className="block text-[10px] font-bold text-purple-400 mb-1">开始日期 (Start)</label>
                             <input type="date" value={batchData.startDate} onChange={e => setBatchData({...batchData, startDate: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300" />
                         </div>
                         <div>
-                            <label className="block text-[10px] font-bold text-purple-400 mb-1">结束日期 (含)</label>
+                            <label className="block text-[10px] font-bold text-purple-400 mb-1">结束日期 (End)</label>
                             <input type="date" value={batchData.endDate} onChange={e => setBatchData({...batchData, endDate: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300" />
                         </div>
                     </div>
@@ -767,9 +777,10 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                             <select value={txData.type} onChange={e => setTxData({...txData, type: e.target.value as TransactionType})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300">
                                 <option value="Buy">{getTxTypeLabel('Buy')}</option>
                                 <option value="Sell">{getTxTypeLabel('Sell')}</option>
-                                <option value="Dividend">分红 (Dividend)</option>
+                                <option value="Dividend">派息/分红 (Dividend)</option>
                                 <option value="Interest">利息 (Interest)</option>
                                 <option value="Fee">手续费 (Fee)</option>
+                                <option value="Tax">税费 (Tax)</option>
                             </select>
                         </div>
 
@@ -778,7 +789,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                             <input type="datetime-local" value={txData.date} onChange={e => setTxData({...txData, date: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
                         </div>
                         
-                        {isFloating && txData.type !== 'Dividend' && txData.type !== 'Interest' && txData.type !== 'Fee' && (
+                        {isFloating && txData.type !== 'Dividend' && txData.type !== 'Interest' && txData.type !== 'Fee' && txData.type !== 'Tax' && (
                             <>
                                 <div className="col-span-1">
                                     <label className="block text-[10px] font-bold text-indigo-400 mb-1">单价 (Price)</label>
@@ -844,14 +855,14 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                                             tx.type === 'Buy' ? 'bg-blue-50 text-blue-600 border-blue-100' :
                                             tx.type === 'Sell' ? 'bg-orange-50 text-orange-600 border-orange-100' :
                                             (tx.type === 'Dividend' || tx.type === 'Interest') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                                            tx.type === 'Fee' ? 'bg-red-50 text-red-500 border-red-100' :
+                                            (tx.type === 'Fee' || tx.type === 'Tax') ? 'bg-red-50 text-red-500 border-red-100' :
                                             'bg-slate-100 text-slate-600 border-slate-200'
                                         }`}>
                                             {getTxTypeLabel(tx.type)}
                                         </span>
                                     </td>
                                     <td className="p-3 text-right font-mono font-medium">
-                                        {(tx.type === 'Sell' || tx.type === 'Fee') ? '-' : '+'}{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {(tx.type === 'Sell' || tx.type === 'Fee' || tx.type === 'Tax') ? '-' : '+'}{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </td>
                                     {!isFloating ? <td className="hidden"></td> : (
                                         <td className="p-3 text-right font-mono text-slate-500">

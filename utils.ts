@@ -184,22 +184,31 @@ export const calculateDailyReturn = (item: Investment): number => {
     if (item.withdrawalDate) return 0;
 
     const activePrincipal = item.currentPrincipal; 
+    let dailyVal = 0;
 
     if (item.type === 'Floating') {
         if (item.estGrowth && activePrincipal > 0) {
             const currentTotalValue = activePrincipal + (item.currentReturn || 0);
             const baseValue = Math.max(0, currentTotalValue);
-            return baseValue * (item.estGrowth / 100);
+            dailyVal = baseValue * (item.estGrowth / 100);
         }
-        return 0;
-    }
-
-    if (item.type === 'Fixed' && item.expectedRate) {
+    } else if (item.type === 'Fixed' && item.expectedRate) {
         const basis = Number(item.interestBasis || 365);
-        return activePrincipal * (item.expectedRate / 100) / basis;
+        dailyVal = activePrincipal * (item.expectedRate / 100) / basis;
     }
 
-    return 0;
+    // Subtract Today's Fees/Taxes from daily return
+    const todayISO = new Date().toISOString().split('T')[0];
+    if (item.transactions) {
+        item.transactions.forEach(tx => {
+            const txDate = tx.date.split('T')[0];
+            if (txDate === todayISO && (tx.type === 'Fee' || tx.type === 'Tax')) {
+                dailyVal -= tx.amount;
+            }
+        });
+    }
+
+    return dailyVal;
 };
 
 export const calculateItemMetrics = (item: Investment) => {
@@ -382,6 +391,8 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   
   let weightedYieldSum = 0;
   let totalWeight = 0;
+  
+  const todayISO = new Date().toISOString().split('T')[0];
 
   items.forEach(item => {
     const metrics = calculateItemMetrics(item);
@@ -389,12 +400,23 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     totalInvested += item.totalCost; 
     totalRebate += item.rebate;
     
+    // Base Projection
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
         projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
     } else if (!metrics.isCompleted && item.type === 'Floating') {
         projectedTotalProfit += (metrics.profit + item.totalRealizedProfit);
     } else {
         projectedTotalProfit += metrics.profit;
+    }
+    
+    // Subtract Future Scheduled Fees from Projection
+    if (!metrics.isCompleted && item.transactions) {
+        item.transactions.forEach(tx => {
+            const txDate = tx.date.split('T')[0];
+            if (txDate > todayISO && (tx.type === 'Fee' || tx.type === 'Tax')) {
+                projectedTotalProfit -= tx.amount;
+            }
+        });
     }
     
     if (!metrics.isCompleted) {
