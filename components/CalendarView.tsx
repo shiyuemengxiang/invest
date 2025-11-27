@@ -27,6 +27,9 @@ const CalendarView: React.FC<Props> = ({ items }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('name');
   const [selectedCurrency, setSelectedCurrency] = useState<Currency>('CNY');
   
+  // Selected Date for Modal Detail View
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  
   const rates = storageService.getRates(); 
 
   const year = currentDate.getFullYear();
@@ -167,6 +170,12 @@ const CalendarView: React.FC<Props> = ({ items }) => {
     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     return allEvents.filter(ev => ev.date === dateStr);
   };
+  
+  // For Modal
+  const getEventsForSelectedDate = () => {
+      if (!selectedDate) return [];
+      return allEvents.filter(ev => ev.date === selectedDate);
+  };
 
   const renderEventLabel = (ev: CalendarEvent) => {
     if (ev.type === 'deposit') return `存入: ${ev.name}`;
@@ -193,11 +202,16 @@ const CalendarView: React.FC<Props> = ({ items }) => {
     }
     // Days
     for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const events = getEventsForDay(d);
       const isToday = new Date().toDateString() === new Date(year, month, d).toDateString();
       
       days.push(
-        <div key={d} className={`h-28 p-1.5 border border-slate-100 bg-white relative group transition hover:shadow-md hover:z-10 ${isToday ? 'bg-indigo-50/40 ring-1 ring-indigo-200' : ''}`}>
+        <div 
+            key={d} 
+            onClick={() => setSelectedDate(dateStr)}
+            className={`h-28 p-1.5 border border-slate-100 bg-white relative group transition hover:shadow-md hover:z-10 cursor-pointer ${isToday ? 'bg-indigo-50/40 ring-1 ring-indigo-200' : ''}`}
+        >
           <div className={`text-xs font-bold mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white' : 'text-slate-400 group-hover:text-slate-600'}`}>
               {d}
           </div>
@@ -227,7 +241,7 @@ const CalendarView: React.FC<Props> = ({ items }) => {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in relative">
         
         {/* Monthly Summary Card */}
         <div className="bg-white rounded-[1.5rem] p-6 shadow-sm border border-slate-100">
@@ -330,6 +344,62 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                 {renderDays()}
             </div>
         </div>
+
+        {/* --- Date Detail Modal --- */}
+        {selectedDate && (
+            <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedDate(null)}>
+                <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                    <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                        <h3 className="text-lg font-bold text-slate-800">{selectedDate}</h3>
+                        <button onClick={() => setSelectedDate(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    <div className="p-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                        {getEventsForSelectedDate().length === 0 ? (
+                            <div className="p-8 text-center text-slate-400 text-sm">当日无记录</div>
+                        ) : (
+                            <div className="space-y-2 p-2">
+                                {getEventsForSelectedDate().map(ev => {
+                                    let typeLabel = '';
+                                    let bgColor = '';
+                                    let textColor = '';
+                                    
+                                    if (ev.type === 'deposit') { typeLabel = '存入本金'; bgColor = 'bg-emerald-50'; textColor = 'text-emerald-700'; }
+                                    else if (ev.type === 'payout') { typeLabel = '派息/分红'; bgColor = 'bg-blue-50'; textColor = 'text-blue-700'; }
+                                    else if (ev.type === 'expense') { typeLabel = '费用支出'; bgColor = 'bg-red-50'; textColor = 'text-red-700'; }
+                                    else { typeLabel = '到期/结算'; bgColor = 'bg-orange-50'; textColor = 'text-orange-700'; }
+
+                                    return (
+                                        <div key={ev.id} className={`p-4 rounded-xl border border-slate-100 flex justify-between items-center ${bgColor}`}>
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold uppercase bg-white/50 ${textColor} border-transparent`}>{typeLabel}</span>
+                                                    <span className="text-sm font-bold text-slate-700">{ev.name}</span>
+                                                </div>
+                                                <div className="text-xs text-slate-500 opacity-80 font-mono">
+                                                    {ev.currency === 'CNY' ? '人民币' : ev.currency}
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className={`text-lg font-bold font-mono ${ev.type === 'expense' ? 'text-red-600' : 'text-slate-800'}`}>
+                                                    {ev.type === 'expense' ? '-' : '+'}{formatCurrency(ev.amount, ev.currency)}
+                                                </div>
+                                                {ev.yield && (
+                                                    <div className="text-[10px] text-slate-500">
+                                                        年化: {formatPercent(ev.yield)}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };

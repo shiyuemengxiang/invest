@@ -109,10 +109,13 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
             }
 
         } else if (tx.type === 'Dividend' || tx.type === 'Interest') {
+            // Only count if date is <= Today
             if (txDateStr <= todayISO) {
                 totalRealizedProfit += amount;
             }
         } else if (tx.type === 'Fee' || tx.type === 'Tax') {
+             // Only deduct from Realized if date is <= Today. 
+             // Future fees are handled in Projected Profit elsewhere.
              if (txDateStr <= todayISO) {
                 totalRealizedProfit -= amount;
             }
@@ -188,6 +191,7 @@ export const calculateDailyReturn = (item: Investment): number => {
 
     if (item.type === 'Floating') {
         if (item.estGrowth && activePrincipal > 0) {
+            // For Floating, daily change applies to current market value (Principal + Returns)
             const currentTotalValue = activePrincipal + (item.currentReturn || 0);
             const baseValue = Math.max(0, currentTotalValue);
             dailyVal = baseValue * (item.estGrowth / 100);
@@ -307,6 +311,7 @@ export const calculateItemMetrics = (item: Investment) => {
 
   } else if (item.type === 'Floating') {
       if (item.currentReturn !== undefined) {
+          // Floating Logic: baseInterest (Total Profit) = Unrealized (CurrentReturn) + Realized (Dividends/Sell Profit)
           baseInterest = item.currentReturn; 
           const totalValueChange = item.currentReturn + item.totalRealizedProfit;
           
@@ -402,14 +407,21 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     
     // Base Projection
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
+        // Fixed: Accrued (Today) + Rebate + Realized (Dividends)
+        // NOTE: This is conservative. We assume users rely on batch generator for future interest
+        // or just Accrued for standard CDs. 
         projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
     } else if (!metrics.isCompleted && item.type === 'Floating') {
-        projectedTotalProfit += (metrics.profit + item.totalRealizedProfit);
+        // Floating: metrics.profit already includes Current Unrealized + Realized Dividends
+        projectedTotalProfit += metrics.profit;
     } else {
         projectedTotalProfit += metrics.profit;
     }
     
     // Subtract Future Scheduled Fees from Projection
+    // Logic check: Fees are normally negative in Realized.
+    // If a Fee is scheduled for next month, we subtract it here to lower the projection.
+    // Past/Today Fees are already in item.totalRealizedProfit (subtracted there).
     if (!metrics.isCompleted && item.transactions) {
         item.transactions.forEach(tx => {
             const txDate = tx.date.split('T')[0];
@@ -434,6 +446,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
       realizedInterest += metrics.baseInterest;
     } else {
       activePrincipal += item.currentPrincipal;
+      // Realized Interest includes dividends, interest payments from active assets
       realizedInterest += item.totalRealizedProfit;
     }
 

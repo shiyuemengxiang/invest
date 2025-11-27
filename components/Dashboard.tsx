@@ -149,24 +149,25 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       </div>
 
       {/* Global Net Worth Card */}
-      <div className={`bg-gradient-to-br ${themeConfig.accent} p-8 rounded-[2rem] shadow-xl text-white relative overflow-hidden transform-gpu`}>
+      {/* UPDATE: Added 'items-center text-center md:items-start md:text-left' for better mobile responsiveness */}
+      <div className={`bg-gradient-to-br ${themeConfig.accent} p-6 md:p-8 rounded-[2rem] shadow-xl text-white relative overflow-hidden transform-gpu`}>
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
         
-        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-            <div>
-                <p className="text-white/70 font-medium mb-1 flex items-center gap-2">
+        <div className="relative z-10 flex flex-col md:flex-row justify-between items-center md:items-end gap-6 text-center md:text-left w-full">
+            <div className="flex flex-col items-center md:items-start w-full">
+                <p className="text-white/70 font-medium mb-1 flex items-center gap-2 justify-center md:justify-start">
                     <svg className="w-5 h-5 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                     全货币持仓估值 (Global Net Worth)
                 </p>
-                <h2 className="text-5xl font-bold tracking-tight text-white mb-2 tabular-nums">
+                <h2 className="text-4xl md:text-5xl font-bold tracking-tight text-white mb-2 tabular-nums break-all">
                     {formatCurrency(globalValuation, selectedCurrency)}
                 </h2>
-                <p className="text-sm text-white/60">
+                <p className="text-xs md:text-sm text-white/60">
                     包含所有 CNY, USD, HKD 资产及预估收益折算为 {selectedCurrency}
                 </p>
             </div>
-            <div className="bg-white/10 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/10">
+            <div className="bg-white/10 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/10 w-full md:w-auto flex flex-col items-center md:items-end">
                 <p className="text-xs text-white/60 uppercase tracking-wider mb-1">当前设定汇率</p>
                 <div className="flex gap-4 text-sm font-mono text-white/90">
                     <span>USD ≈ {rates.USD}</span>

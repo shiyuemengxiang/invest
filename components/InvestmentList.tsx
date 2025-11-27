@@ -10,7 +10,7 @@ interface Props {
   onDelete: (id: string) => void;
   onEdit: (item: Investment) => void;
   onReorder: (dragIndex: number, hoverIndex: number) => void;
-  onRefreshMarket: () => void;
+  onRefreshMarket: (silent?: boolean) => void;
   
   // Filter State Props (Lifted)
   filter: FilterType; setFilter: (v: FilterType) => void;
@@ -132,7 +132,7 @@ const InvestmentList: React.FC<Props> = ({
   
   const handleRefreshClick = async () => {
       setIsRefreshing(true);
-      await onRefreshMarket();
+      await onRefreshMarket(false); // Explicitly not silent
       setTimeout(() => setIsRefreshing(false), 1000); 
   };
 

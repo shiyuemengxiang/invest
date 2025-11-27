@@ -24,7 +24,7 @@ const ConfirmModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
       <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl scale-100 animate-fade-in-up border border-white/50">
         <div className="flex items-start gap-4 mb-4">
              {isDanger ? (

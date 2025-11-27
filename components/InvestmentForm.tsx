@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Currency, Investment, InvestmentCategory, InvestmentType, CATEGORY_LABELS, Transaction, TransactionType } from '../types';
 import { ToastType } from './Toast';
 import { recalculateInvestmentState, formatDateTime, formatCurrency } from '../utils';
+import ConfirmModal from './ConfirmModal';
 
 interface Props {
   onSave: (investment: Investment) => void;
@@ -70,6 +71,15 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const [showBatchForm, setShowBatchForm] = useState(false);
   const [editingTxId, setEditingTxId] = useState<string | null>(null);
   
+  // Confirm Modal State
+  const [confirmState, setConfirmState] = useState<{
+      isOpen: boolean;
+      title: string;
+      message: string;
+      onConfirm: () => void;
+      isDanger: boolean;
+  }>({ isOpen: false, title: '', message: '', onConfirm: () => {}, isDanger: false });
+
   const [txData, setTxData] = useState<{
       type: TransactionType;
       date: string;
@@ -140,7 +150,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           transactions: newTxs,
           currentPrincipal: newState.currentPrincipal,
           currentQuantity: newState.currentQuantity,
-          principal: newState.currentPrincipal,
+          principal: newState.currentPrincipal, // Sync input
           withdrawalDate: (newState.currentPrincipal > 0 && prev.withdrawalDate) ? null : prev.withdrawalDate
       }));
   };
@@ -174,9 +184,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   };
 
   const openBatchForm = () => {
-      // Initial Open: trigger the useEffect to set start date
       setBatchData({
-          startDate: '', // Will be set by effect
+          startDate: '', 
           frequency: 'Monthly',
           calcMode: formData.expectedRate ? 'rate' : 'fixed',
           amount: '',
@@ -262,9 +271,17 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       onNotify(`已批量生成 ${count} 条记录`, "success");
   };
   
+  const triggerClearFuture = () => {
+      setConfirmState({
+          isOpen: true,
+          title: '清除未来记录',
+          message: '确定要清除所有日期在今天之后的自动生成记录（派息/利息/费用）吗？',
+          isDanger: true,
+          onConfirm: handleClearFutureDividends
+      });
+  };
+
   const handleClearFutureDividends = () => {
-      if (!window.confirm("确定要清除所有日期在今天之后的自动生成记录吗？")) return;
-      
       const todayStr = new Date().toISOString().split('T')[0];
       const currentTxs = [...(formData.transactions || [])];
           
@@ -276,6 +293,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       
       updateFormStateWithNewTxs(updatedTxs);
       onNotify("已清除未来预估记录", "info");
+      setConfirmState(prev => ({...prev, isOpen: false}));
   };
 
   const handleSaveTx = () => {
@@ -338,9 +356,17 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       setShowBatchForm(false);
   };
 
+  const triggerDeleteTx = (id: string) => {
+      setConfirmState({
+          isOpen: true,
+          title: '删除交易',
+          message: '确定要删除这条交易记录吗？',
+          isDanger: true,
+          onConfirm: () => handleDeleteTransaction(id)
+      });
+  };
+
   const handleDeleteTransaction = (id: string) => {
-      if (!window.confirm("确定要删除这条交易记录吗？")) return;
-      
       const currentTxs = [...(formData.transactions || [])];
       const updatedTxs = currentTxs.filter(t => t.id !== id);
       
@@ -352,12 +378,13 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           setShowTxForm(false);
           setEditingTxId(null);
       }
+      setConfirmState(prev => ({...prev, isOpen: false}));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.name || !formData.depositDate || !formData.principal) {
+    if (!formData.name || !formData.depositDate || (!formData.principal && formData.principal !== 0)) {
       onNotify("请填写必要信息（名称、本金、存入时间）", "error");
       return;
     }
@@ -377,14 +404,12 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     const inputPrincipal = Number(formData.principal);
     const inputQuantity = formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined;
 
-    // Always use formData.transactions
     let transactions: Transaction[] = [...(formData.transactions || [])];
     
     const buyTransactions = transactions.filter(t => t.type === 'Buy');
     const sellTransactions = transactions.filter(t => t.type === 'Sell');
     
     if (buyTransactions.length === 0) {
-        // No buys exist: create initial
         transactions.unshift({
             id: self.crypto.randomUUID(),
             date: formData.depositDate!,
@@ -395,7 +420,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             notes: 'Initial Deposit'
         });
     } else if (buyTransactions.length === 1 && sellTransactions.length === 0) {
-        // Simple mode (1 buy, 0 sells): Sync first buy with input
         const buyIndex = transactions.findIndex(t => t.type === 'Buy');
         if (buyIndex >= 0) {
              transactions[buyIndex] = {
@@ -407,9 +431,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
              };
         }
     }
-    // If complex history exists, we trust transactions and don't sync from inputPrincipal
 
-    // Sync Withdrawal logic
     if (formData.withdrawalDate) {
         const existingAutoSellIndex = transactions.findIndex(t => t.type === 'Sell' && t.notes === 'Full Withdrawal (Auto)');
         
@@ -419,7 +441,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                 date: formData.withdrawalDate
             };
         } else {
-            // Calculate hypothetical balance
             const tempItem = { 
                 ...formData, 
                 transactions: transactions,
@@ -495,7 +516,17 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const displayTransactions = formData.transactions || [];
 
   return (
-    <div className="bg-white rounded-3xl shadow-2xl w-full overflow-hidden max-h-[90vh] flex flex-col animate-fade-in-up">
+    <div className="bg-white rounded-3xl shadow-2xl w-full overflow-hidden max-h-[90vh] flex flex-col animate-fade-in-up relative">
+      
+      <ConfirmModal 
+          isOpen={confirmState.isOpen}
+          title={confirmState.title}
+          message={confirmState.message}
+          isDanger={confirmState.isDanger}
+          onConfirm={confirmState.onConfirm}
+          onCancel={() => setConfirmState(prev => ({...prev, isOpen: false}))}
+      />
+
       <div className="flex justify-between items-center p-6 border-b border-slate-100 shrink-0">
         <div>
             <h2 className="text-xl font-bold text-slate-800 tracking-tight">{initialData ? '编辑资产' : '录入新资产'}</h2>
@@ -778,7 +809,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                             )}
                         </div>
                         <div className="flex gap-2">
-                            <button type="button" onClick={handleClearFutureDividends} className="px-3 py-1.5 text-red-500 border border-red-200 rounded-lg text-xs hover:bg-red-50">清除未来记录</button>
+                            <button type="button" onClick={triggerClearFuture} className="px-3 py-1.5 text-red-500 border border-red-200 rounded-lg text-xs hover:bg-red-50">清除未来记录</button>
                             <button type="button" onClick={() => setShowBatchForm(false)} className="px-3 py-1.5 bg-white text-slate-500 border border-slate-200 rounded-lg text-xs hover:bg-slate-50">取消</button>
                             <button type="button" onClick={handleSaveBatch} className="px-4 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 shadow-sm">立即生成</button>
                         </div>
@@ -904,7 +935,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                                             </button>
                                             <button 
                                                 type="button" 
-                                                onClick={() => handleDeleteTransaction(tx.id)}
+                                                onClick={() => triggerDeleteTx(tx.id)}
                                                 className="text-red-400 hover:text-red-600"
                                                 title="删除"
                                             >

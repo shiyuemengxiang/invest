@@ -91,20 +91,11 @@ const App: React.FC = () => {
     }
     
     // Trigger initial market refresh if any items have auto-quote
-    // We use a small timeout to allow state to settle
     setTimeout(() => {
         // Only refresh if there are items loaded
         const hasAutoQuote = loadedItems.some(i => i.isAutoQuote && !i.withdrawalDate);
         if (hasAutoQuote) {
-            // Need to call the refresh function, but we need access to 'items' state which might be stale in useEffect closure
-            // So we define a self-contained refresh here or rely on the user navigating
-            // Ideally we invoke the function defined below, but closures prevent it.
-            // Best way: trigger it via a separate effect dependent on 'items' change, but that causes loops.
-            // We will rely on the definition below but need to move it up or use ref.
-            // Simpler: Just let the user know or refresh on list view entry.
-            // Actually, let's just call the service directly here for the initial load.
-            // BUT, updating state from here is tricky without the function.
-            // Let's try to use a separate Effect for "Initial Load"
+            handleRefreshMarketData(true); // Silent Refresh on init
         }
     }, 1000);
 
@@ -115,10 +106,10 @@ const App: React.FC = () => {
       if (items.length > 0) {
           const shouldRefresh = items.some(i => i.isAutoQuote && !i.withdrawalDate && (!i.lastUpdate || (new Date().getTime() - new Date(i.lastUpdate).getTime() > 3600000))); // Refresh if older than 1h
           if (shouldRefresh) {
-              handleRefreshMarketData();
+              handleRefreshMarketData(true); // Silent Refresh
           }
       }
-  }, [items.length]); // Only run when item count changes (load), roughly.
+  }, [items.length]); 
 
   const saveItems = (newItems: Investment[]) => {
       setItems(newItems);
@@ -132,7 +123,7 @@ const App: React.FC = () => {
     else updatedList.push({ ...item, userId: user?.id });
     
     saveItems(updatedList);
-    setIsFormOpen(false); // Close modal, stay on current view
+    setIsFormOpen(false); 
     setEditingItem(null);
     showToast('资产记录已保存');
   };
@@ -161,10 +152,9 @@ const App: React.FC = () => {
       saveItems(updatedList);
   };
   
-  const handleRefreshMarketData = async () => {
+  const handleRefreshMarketData = async (silent = false) => {
       const itemsToUpdate = items.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
       if (itemsToUpdate.length === 0) {
-          // showToast('没有开启“自动行情”的持仓资产', 'info'); 
           return;
       }
       const symbols = itemsToUpdate.map(i => i.symbol as string);
@@ -199,8 +189,7 @@ const App: React.FC = () => {
            if (newRates) handleRatesChange(newRates, 'auto');
       }
       
-      if (updatedCount > 0) showToast(`行情更新成功！已更新 ${updatedCount} 个资产`, 'success');
-      // else showToast('行情更新完成，暂无数据变化', 'info');
+      if (!silent && updatedCount > 0) showToast(`行情更新成功！已更新 ${updatedCount} 个资产`, 'success');
   };
 
   const handleLogin = (loggedInUser: User) => {
@@ -244,7 +233,7 @@ const App: React.FC = () => {
 
   const handleNav = (targetView: ViewState) => {
       if (targetView === 'list' && view !== 'list') {
-          setTimeout(() => handleRefreshMarketData(), 500);
+          setTimeout(() => handleRefreshMarketData(true), 500); // Silent refresh on nav
       }
       setView(targetView);
       setIsMobileMenuOpen(false);
@@ -265,7 +254,7 @@ const App: React.FC = () => {
   const NavItems = () => (
       <>
         <button onClick={() => handleNav('dashboard')} className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center gap-3 ${view === 'dashboard' ? themeConfig.navActive : themeConfig.navHover}`}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /></svg> 总览 Dashboard
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /></svg> 总览 Dashboard
         </button>
         <button onClick={() => handleNav('list')} className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center gap-3 ${view === 'list' ? themeConfig.navActive : themeConfig.navHover}`}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2-2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg> 明细 List
@@ -330,7 +319,7 @@ const App: React.FC = () => {
                     onDelete={handleDelete} 
                     onEdit={handleEditClick} 
                     onReorder={handleReorder} 
-                    onRefreshMarket={handleRefreshMarketData}
+                    onRefreshMarket={() => handleRefreshMarketData(false)} 
                     // Pass persisted filter state
                     filter={listFilter} setFilter={setListFilter}
                     productFilter={listProductFilter} setProductFilter={setListProductFilter}
