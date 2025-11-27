@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Currency, Investment, InvestmentCategory, InvestmentType, CATEGORY_LABELS, Transaction, TransactionType } from '../types';
 import { ToastType } from './Toast';
-import { recalculateInvestmentState, formatDateTime } from '../utils';
+import { recalculateInvestmentState, formatDateTime, formatCurrency } from '../utils';
 
 interface Props {
   onSave: (investment: Investment) => void;
@@ -56,7 +56,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         transactions: [] as Transaction[]
       };
       
-      // Ensure transactions array exists to avoid fallback logic issues later
       if (!base.transactions) base.transactions = [];
       return base;
   });
@@ -95,8 +94,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const [batchData, setBatchData] = useState({
       startDate: '',
       frequency: 'Monthly', 
-      calcMode: 'rate',     
-      amount: '',           
+      calcMode: 'rate', // fixed, rate, percent
+      amount: '', // For fixed amount or percentage value
       endDate: '',
       txType: 'Dividend' as TransactionType,
       notes: '自动派息'
@@ -110,6 +109,20 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       setIsFloating(formData.type === 'Floating');
   }, [formData.type]);
 
+  // Update default start date when frequency changes
+  useEffect(() => {
+      if (showBatchForm && formData.depositDate) {
+          const d = new Date(formData.depositDate);
+          switch (batchData.frequency) {
+              case 'Weekly': d.setDate(d.getDate() + 7); break;
+              case 'Monthly': d.setMonth(d.getMonth() + 1); break;
+              case 'Quarterly': d.setMonth(d.getMonth() + 3); break;
+              case 'Yearly': d.setFullYear(d.getFullYear() + 1); break;
+          }
+          setBatchData(prev => ({...prev, startDate: d.toISOString().split('T')[0]}));
+      }
+  }, [batchData.frequency, formData.depositDate, showBatchForm]);
+
   // Auto-calc amount/quantity logic for Tx Form
   useEffect(() => {
       if (isFloating && txData.price && txData.quantity && (document.activeElement as HTMLInputElement)?.name !== 'amount') {
@@ -118,9 +131,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       }
   }, [txData.price, txData.quantity, isFloating]);
 
-  // Helper to update state and sync input fields when transactions change
   const updateFormStateWithNewTxs = (newTxs: Transaction[]) => {
-      // Create temporary object to calculate state
       const tempItem = { ...formData, transactions: newTxs } as Investment;
       const newState = recalculateInvestmentState(tempItem);
       
@@ -130,7 +141,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           currentPrincipal: newState.currentPrincipal,
           currentQuantity: newState.currentQuantity,
           principal: newState.currentPrincipal,
-          // Auto re-open if balance returns
           withdrawalDate: (newState.currentPrincipal > 0 && prev.withdrawalDate) ? null : prev.withdrawalDate
       }));
   };
@@ -164,16 +174,9 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   };
 
   const openBatchForm = () => {
-      // Default start date is Deposit Date + 1 Month (Assuming Monthly frequency default)
-      let defaultStart = formData.depositDate || new Date().toISOString().split('T')[0];
-      if (defaultStart) {
-          const d = new Date(defaultStart);
-          d.setMonth(d.getMonth() + 1);
-          defaultStart = d.toISOString().split('T')[0];
-      }
-
+      // Initial Open: trigger the useEffect to set start date
       setBatchData({
-          startDate: defaultStart,
+          startDate: '', // Will be set by effect
           frequency: 'Monthly',
           calcMode: formData.expectedRate ? 'rate' : 'fixed',
           amount: '',
@@ -186,9 +189,16 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   };
 
   const calculateBatchAmount = () => {
+      const principal = Number(formData.principal) || 0;
+      
       if (batchData.calcMode === 'fixed') return Number(batchData.amount) || 0;
       
-      const principal = Number(formData.principal) || 0;
+      if (batchData.calcMode === 'percent') {
+          const pct = Number(batchData.amount) || 0;
+          return principal * (pct / 100);
+      }
+      
+      // Rate mode
       const rate = Number(formData.expectedRate) || 0;
       const basis = Number(formData.interestBasis) || 365;
       
@@ -259,7 +269,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       const currentTxs = [...(formData.transactions || [])];
           
       const updatedTxs = currentTxs.filter(tx => {
-          const isAutoType = tx.type === 'Dividend' || tx.type === 'Interest';
+          const isAutoType = tx.type === 'Dividend' || tx.type === 'Interest' || tx.type === 'Fee' || tx.type === 'Tax';
           const isFuture = tx.date.split('T')[0] > todayStr;
           return !(isAutoType && isFuture);
       });
@@ -331,7 +341,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const handleDeleteTransaction = (id: string) => {
       if (!window.confirm("确定要删除这条交易记录吗？")) return;
       
-      // Use formData.transactions directly since it's initialized
       const currentTxs = [...(formData.transactions || [])];
       const updatedTxs = currentTxs.filter(t => t.id !== id);
       
@@ -372,10 +381,10 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     let transactions: Transaction[] = [...(formData.transactions || [])];
     
     const buyTransactions = transactions.filter(t => t.type === 'Buy');
-    const otherTransactions = transactions.filter(t => t.type !== 'Buy');
+    const sellTransactions = transactions.filter(t => t.type === 'Sell');
     
     if (buyTransactions.length === 0) {
-        // Only auto-generate if NO buys exist at all
+        // No buys exist: create initial
         transactions.unshift({
             id: self.crypto.randomUUID(),
             date: formData.depositDate!,
@@ -385,8 +394,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             price: inputQuantity ? inputPrincipal / inputQuantity : undefined,
             notes: 'Initial Deposit'
         });
-    } else if (buyTransactions.length === 1 && otherTransactions.length === 0) {
-        // Safe simple mode
+    } else if (buyTransactions.length === 1 && sellTransactions.length === 0) {
+        // Simple mode (1 buy, 0 sells): Sync first buy with input
         const buyIndex = transactions.findIndex(t => t.type === 'Buy');
         if (buyIndex >= 0) {
              transactions[buyIndex] = {
@@ -398,6 +407,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
              };
         }
     }
+    // If complex history exists, we trust transactions and don't sync from inputPrincipal
 
     // Sync Withdrawal logic
     if (formData.withdrawalDate) {
@@ -482,7 +492,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       }
   };
 
-  // This is now always reliable
   const displayTransactions = formData.transactions || [];
 
   return (
@@ -716,6 +725,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                             <select value={batchData.calcMode} onChange={e => setBatchData({...batchData, calcMode: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300">
                                 <option value="fixed">固定金额 (Fixed Amount)</option>
                                 <option value="rate">按年化自动计算 (Auto)</option>
+                                <option value="percent">按本金比例 (Percent)</option>
                             </select>
                         </div>
                         
@@ -723,6 +733,11 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                             <div>
                                 <label className="block text-[10px] font-bold text-purple-400 mb-1">每期金额</label>
                                 <input type="number" step="0.01" value={batchData.amount} onChange={e => setBatchData({...batchData, amount: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300" placeholder="0.00" />
+                            </div>
+                        ) : batchData.calcMode === 'percent' ? (
+                            <div>
+                                <label className="block text-[10px] font-bold text-purple-400 mb-1">本金百分比 (%)</label>
+                                <input type="number" step="0.01" value={batchData.amount} onChange={e => setBatchData({...batchData, amount: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300" placeholder="e.g. 3.5" />
                             </div>
                         ) : (
                             <div>
@@ -744,17 +759,24 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                     </div>
                     
                     <div className="flex flex-col sm:flex-row justify-between items-center gap-3 border-t border-purple-100 pt-3">
-                        <button 
-                            type="button" 
-                            onClick={() => {
-                                const mat = formData.maturityDate;
-                                if(mat) setBatchData({...batchData, endDate: mat});
-                                else onNotify("未设置到期日期", "info");
-                            }}
-                            className="text-[10px] text-purple-400 hover:text-purple-600 underline"
-                        >
-                            填充至到期日
-                        </button>
+                        <div className="flex gap-4">
+                            <button 
+                                type="button" 
+                                onClick={() => {
+                                    const mat = formData.maturityDate;
+                                    if(mat) setBatchData({...batchData, endDate: mat});
+                                    else onNotify("未设置到期日期", "info");
+                                }}
+                                className="text-[10px] text-purple-400 hover:text-purple-600 underline"
+                            >
+                                填充至到期日
+                            </button>
+                            {batchData.calcMode === 'percent' && (
+                                <span className="text-[10px] text-purple-400">
+                                    预计每期: {formatCurrency(calculateBatchAmount(), formData.currency)}
+                                </span>
+                            )}
+                        </div>
                         <div className="flex gap-2">
                             <button type="button" onClick={handleClearFutureDividends} className="px-3 py-1.5 text-red-500 border border-red-200 rounded-lg text-xs hover:bg-red-50">清除未来记录</button>
                             <button type="button" onClick={() => setShowBatchForm(false)} className="px-3 py-1.5 bg-white text-slate-500 border border-slate-200 rounded-lg text-xs hover:bg-slate-50">取消</button>

@@ -471,8 +471,8 @@ const InvestmentList: React.FC<Props> = ({
                                             </p>
                                             <div className="flex flex-col gap-0.5">
                                                     <div className="flex items-baseline gap-1">
-                                                        <p className={`font-bold text-sm ${metrics.isPending ? 'text-slate-400' : metrics.totalReturn > 0 ? 'text-orange-500' : 'text-slate-500'}`}>
-                                                            {metrics.totalReturn > 0 ? '+' : ''}{formatCurrency(metrics.totalReturn, item.currency)}
+                                                        <p className={`font-bold text-sm ${metrics.isPending ? 'text-slate-400' : metrics.totalReturn > 0 ? 'text-orange-500' : metrics.totalReturn < 0 ? 'text-slate-500' : 'text-slate-300'}`}>
+                                                            {metrics.totalReturn !== 0 ? (metrics.totalReturn > 0 ? '+' : '') + formatCurrency(metrics.totalReturn, item.currency) : '-'}
                                                         </p>
                                                     </div>
                                                     {!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed' && metrics.accruedReturn > 0.01 && (

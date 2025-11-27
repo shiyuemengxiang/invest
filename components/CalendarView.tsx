@@ -14,7 +14,7 @@ type ViewMode = 'name' | 'profit' | 'yield';
 interface CalendarEvent {
     id: string;
     date: string; // YYYY-MM-DD
-    type: 'deposit' | 'payout' | 'settlement';
+    type: 'deposit' | 'payout' | 'expense' | 'settlement';
     name: string;
     amount: number; // The relevant cash flow amount for this event
     currency: Currency;
@@ -59,17 +59,16 @@ const CalendarView: React.FC<Props> = ({ items }) => {
               });
           }
 
-          // B. Transaction Payout Events (Dividends, Interest)
-          // We sum these up to deduct from the final maturity profit later
-          let totalPayouts = 0;
+          // B. Transaction Events (Dividends, Interest, Fees)
+          let totalNetPayouts = 0; // Net amount (Income - Expenses) to deduct from final
           
           if (item.transactions && item.transactions.length > 0) {
               item.transactions.forEach(tx => {
-                  // Only visualize Income types
+                  const dateStr = tx.date.split('T')[0];
+                  
+                  // Income Types
                   if (tx.type === 'Dividend' || tx.type === 'Interest') {
-                      const dateStr = tx.date.split('T')[0];
-                      totalPayouts += tx.amount;
-                      
+                      totalNetPayouts += tx.amount;
                       events.push({
                           id: `${item.id}-tx-${tx.id}`,
                           date: dateStr,
@@ -81,27 +80,33 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                           item
                       });
                   }
+                  // Expense Types
+                  else if (tx.type === 'Fee' || tx.type === 'Tax') {
+                      totalNetPayouts -= tx.amount;
+                      events.push({
+                          id: `${item.id}-tx-${tx.id}`,
+                          date: dateStr,
+                          type: 'expense',
+                          name: item.name,
+                          amount: tx.amount, 
+                          currency: item.currency,
+                          item
+                      });
+                  }
               });
           }
 
           // C. Settlement/Maturity Event
-          // This happens on Withdrawal Date (if set) OR Maturity Date
           const endDate = item.withdrawalDate || item.maturityDate;
           
           if (endDate) {
-              // Calculate Residual Profit: Total Expected Profit - Already Paid/Scheduled Payouts
-              // If user used "Batch Generate", metrics.profit includes those amounts.
-              // We want to show the *remaining* amount on the final day (e.g., Rebate, or Principal if we were tracking flow, but here we track Profit).
-              // Note: metrics.profit is the Total Return (Interest + Rebate + Realized).
-              
-              // Floating items: profit is current value change. 
-              // Fixed items: profit is total expected interest.
-              
-              const residualProfit = metrics.profit - totalPayouts;
+              // Calculate Residual Profit: Total Return - (Already Paid Net Payouts)
+              // For Fixed items: profit is interest. For Floating: profit is value change + realized.
+              // We want to show what is LEFT to be settled on the final day.
+              const residualProfit = metrics.profit - totalNetPayouts;
 
-              // Only show settlement if there's a meaningful amount remaining (e.g. > 1 unit)
-              // OR if there were no payouts at all (standard fixed deposit)
-              if (Math.abs(residualProfit) > 1 || totalPayouts === 0) {
+              // Only show settlement if significant or if it's the only event
+              if (Math.abs(residualProfit) > 1 || (totalNetPayouts === 0 && !item.withdrawalDate)) {
                   events.push({
                       id: `${item.id}-end`,
                       date: endDate,
@@ -122,7 +127,7 @@ const CalendarView: React.FC<Props> = ({ items }) => {
   // --- 2. Calculate Monthly Stats based on Events ---
   const monthlyStats = useMemo(() => {
       let depositTotal = 0;
-      let profitTotal = 0; // This now sums up individual Payouts + Settlements
+      let profitTotal = 0; 
       
       const currencyBreakdown = {
           CNY: { deposit: 0, profit: 0 },
@@ -139,10 +144,15 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                       currencyBreakdown[ev.currency].deposit += ev.amount;
                   }
               } else if (ev.type === 'payout' || ev.type === 'settlement') {
-                  // Both payouts (periodic) and settlements (final) count as "Profit" for that month
                   profitTotal += convertCurrency(ev.amount, ev.currency, selectedCurrency, rates);
                   if (currencyBreakdown[ev.currency]) {
                       currencyBreakdown[ev.currency].profit += ev.amount;
+                  }
+              } else if (ev.type === 'expense') {
+                  // Subtract expenses from profit total
+                  profitTotal -= convertCurrency(ev.amount, ev.currency, selectedCurrency, rates);
+                  if (currencyBreakdown[ev.currency]) {
+                      currencyBreakdown[ev.currency].profit -= ev.amount;
                   }
               }
           }
@@ -161,18 +171,17 @@ const CalendarView: React.FC<Props> = ({ items }) => {
   const renderEventLabel = (ev: CalendarEvent) => {
     if (ev.type === 'deposit') return `存入: ${ev.name}`;
 
-    // For Payout/Settlement
     if (viewMode === 'profit') {
+        if (ev.type === 'expense') return `支: -${formatCurrency(ev.amount, ev.currency)}`;
         const prefix = ev.type === 'payout' ? '收' : '结';
         return `${prefix}: ${formatCurrency(ev.amount, ev.currency)}`;
     }
     if (viewMode === 'yield') {
-        // Only show yield on the final settlement or if helpful
-        return `年化: ${formatPercent(ev.yield || 0)}`;
+        return ev.type === 'expense' ? '费率' : `年化: ${formatPercent(ev.yield || 0)}`;
     }
     
-    // Name Mode
     if (ev.type === 'payout') return `派息: ${ev.name}`;
+    if (ev.type === 'expense') return `费用: ${ev.name}`;
     return `到期: ${ev.name}`;
   };
 
@@ -196,14 +205,15 @@ const CalendarView: React.FC<Props> = ({ items }) => {
             {events.map(ev => {
                 let badgeClass = '';
                 if (ev.type === 'deposit') badgeClass = 'bg-emerald-50 border-emerald-100 text-emerald-700';
-                else if (ev.type === 'payout') badgeClass = 'bg-blue-50 border-blue-100 text-blue-700'; // Distinct color for periodic
+                else if (ev.type === 'payout') badgeClass = 'bg-blue-50 border-blue-100 text-blue-700'; 
+                else if (ev.type === 'expense') badgeClass = 'bg-red-50 border-red-100 text-red-700'; 
                 else badgeClass = 'bg-orange-50 border-orange-100 text-orange-700'; // Settlement
 
                 return (
                     <div 
                         key={ev.id} 
                         className={`text-[10px] px-1.5 py-0.5 rounded shadow-sm border truncate font-medium ${badgeClass}`}
-                        title={`${ev.name} | ${formatCurrency(ev.amount, ev.currency)}`}
+                        title={`${ev.name} | ${ev.type === 'expense' ? '-' : ''}${formatCurrency(ev.amount, ev.currency)}`}
                     >
                         {renderEventLabel(ev)}
                     </div>
@@ -261,9 +271,9 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                      <div className="absolute right-0 top-0 p-3 opacity-10">
                          <svg className="w-16 h-16 text-orange-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 001-.994l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg>
                      </div>
-                     <p className="text-sm font-bold text-orange-800/70 uppercase tracking-wider">本月收益 (Income & Payouts)</p>
-                     <p className="text-2xl font-bold text-orange-700 mt-1 tabular-nums font-mono">{formatCurrency(monthlyStats.profitTotal, selectedCurrency)}</p>
-                     <p className="text-[10px] text-orange-400 mt-0.5">含本月到期收益及周期性派息</p>
+                     <p className="text-sm font-bold text-orange-800/70 uppercase tracking-wider">本月净收益 (Net Profit)</p>
+                     <p className={`text-2xl font-bold mt-1 tabular-nums font-mono ${monthlyStats.profitTotal >= 0 ? 'text-orange-700' : 'text-slate-600'}`}>{formatCurrency(monthlyStats.profitTotal, selectedCurrency)}</p>
+                     <p className="text-[10px] text-orange-400 mt-0.5">收益 + 派息 - 费用</p>
                      
                      <div className="mt-3 flex gap-3 text-xs text-orange-600/60 font-medium">
                          <span>CNY: {formatCurrency(monthlyStats.currencyBreakdown.CNY.profit, 'CNY')}</span>
@@ -299,7 +309,7 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                         onClick={() => setViewMode('profit')}
                         className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${viewMode === 'profit' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500'}`}
                     >
-                        显示收益
+                        显示金额
                     </button>
                     <button 
                         onClick={() => setViewMode('yield')}
