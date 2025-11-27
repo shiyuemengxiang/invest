@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { ExchangeRates, Investment, User, ViewState, ThemeOption } from './types';
+import { ExchangeRates, Investment, User, ViewState, ThemeOption, FilterType, ProductTypeFilter, CurrencyFilter, CategoryFilter, SortType } from './types';
 import Dashboard from './components/Dashboard';
 import InvestmentList from './components/InvestmentList';
 import InvestmentForm from './components/InvestmentForm';
@@ -23,6 +23,16 @@ const App: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
+  // --- Lifted State for InvestmentList Persistence ---
+  const [listFilter, setListFilter] = useState<FilterType>('all');
+  const [listProductFilter, setListProductFilter] = useState<ProductTypeFilter>('all');
+  const [listCurrencyFilter, setListCurrencyFilter] = useState<CurrencyFilter>('all');
+  const [listCategoryFilter, setListCategoryFilter] = useState<CategoryFilter>('all');
+  const [listSortType, setListSortType] = useState<SortType>('date-asc');
+  const [listShowCustomDate, setListShowCustomDate] = useState(false);
+  const [listCustomStart, setListCustomStart] = useState('');
+  const [listCustomEnd, setListCustomEnd] = useState('');
+
   const showToast = (message: string, type: ToastType = 'success') => {
       setToast({ message, type });
   };
@@ -31,9 +41,6 @@ const App: React.FC = () => {
   const migrateAndSetItems = (rawItems: Investment[]) => {
       const migrated = rawItems.map(migrateInvestmentData);
       setItems(migrated);
-      // We don't save immediately to avoid unwanted writes on every load, 
-      // but 'handleSaveItem' will eventually persist the new structure.
-      // However, for consistency, we could save back if migration actually changed things.
   };
 
   useEffect(() => {
@@ -169,7 +176,6 @@ const App: React.FC = () => {
       showToast('欢迎回来！数据已同步', 'success');
   };
 
-  // ... (Rest of handleLogout, handleThemeChange, handleRatesChange, etc. remain the same) ...
   const handleLogout = () => {
       storageService.logout();
       setUser(null);
@@ -203,7 +209,6 @@ const App: React.FC = () => {
   const themeConfig = THEMES[theme];
   const isLightTheme = ['lavender', 'mint', 'sky', 'sakura', 'ivory'].includes(theme);
 
-  // ... (UI Rendering remains essentially the same, just wrapping App) ...
   if (view === 'auth' && !user) {
       return (
         <>
@@ -213,11 +218,10 @@ const App: React.FC = () => {
       );
   }
 
-  // Reuse NavItems for cleaner code (kept from previous, assuming unchanged)
   const NavItems = () => (
       <>
         <button onClick={() => handleNav('dashboard')} className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center gap-3 ${view === 'dashboard' ? themeConfig.navActive : themeConfig.navHover}`}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> 总览 Dashboard
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z" /></svg> 总览 Dashboard
         </button>
         <button onClick={() => handleNav('list')} className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center gap-3 ${view === 'list' ? themeConfig.navActive : themeConfig.navHover}`}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2-2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg> 明细 List
@@ -275,7 +279,24 @@ const App: React.FC = () => {
       <div className="flex-1 md:overflow-y-auto md:min-h-screen">
          <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 md:pb-8">
             {view === 'dashboard' && <Dashboard items={items} rates={rates} theme={theme} />}
-            {view === 'list' && <InvestmentList items={items} onDelete={handleDelete} onEdit={(item) => { setEditingItem(item); setView('add'); }} onReorder={handleReorder} onRefreshMarket={handleRefreshMarketData} />}
+            {view === 'list' && (
+                <InvestmentList 
+                    items={items} 
+                    onDelete={handleDelete} 
+                    onEdit={(item) => { setEditingItem(item); setView('add'); }} 
+                    onReorder={handleReorder} 
+                    onRefreshMarket={handleRefreshMarketData}
+                    // Pass persisted filter state
+                    filter={listFilter} setFilter={setListFilter}
+                    productFilter={listProductFilter} setProductFilter={setListProductFilter}
+                    currencyFilter={listCurrencyFilter} setCurrencyFilter={setListCurrencyFilter}
+                    categoryFilter={listCategoryFilter} setCategoryFilter={setListCategoryFilter}
+                    sortType={listSortType} setSortType={setListSortType}
+                    showCustomDate={listShowCustomDate} setShowCustomDate={setListShowCustomDate}
+                    customStart={listCustomStart} setCustomStart={setListCustomStart}
+                    customEnd={listCustomEnd} setCustomEnd={setListCustomEnd}
+                />
+            )}
             {view === 'calendar' && <CalendarView items={items} />}
             {view === 'profile' && <Profile user={user} rates={rates} currentTheme={theme} onSaveRates={handleRatesChange} onSaveTheme={handleThemeChange} onLogout={handleLogout} onNotify={showToast} />}
             {view === 'add' && <InvestmentForm onSave={handleSaveItem} onCancel={() => setView('list')} initialData={editingItem} onNotify={showToast} />}

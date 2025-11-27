@@ -120,3 +120,10 @@ export interface InvestmentStats {
 export type ViewState = 'dashboard' | 'list' | 'add' | 'calendar' | 'profile' | 'auth';
 
 export type TimeFilter = 'all' | '1m' | '3m' | '6m' | '1y' | 'mtd' | 'ytd' | 'custom';
+
+// --- List View Filter Types ---
+export type FilterType = 'all' | 'active' | 'completed';
+export type ProductTypeFilter = 'all' | 'Fixed' | 'Floating';
+export type CurrencyFilter = 'all' | Currency;
+export type CategoryFilter = 'all' | InvestmentCategory;
+export type SortType = 'date-asc' | 'date-desc' | 'custom';

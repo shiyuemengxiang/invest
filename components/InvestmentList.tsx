@@ -1,6 +1,6 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Investment, CATEGORY_LABELS, Currency, InvestmentCategory } from '../types';
+import React, { useMemo, useEffect, useState } from 'react';
+import { Investment, CATEGORY_LABELS, Currency, InvestmentCategory, FilterType, ProductTypeFilter, CurrencyFilter, CategoryFilter, SortType } from '../types';
 import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn } from '../utils';
 import ConfirmModal from './ConfirmModal';
 import { DragDropContext, Droppable, Draggable, DropResult, DroppableProps } from '@hello-pangea/dnd';
@@ -11,13 +11,17 @@ interface Props {
   onEdit: (item: Investment) => void;
   onReorder: (dragIndex: number, hoverIndex: number) => void;
   onRefreshMarket: () => void;
+  
+  // Filter State Props (Lifted)
+  filter: FilterType; setFilter: (v: FilterType) => void;
+  productFilter: ProductTypeFilter; setProductFilter: (v: ProductTypeFilter) => void;
+  currencyFilter: CurrencyFilter; setCurrencyFilter: (v: CurrencyFilter) => void;
+  categoryFilter: CategoryFilter; setCategoryFilter: (v: CategoryFilter) => void;
+  sortType: SortType; setSortType: (v: SortType) => void;
+  showCustomDate: boolean; setShowCustomDate: (v: boolean) => void;
+  customStart: string; setCustomStart: (v: string) => void;
+  customEnd: string; setCustomEnd: (v: string) => void;
 }
-
-type FilterType = 'all' | 'active' | 'completed';
-type ProductTypeFilter = 'all' | 'Fixed' | 'Floating';
-type CurrencyFilter = 'all' | Currency;
-type CategoryFilter = 'all' | InvestmentCategory;
-type SortType = 'date-asc' | 'date-desc' | 'custom';
 
 // StrictModeDroppable fix for React 18
 const StrictModeDroppable = ({ children, ...props }: DroppableProps) => {
@@ -35,20 +39,18 @@ const StrictModeDroppable = ({ children, ...props }: DroppableProps) => {
   return <Droppable {...props}>{children}</Droppable>;
 };
 
-const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, onRefreshMarket }) => {
-  const [filter, setFilter] = useState<FilterType>('all');
-  const [productFilter, setProductFilter] = useState<ProductTypeFilter>('all');
-  const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('all');
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
-  const [sortType, setSortType] = useState<SortType>('date-asc');
-  
+const InvestmentList: React.FC<Props> = ({ 
+    items, onDelete, onEdit, onReorder, onRefreshMarket,
+    filter, setFilter,
+    productFilter, setProductFilter,
+    currencyFilter, setCurrencyFilter,
+    categoryFilter, setCategoryFilter,
+    sortType, setSortType,
+    showCustomDate, setShowCustomDate,
+    customStart, setCustomStart,
+    customEnd, setCustomEnd
+}) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
-  // Custom Date Filter State
-  const [showCustomDate, setShowCustomDate] = useState(false);
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
-
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const filteredItems = useMemo(() => {
@@ -476,11 +478,11 @@ const InvestmentList: React.FC<Props> = ({ items, onDelete, onEdit, onReorder, o
                                                             {metrics.totalReturn > 0 ? '+' : ''}{formatCurrency(metrics.totalReturn, item.currency)}
                                                         </p>
                                                     </div>
-                                                    {!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed' && (
+                                                    {!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed' && metrics.accruedReturn > 0 && (
                                                         <div className="flex items-center gap-1">
                                                             <span className="text-[10px] text-slate-400">截止今日:</span>
                                                             <span className="text-[10px] font-bold text-slate-600">
-                                                                {metrics.accruedReturn > 0 ? formatCurrency(metrics.accruedReturn, item.currency) : '—'}
+                                                                {formatCurrency(metrics.accruedReturn, item.currency)}
                                                             </span>
                                                         </div>
                                                     )}
