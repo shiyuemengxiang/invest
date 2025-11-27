@@ -10,15 +10,14 @@ interface Props {
 
 type ViewMode = 'name' | 'profit' | 'yield';
 
-// Internal Event Interface for Calendar Rendering
 interface CalendarEvent {
     id: string;
     date: string; // YYYY-MM-DD
     type: 'deposit' | 'payout' | 'expense' | 'settlement';
     name: string;
-    amount: number; // The relevant cash flow amount for this event
+    amount: number; 
     currency: Currency;
-    yield?: number; // Only for settlement/payout context
+    yield?: number; 
     item: Investment;
 }
 
@@ -26,8 +25,6 @@ const CalendarView: React.FC<Props> = ({ items }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('name');
   const [selectedCurrency, setSelectedCurrency] = useState<Currency>('CNY');
-  
-  // Selected Date for Modal Detail View
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   
   const rates = storageService.getRates(); 
@@ -41,8 +38,6 @@ const CalendarView: React.FC<Props> = ({ items }) => {
   const handlePrevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
   const handleNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
 
-  // --- 1. Flatten Data into Events ---
-  // We process all items to generate specific events for Deposits, Transactions (Payouts), and Final Settlement.
   const allEvents = useMemo(() => {
       const events: CalendarEvent[] = [];
 
@@ -56,20 +51,19 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                   date: item.depositDate,
                   type: 'deposit',
                   name: item.name,
-                  amount: item.principal, // Cash Outflow
+                  amount: item.principal, 
                   currency: item.currency,
                   item
               });
           }
 
-          // B. Transaction Events (Dividends, Interest, Fees)
-          let totalNetPayouts = 0; // Net amount (Income - Expenses) to deduct from final
+          // B. Transaction Events
+          let totalNetPayouts = 0; 
           
           if (item.transactions && item.transactions.length > 0) {
               item.transactions.forEach(tx => {
                   const dateStr = tx.date.split('T')[0];
                   
-                  // Income Types
                   if (tx.type === 'Dividend' || tx.type === 'Interest') {
                       totalNetPayouts += tx.amount;
                       events.push({
@@ -83,7 +77,6 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                           item
                       });
                   }
-                  // Expense Types
                   else if (tx.type === 'Fee' || tx.type === 'Tax') {
                       totalNetPayouts -= tx.amount;
                       events.push({
@@ -99,16 +92,10 @@ const CalendarView: React.FC<Props> = ({ items }) => {
               });
           }
 
-          // C. Settlement/Maturity Event
+          // C. Settlement Event
           const endDate = item.withdrawalDate || item.maturityDate;
-          
           if (endDate) {
-              // Calculate Residual Profit: Total Return - (Already Paid Net Payouts)
-              // For Fixed items: profit is interest. For Floating: profit is value change + realized.
-              // We want to show what is LEFT to be settled on the final day.
               const residualProfit = metrics.profit - totalNetPayouts;
-
-              // Only show settlement if significant or if it's the only event
               if (Math.abs(residualProfit) > 1 || (totalNetPayouts === 0 && !item.withdrawalDate)) {
                   events.push({
                       id: `${item.id}-end`,
@@ -127,7 +114,6 @@ const CalendarView: React.FC<Props> = ({ items }) => {
       return events;
   }, [items]);
 
-  // --- 2. Calculate Monthly Stats based on Events ---
   const monthlyStats = useMemo(() => {
       let depositTotal = 0;
       let profitTotal = 0; 
@@ -152,7 +138,6 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                       currencyBreakdown[ev.currency].profit += ev.amount;
                   }
               } else if (ev.type === 'expense') {
-                  // Subtract expenses from profit total
                   profitTotal -= convertCurrency(ev.amount, ev.currency, selectedCurrency, rates);
                   if (currencyBreakdown[ev.currency]) {
                       currencyBreakdown[ev.currency].profit -= ev.amount;
@@ -164,14 +149,11 @@ const CalendarView: React.FC<Props> = ({ items }) => {
       return { depositTotal, profitTotal, currencyBreakdown };
   }, [allEvents, year, month, selectedCurrency, rates]);
 
-
-  // Helper to filter events for a specific grid cell
   const getEventsForDay = (day: number) => {
     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     return allEvents.filter(ev => ev.date === dateStr);
   };
   
-  // For Modal
   const getEventsForSelectedDate = () => {
       if (!selectedDate) return [];
       return allEvents.filter(ev => ev.date === selectedDate);
@@ -196,11 +178,9 @@ const CalendarView: React.FC<Props> = ({ items }) => {
 
   const renderDays = () => {
     const days = [];
-    // Empty cells
     for (let i = 0; i < firstDay; i++) {
       days.push(<div key={`empty-${i}`} className="h-28 bg-slate-50/30 border border-slate-100"></div>);
     }
-    // Days
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const events = getEventsForDay(d);
@@ -221,7 +201,7 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                 if (ev.type === 'deposit') badgeClass = 'bg-emerald-50 border-emerald-100 text-emerald-700';
                 else if (ev.type === 'payout') badgeClass = 'bg-blue-50 border-blue-100 text-blue-700'; 
                 else if (ev.type === 'expense') badgeClass = 'bg-red-50 border-red-100 text-red-700'; 
-                else badgeClass = 'bg-orange-50 border-orange-100 text-orange-700'; // Settlement
+                else badgeClass = 'bg-orange-50 border-orange-100 text-orange-700';
 
                 return (
                     <div 
@@ -242,8 +222,7 @@ const CalendarView: React.FC<Props> = ({ items }) => {
 
   return (
     <div className="space-y-6 animate-fade-in relative">
-        
-        {/* Monthly Summary Card */}
+        {/* Monthly Summary */}
         <div className="bg-white rounded-[1.5rem] p-6 shadow-sm border border-slate-100">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
                  <div>
@@ -253,7 +232,6 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                     <p className="text-xs text-slate-400">Monthly Financial Summary</p>
                  </div>
                  
-                 {/* Currency Toggle */}
                  <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
                     {(['CNY', 'USD', 'HKD'] as Currency[]).map(c => (
                         <button
@@ -269,9 +247,6 @@ const CalendarView: React.FC<Props> = ({ items }) => {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 relative overflow-hidden group">
-                     <div className="absolute right-0 top-0 p-3 opacity-10">
-                         <svg className="w-16 h-16 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z" /><path fillRule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z" clipRule="evenodd" /></svg>
-                     </div>
                      <p className="text-sm font-bold text-emerald-800/70 uppercase tracking-wider">本月存入 (Deposited)</p>
                      <p className="text-2xl font-bold text-emerald-700 mt-1 tabular-nums font-mono">{formatCurrency(monthlyStats.depositTotal, selectedCurrency)}</p>
                      
@@ -282,9 +257,6 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                 </div>
 
                 <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 relative overflow-hidden group">
-                     <div className="absolute right-0 top-0 p-3 opacity-10">
-                         <svg className="w-16 h-16 text-orange-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 001-.994l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg>
-                     </div>
                      <p className="text-sm font-bold text-orange-800/70 uppercase tracking-wider">本月净收益 (Net Profit)</p>
                      <p className={`text-2xl font-bold mt-1 tabular-nums font-mono ${monthlyStats.profitTotal >= 0 ? 'text-orange-700' : 'text-slate-600'}`}>{formatCurrency(monthlyStats.profitTotal, selectedCurrency)}</p>
                      <p className="text-[10px] text-orange-400 mt-0.5">收益 + 派息 - 费用</p>
@@ -297,55 +269,32 @@ const CalendarView: React.FC<Props> = ({ items }) => {
             </div>
         </div>
 
-        {/* Calendar Grid Container */}
+        {/* Calendar Grid */}
         <div className="bg-white rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-100 overflow-hidden">
-            {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-center p-6 border-b border-slate-100 gap-4">
                 <div className="flex items-center gap-4">
-                    <button onClick={handlePrevMonth} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
-                    </button>
+                    <button onClick={handlePrevMonth} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg></button>
                     <h2 className="text-xl font-bold text-slate-800 tracking-tight">{year}年 {month + 1}月</h2>
-                    <button onClick={handleNextMonth} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
-                    </button>
+                    <button onClick={handleNextMonth} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg></button>
                 </div>
                 
-                {/* Toggles */}
                 <div className="flex bg-slate-100 p-1 rounded-xl">
-                    <button 
-                        onClick={() => setViewMode('name')}
-                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${viewMode === 'name' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
-                    >
-                        显示名称
-                    </button>
-                    <button 
-                        onClick={() => setViewMode('profit')}
-                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${viewMode === 'profit' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500'}`}
-                    >
-                        显示金额
-                    </button>
-                    <button 
-                        onClick={() => setViewMode('yield')}
-                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${viewMode === 'yield' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                    >
-                        显示年化
-                    </button>
+                    <button onClick={() => setViewMode('name')} className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${viewMode === 'name' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>显示名称</button>
+                    <button onClick={() => setViewMode('profit')} className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${viewMode === 'profit' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500'}`}>显示金额</button>
+                    <button onClick={() => setViewMode('yield')} className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${viewMode === 'yield' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>显示年化</button>
                 </div>
             </div>
 
-            {/* Days Header */}
             <div className="grid grid-cols-7 text-center bg-slate-50 text-slate-400 text-xs py-3 border-b border-slate-100 font-semibold tracking-wider uppercase">
                 <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
             </div>
 
-            {/* Calendar Grid */}
             <div className="grid grid-cols-7">
                 {renderDays()}
             </div>
         </div>
 
-        {/* --- Date Detail Modal --- */}
+        {/* Modal */}
         {selectedDate && (
             <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedDate(null)}>
                 <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in-up" onClick={e => e.stopPropagation()}>

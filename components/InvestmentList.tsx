@@ -12,7 +12,6 @@ interface Props {
   onReorder: (dragIndex: number, hoverIndex: number) => void;
   onRefreshMarket: (silent?: boolean) => void;
   
-  // Filter State Props (Lifted)
   filter: FilterType; setFilter: (v: FilterType) => void;
   productFilter: ProductTypeFilter; setProductFilter: (v: ProductTypeFilter) => void;
   currencyFilter: CurrencyFilter; setCurrencyFilter: (v: CurrencyFilter) => void;
@@ -23,7 +22,6 @@ interface Props {
   customEnd: string; setCustomEnd: (v: string) => void;
 }
 
-// StrictModeDroppable fix for React 18
 const StrictModeDroppable = ({ children, ...props }: DroppableProps) => {
   const [enabled, setEnabled] = useState(false);
   useEffect(() => {
@@ -55,39 +53,29 @@ const InvestmentList: React.FC<Props> = ({
 
   const filteredItems = useMemo(() => {
     let result = items.filter(item => {
-      // 1. Status Filter
       if (filter === 'active' && item.withdrawalDate) return false;
       if (filter === 'completed' && !item.withdrawalDate) return false;
       
-      // 2. Product Type Filter
       if (productFilter !== 'all' && item.type !== productFilter) return false;
-
-      // 3. Currency Filter
       if (currencyFilter !== 'all' && item.currency !== currencyFilter) return false;
-
-      // 4. Category Filter
       if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
 
       return true;
     });
 
-    // 5. Custom Date Filter
     if (showCustomDate && customStart && customEnd) {
          result = filterInvestmentsByTime(result, 'custom', customStart, customEnd);
     }
     
-    // 6. Sort
     if (sortType === 'date-asc') {
         result.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
     } else if (sortType === 'date-desc') {
         result.sort((a, b) => new Date(b.depositDate).getTime() - new Date(a.depositDate).getTime());
     }
-    // 'custom' uses the default order in the array
     
     return result;
   }, [items, filter, productFilter, currencyFilter, categoryFilter, showCustomDate, customStart, customEnd, sortType]);
 
-  // --- Summary Stats Calculation ---
   const summaryStats = useMemo((): Record<Currency, { totalProfit: number; dailyReturn: number }> => {
       const stats: Record<Currency, { totalProfit: number; dailyReturn: number }> = {
           CNY: { totalProfit: 0, dailyReturn: 0 },
@@ -132,7 +120,7 @@ const InvestmentList: React.FC<Props> = ({
   
   const handleRefreshClick = async () => {
       setIsRefreshing(true);
-      await onRefreshMarket(false); // Explicitly not silent
+      await onRefreshMarket(false); 
       setTimeout(() => setIsRefreshing(false), 1000); 
   };
 
@@ -151,12 +139,9 @@ const InvestmentList: React.FC<Props> = ({
         onCancel={() => setDeleteId(null)}
       />
 
-      {/* --- Filter & Summary Panel --- */}
       <div className="bg-white/80 backdrop-blur-sm p-4 rounded-3xl border border-white/50 shadow-sm space-y-4">
-          {/* Row 1: Status, Currency & Refresh */}
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                 <div className="flex flex-wrap gap-2 w-full lg:w-auto">
-                    {/* Status Tabs */}
                     <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl">
                         {(['all', 'active', 'completed'] as FilterType[]).map(f => (
                             <button
@@ -169,7 +154,6 @@ const InvestmentList: React.FC<Props> = ({
                         ))}
                     </div>
 
-                    {/* Currency Tabs */}
                     <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl">
                         {(['all', 'CNY', 'USD', 'HKD'] as CurrencyFilter[]).map(c => (
                             <button
@@ -199,10 +183,8 @@ const InvestmentList: React.FC<Props> = ({
                 </div>
           </div>
 
-          {/* Row 2: Type, Category, Date & Sorting */}
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                 <div className="flex flex-wrap gap-2 w-full lg:w-auto items-center">
-                    {/* Product Type */}
                     <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl">
                         {(['all', 'Fixed', 'Floating'] as ProductTypeFilter[]).map(p => (
                             <button
@@ -215,7 +197,6 @@ const InvestmentList: React.FC<Props> = ({
                         ))}
                     </div>
 
-                    {/* Category Filter */}
                      <select 
                         value={categoryFilter}
                         onChange={(e) => setCategoryFilter(e.target.value as CategoryFilter)}
@@ -227,7 +208,6 @@ const InvestmentList: React.FC<Props> = ({
                         ))}
                     </select>
 
-                    {/* Sort Selector */}
                     <select 
                         value={sortType}
                         onChange={(e) => setSortType(e.target.value as SortType)}
@@ -248,7 +228,6 @@ const InvestmentList: React.FC<Props> = ({
                 </button>
           </div>
 
-          {/* Row 3: Live Summary Stats */}
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-wrap gap-8 items-center justify-around">
              {(['CNY', 'USD', 'HKD'] as Currency[]).filter(c => currencyFilter === 'all' || currencyFilter === c).map(c => {
                  const s = summaryStats[c];
@@ -312,7 +291,6 @@ const InvestmentList: React.FC<Props> = ({
           </div>
       )}
 
-      {/* List - Drag and Drop Context */}
       <DragDropContext onDragEnd={handleDragEnd}>
         <StrictModeDroppable droppableId="investment-list">
             {(provided) => (
@@ -324,7 +302,6 @@ const InvestmentList: React.FC<Props> = ({
                     {filteredItems.map((item, index) => {
                         const metrics = calculateItemMetrics(item);
                         
-                        // Display Logic
                         let displayYield = 'N/A';
                         let displayYieldLabel = '收益率';
                         let yieldColorClass = 'text-slate-300';
@@ -370,7 +347,6 @@ const InvestmentList: React.FC<Props> = ({
                                         `}
                                         style={provided.draggableProps.style}
                                     >
-                                        {/* Header Row */}
                                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 relative z-10">
                                             <div className="flex items-center gap-4">
                                                 <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-bold shadow-sm ${metrics.isCompleted ? 'bg-slate-100 text-slate-400' : metrics.isPending ? 'bg-slate-200 text-slate-500' : item.type === 'Floating' ? 'bg-indigo-900 text-white' : 'bg-slate-900 text-white'}`}>
@@ -406,7 +382,6 @@ const InvestmentList: React.FC<Props> = ({
                                                 </div>
                                             </div>
 
-                                            {/* Amount and Actions */}
                                             <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end">
                                                 <div className="text-right">
                                                     <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">{formatCurrency(item.currentPrincipal, item.currency)}</span>
@@ -446,7 +421,6 @@ const InvestmentList: React.FC<Props> = ({
                                             </div>
                                         </div>
 
-                                        {/* Metrics Grid */}
                                         <div className="relative z-10 grid grid-cols-2 md:grid-cols-5 gap-4 py-5 border-t border-slate-50">
                                             <div className="space-y-1">
                                             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Status/Time</p>
@@ -505,7 +479,6 @@ const InvestmentList: React.FC<Props> = ({
                                             </div>
                                         </div>
                                         
-                                        {/* Unit Cost & Current Price for Stocks/Funds */}
                                         {(item.quantity || 0) > 0 && (
                                             <div className="relative z-10 grid grid-cols-2 md:grid-cols-5 gap-4 py-4 mt-2 bg-slate-50/80 rounded-xl px-4 border border-dashed border-slate-200">
                                                 <div className="space-y-0.5">

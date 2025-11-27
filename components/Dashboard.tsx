@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption } from '../types';
-import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, filterInvestmentsByTime, formatCurrency, formatPercent, THEMES } from '../utils';
+import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES } from '../utils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { getAIAnalysis } from '../services/geminiService';
 
@@ -41,8 +41,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   const currencyItems = useMemo(() => items.filter(i => (i.currency || 'CNY') === selectedCurrency), [items, selectedCurrency]);
   
   // --- STATS CALCULATION STRATEGY ---
-  // If 'all', use Lifetime stats (Total Principal, Lifetime Profit).
-  // If 'time filter' (e.g. YTD), use Period Stats (Active Capital in Period, Profit in Period).
   const stats = useMemo(() => {
       if (timeFilter === 'all') {
           return calculatePortfolioStats(currencyItems);
@@ -64,7 +62,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
     { name: '已完结本金', value: stats.completedPrincipal },
   ].filter(d => d.value > 0);
 
-  // Upcoming: Always show based on current future, regardless of time filter (usually)
+  // Upcoming
   const upcoming = currencyItems
     .filter(i => {
         if (!i.maturityDate) return false;
@@ -181,10 +179,9 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         </div>
       </div>
 
-      {/* Detailed Stats Grid - Adjusted to 5 columns for large screens */}
+      {/* Detailed Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
         
-        {/* Active Principal */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-blue-50">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-blue-50 rounded-2xl text-blue-600">
@@ -201,7 +198,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           )}
         </div>
 
-        {/* Total/Period Profit */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-indigo-50">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
@@ -220,7 +216,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           </p>
         </div>
 
-        {/* Today's Estimated Profit (Daily Return) */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-orange-50">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-orange-50 rounded-2xl text-orange-600">
@@ -235,7 +230,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           <p className="text-[10px] text-slate-400 mt-1">含基金/股票今日估值及固收日息</p>
         </div>
 
-        {/* Realized Profit */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-amber-50">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-amber-50 rounded-2xl text-amber-600">
@@ -247,7 +241,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.realizedInterest, selectedCurrency)}</p>
         </div>
 
-        {/* Weighted Yield */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-purple-50">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-purple-50 rounded-2xl text-purple-600">
@@ -290,14 +283,13 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             </div>
          </div>
          
-         {/* Asset Distribution & Upcoming - Use Grid for stability instead of Flex */}
+         {/* Asset Distribution & Upcoming */}
          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8 overflow-hidden">
             <div className="w-full">
                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                     <span className="w-1.5 h-6 bg-blue-500 rounded-full"></span>
                     资金状态分布
                 </h3>
-                {/* Fixed height container. Using width=99% in Recharts prevents rounding error loops */}
                 <div className="h-[250px] w-full relative overflow-hidden" style={{ transform: 'translate3d(0,0,0)' }}>
                     {pieData.length > 0 ? (
                         <ResponsiveContainer width="99%" height="100%">

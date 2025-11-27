@@ -17,7 +17,6 @@ const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('dashboard');
   const [editingItem, setEditingItem] = useState<Investment | null>(null);
   
-  // Modal State for Form
   const [isFormOpen, setIsFormOpen] = useState(false);
   
   const [user, setUser] = useState<User | null>(null);
@@ -26,7 +25,6 @@ const App: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
-  // --- Lifted State for InvestmentList Persistence ---
   const [listFilter, setListFilter] = useState<FilterType>('all');
   const [listProductFilter, setListProductFilter] = useState<ProductTypeFilter>('all');
   const [listCurrencyFilter, setListCurrencyFilter] = useState<CurrencyFilter>('all');
@@ -40,7 +38,6 @@ const App: React.FC = () => {
       setToast({ message, type });
   };
 
-  // Helper to migrate list
   const migrateAndSetItems = (rawItems: Investment[]) => {
       const migrated = rawItems.map(migrateInvestmentData);
       setItems(migrated);
@@ -60,7 +57,6 @@ const App: React.FC = () => {
     if (localData) {
         loadedItems = localData;
     } else if (!currentUser) {
-        // Seed Data
         const seed: Investment[] = [
             { id: '1', name: '新手专享理财', category: 'Fixed', type: 'Fixed', currency: 'CNY', depositDate: '2023-10-01', maturityDate: '2023-11-01', withdrawalDate: '2023-11-02', principal: 50000, expectedRate: 3.5, realizedReturn: 145, rebate: 100, isRebateReceived: true, notes: '新人福利', transactions: [], currentPrincipal: 50000, totalCost: 50000, totalRealizedProfit: 145 },
             { id: '2', name: '稳健季季红', category: 'Deposit', type: 'Fixed', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期', transactions: [], currentPrincipal: 100000, totalCost: 100000, totalRealizedProfit: 0 },
@@ -69,7 +65,6 @@ const App: React.FC = () => {
         loadedItems = seed;
     }
     
-    // Sort and Migrate
     loadedItems.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
     migrateAndSetItems(loadedItems);
 
@@ -90,23 +85,20 @@ const App: React.FC = () => {
         }
     }
     
-    // Trigger initial market refresh if any items have auto-quote
     setTimeout(() => {
-        // Only refresh if there are items loaded
         const hasAutoQuote = loadedItems.some(i => i.isAutoQuote && !i.withdrawalDate);
         if (hasAutoQuote) {
-            handleRefreshMarketData(true); // Silent Refresh on init
+            handleRefreshMarketData(true); 
         }
     }, 1000);
 
   }, []);
   
-  // Separate effect to auto-refresh market data once items are loaded initially
   useEffect(() => {
       if (items.length > 0) {
-          const shouldRefresh = items.some(i => i.isAutoQuote && !i.withdrawalDate && (!i.lastUpdate || (new Date().getTime() - new Date(i.lastUpdate).getTime() > 3600000))); // Refresh if older than 1h
+          const shouldRefresh = items.some(i => i.isAutoQuote && !i.withdrawalDate && (!i.lastUpdate || (new Date().getTime() - new Date(i.lastUpdate).getTime() > 3600000))); 
           if (shouldRefresh) {
-              handleRefreshMarketData(true); // Silent Refresh
+              handleRefreshMarketData(true); 
           }
       }
   }, [items.length]); 
@@ -233,7 +225,7 @@ const App: React.FC = () => {
 
   const handleNav = (targetView: ViewState) => {
       if (targetView === 'list' && view !== 'list') {
-          setTimeout(() => handleRefreshMarketData(true), 500); // Silent refresh on nav
+          setTimeout(() => handleRefreshMarketData(true), 500); 
       }
       setView(targetView);
       setIsMobileMenuOpen(false);

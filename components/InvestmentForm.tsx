@@ -12,7 +12,6 @@ interface Props {
   onNotify: (msg: string, type: ToastType) => void;
 }
 
-// Helper for datetime-local input
 const getCurrentLocalISO = () => {
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -33,7 +32,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
   const initialSym = parseInitialSymbol();
 
-  // Initialize state with robust default for transactions
   const [formData, setFormData] = useState<Partial<Investment>>(() => {
       const base = initialData ? { ...initialData } : {
         name: '',
@@ -71,7 +69,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const [showBatchForm, setShowBatchForm] = useState(false);
   const [editingTxId, setEditingTxId] = useState<string | null>(null);
   
-  // Confirm Modal State
   const [confirmState, setConfirmState] = useState<{
       isOpen: boolean;
       title: string;
@@ -100,12 +97,11 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       newExpectedRate: ''
   });
 
-  // Batch Generator State
   const [batchData, setBatchData] = useState({
       startDate: '',
       frequency: 'Monthly', 
-      calcMode: 'rate', // fixed, rate, percent
-      amount: '', // For fixed amount or percentage value
+      calcMode: 'rate', 
+      amount: '', 
       endDate: '',
       txType: 'Dividend' as TransactionType,
       notes: '自动派息'
@@ -119,7 +115,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       setIsFloating(formData.type === 'Floating');
   }, [formData.type]);
 
-  // Update default start date when frequency changes
   useEffect(() => {
       if (showBatchForm && formData.depositDate) {
           const d = new Date(formData.depositDate);
@@ -133,7 +128,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       }
   }, [batchData.frequency, formData.depositDate, showBatchForm]);
 
-  // Auto-calc amount/quantity logic for Tx Form
   useEffect(() => {
       if (isFloating && txData.price && txData.quantity && (document.activeElement as HTMLInputElement)?.name !== 'amount') {
           const amt = (parseFloat(txData.price) * parseFloat(txData.quantity)).toFixed(2);
@@ -150,7 +144,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           transactions: newTxs,
           currentPrincipal: newState.currentPrincipal,
           currentQuantity: newState.currentQuantity,
-          principal: newState.currentPrincipal, // Sync input
+          principal: newState.currentPrincipal, 
           withdrawalDate: (newState.currentPrincipal > 0 && prev.withdrawalDate) ? null : prev.withdrawalDate
       }));
   };
@@ -164,8 +158,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         setFormData(prev => ({ ...prev, [name]: value }));
     }
   };
-
-  // --- Transaction Operations ---
 
   const openTxForm = (type: TransactionType) => {
       setTxData({
@@ -207,23 +199,17 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           return principal * (pct / 100);
       }
       
-      // Rate mode
       const rate = Number(formData.expectedRate) || 0;
       const basis = Number(formData.interestBasis) || 365;
       
       if (principal <= 0 || rate <= 0) return 0;
 
       switch (batchData.frequency) {
-          case 'Weekly':
-              return (principal * (rate / 100) / basis * 7);
-          case 'Monthly':
-              return (principal * (rate / 100) / 12);
-          case 'Quarterly':
-              return (principal * (rate / 100) / 4);
-          case 'Yearly':
-              return (principal * (rate / 100));
-          default:
-              return 0;
+          case 'Weekly': return (principal * (rate / 100) / basis * 7);
+          case 'Monthly': return (principal * (rate / 100) / 12);
+          case 'Quarterly': return (principal * (rate / 100) / 4);
+          case 'Yearly': return (principal * (rate / 100));
+          default: return 0;
       }
   };
 

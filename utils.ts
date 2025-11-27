@@ -1,5 +1,4 @@
 
-
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, Transaction } from './types';
 
 export const MS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -96,7 +95,6 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
             
         } else if (tx.type === 'Sell') {
             if (item.type === 'Floating' && currentQuantity > 0 && qty > 0) {
-                // AVCO Logic
                 const avgCostPerUnit = currentPrincipal / currentQuantity;
                 const costOfSold = avgCostPerUnit * qty;
                 const realizedTxProfit = amount - costOfSold;
@@ -110,13 +108,10 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
             }
 
         } else if (tx.type === 'Dividend' || tx.type === 'Interest') {
-            // Only count if date is <= Today
             if (txDateStr <= todayISO) {
                 totalRealizedProfit += amount;
             }
         } else if (tx.type === 'Fee' || tx.type === 'Tax') {
-             // Only deduct from Realized if date is <= Today. 
-             // Future fees are handled in Projected Profit elsewhere.
              if (txDateStr <= todayISO) {
                 totalRealizedProfit -= amount;
             }
@@ -192,7 +187,6 @@ export const calculateDailyReturn = (item: Investment): number => {
 
     if (item.type === 'Floating') {
         if (item.estGrowth && activePrincipal > 0) {
-            // For Floating, daily change applies to current market value (Principal + Returns)
             const currentTotalValue = activePrincipal + (item.currentReturn || 0);
             const baseValue = Math.max(0, currentTotalValue);
             dailyVal = baseValue * (item.estGrowth / 100);
@@ -202,7 +196,6 @@ export const calculateDailyReturn = (item: Investment): number => {
         dailyVal = activePrincipal * (item.expectedRate / 100) / basis;
     }
 
-    // Subtract Today's Fees/Taxes from daily return
     const todayISO = new Date().toISOString().split('T')[0];
     if (item.transactions) {
         item.transactions.forEach(tx => {
@@ -216,14 +209,13 @@ export const calculateDailyReturn = (item: Investment): number => {
     return dailyVal;
 };
 
-// Helper to get Start/End dates from Time Filter
 export const getTimeFilterRange = (filter: TimeFilter, customStart?: string, customEnd?: string): { start: Date, end: Date } => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const end = new Date(today);
     end.setHours(23, 59, 59, 999);
     
-    let start = new Date(today); // Default
+    let start = new Date(today);
 
     switch (filter) {
         case '1m': start.setMonth(start.getMonth() - 1); break;
@@ -247,35 +239,28 @@ export const getTimeFilterRange = (filter: TimeFilter, customStart?: string, cus
     return { start, end };
 };
 
-// --- New Period-Based Calculation Logic ---
 export const calculatePeriodStats = (items: Investment[], start: Date, end: Date) => {
-    let totalInvested = 0; // Total Principal Active in Period (Average) - Simplified to Current or Initial
+    let totalInvested = 0; 
     let periodProfit = 0;
     let realizedInPeriod = 0;
     
     let weightedYieldSum = 0;
     let totalWeight = 0;
 
-    // Helper: Check if date is in range [start, end]
     const isBetween = (dateStr: string) => {
         const d = new Date(dateStr);
         return d >= start && d <= end;
     };
 
     items.forEach(item => {
-        // 1. Filter: Was the item active during this period?
         const depositDate = new Date(item.depositDate);
         const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
-        const maturityDate = item.maturityDate ? new Date(item.maturityDate) : null;
         
-        // If item started after period end, skip
         if (depositDate > end) return;
-        // If item ended before period start, skip
         if (withdrawalDate && withdrawalDate < start) return;
 
-        // Determine Overlap Duration for Fixed Interest
         const overlapStart = depositDate > start ? depositDate : start;
-        const itemEnd = withdrawalDate || maturityDate || end;
+        const itemEnd = withdrawalDate || item.maturityDate ? new Date(item.maturityDate) : null || end;
         const overlapEnd = itemEnd < end ? itemEnd : end;
         
         let overlapDays = 0;
@@ -283,17 +268,20 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
             overlapDays = (overlapEnd.getTime() - overlapStart.getTime()) / MS_PER_DAY;
         }
         
-        // Calculate Profit in Period
         let itemPeriodProfit = 0;
 
         if (item.type === 'Fixed' && item.expectedRate) {
-            // Accrued Interest for the period days
             const basis = Number(item.interestBasis || 365);
-            // Simplified: Using current principal as basis (Assuming consistent principal for period to avoid heavy computation)
             itemPeriodProfit += item.currentPrincipal * (item.expectedRate / 100) * (overlapDays / basis);
         }
+        
+        if (isBetween(item.depositDate)) {
+            itemPeriodProfit += item.rebate;
+            if (item.isRebateReceived) {
+                realizedInPeriod += item.rebate;
+            }
+        }
 
-        // Add Transactions occurred in period (Dividends, Fees, Realized Sells)
         if (item.transactions) {
             item.transactions.forEach(tx => {
                 if (isBetween(tx.date)) {
@@ -303,32 +291,18 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
                     } else if (tx.type === 'Fee' || tx.type === 'Tax') {
                         itemPeriodProfit -= tx.amount;
                         realizedInPeriod -= tx.amount;
-                    } else if (tx.type === 'Sell' && item.type === 'Floating') {
-                        // For floating, sell contains realized profit. 
-                        // Calculating realized profit portion of a sell is complex without recreating state at that moment.
-                        // We assume user recorded Dividend/Interest for realized gains or rely on 'totalRealizedProfit' accumulators.
-                        // Simplification: If we rebuilt state, we'd know. 
-                        // For now, we only count explicit Dividend/Interest/Fee in period for Floating to be safe.
-                    }
+                    } 
                 }
             });
         }
         
-        // Add floating unrealized change? 
-        // Without historical price data, we cannot calculate unrealized change for a past period.
-        // We ONLY include Realized Cashflow for floating in Period Stats.
-
         periodProfit += itemPeriodProfit;
         
-        // Stats Accumulation
-        // Use Current Principal as rough weight for period
         const weight = item.currentPrincipal;
         totalInvested += weight;
         
         if (weight > 0 && overlapDays > 0) {
-            // Period Yield (Annualized)
             const periodYield = (itemPeriodProfit / weight) * (365 / overlapDays) * 100;
-            // Outlier check removed per user request, but keep sanity check against Infinity
             if (isFinite(periodYield)) {
                 weightedYieldSum += periodYield * weight;
                 totalWeight += weight;
@@ -342,11 +316,10 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
     }
 
     return {
-        projectedTotalProfit: periodProfit, // Reusing field name for UI compatibility (Label: Period Profit)
+        projectedTotalProfit: periodProfit,
         realizedInterest: realizedInPeriod,
-        activePrincipal: totalInvested, // Label: Avg/Active Principal in Period
+        activePrincipal: totalInvested,
         comprehensiveYield: portfolioYield,
-        // Other fields zeroed or irrelevant for Period View
         totalInvested: totalInvested,
         completedPrincipal: 0,
         totalRebate: 0, 
@@ -408,48 +381,35 @@ export const calculateItemMetrics = (item: Investment) => {
       const rate = item.expectedRate;
       annualizedYield = rate;
       
-      let calculatedAccrued = 0;
-      
       const relevantTxs = (item.transactions || []).filter(t => t.type === 'Buy' || t.type === 'Sell');
-      
       const sortedTxs = [...relevantTxs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
       const calculateSegmentedInterest = (endDate: Date) => {
           let totalInterest = 0;
           let currentBalance = 0;
-          
           for (let i = 0; i < sortedTxs.length; i++) {
               const tx = sortedTxs[i];
               const txDate = new Date(tx.date);
               const nextTx = sortedTxs[i+1];
               const nextDate = nextTx ? new Date(nextTx.date) : endDate;
-              
               if (tx.type === 'Buy') currentBalance += tx.amount;
               else if (tx.type === 'Sell') currentBalance -= tx.amount;
               
               const segmentEnd = nextDate < endDate ? nextDate : endDate;
-              
               if (segmentEnd > txDate) {
                   const days = (segmentEnd.getTime() - txDate.getTime()) / MS_PER_DAY;
                   if (days > 0 && currentBalance > 0) {
                       totalInterest += currentBalance * (rate / 100) * (days / interestBasis);
                   }
               }
-              
               if (new Date(nextTx?.date || '') > endDate) break;
           }
           return totalInterest;
       };
 
       accruedReturn = calculateSegmentedInterest(now);
-      
-      if (maturity) {
-          baseInterest = calculateSegmentedInterest(maturity);
-      }
-      
-      if (activePrincipal > 0 && maturity) {
-         holdingYield = (baseInterest / activePrincipal) * 100;
-      }
+      if (maturity) baseInterest = calculateSegmentedInterest(maturity);
+      if (activePrincipal > 0 && maturity) holdingYield = (baseInterest / activePrincipal) * 100;
 
   } else if (item.type === 'Floating') {
       if (item.currentReturn !== undefined) {
@@ -457,8 +417,7 @@ export const calculateItemMetrics = (item: Investment) => {
           baseInterest = item.currentReturn; 
           const totalValueChange = item.currentReturn + item.totalRealizedProfit;
           
-          // For holding yield, use Total Cost as denominator to avoid skewing when value drops
-          const costBasis = item.totalCost > 0 ? item.totalCost : activePrincipal;
+          const costBasis = item.totalCost > 0 ? item.totalCost : item.principal > 0 ? item.principal : activePrincipal;
           
           if (costBasis > 0) {
             holdingYield = (totalValueChange / costBasis) * 100;
@@ -478,24 +437,19 @@ export const calculateItemMetrics = (item: Investment) => {
       hasYieldInfo = false;
   }
   
+  // Total Return calculation for list display
   const totalReturn = baseInterest + item.rebate + (!isCompleted && item.type === 'Floating' ? item.totalRealizedProfit : 0);
   
   let comprehensiveYield = 0;
-  // IMPORTANT: Use Total Cost for floating assets to prevent massive negative yields when principal shrinks
   const yieldBase = isCompleted || item.type === 'Floating' ? item.totalCost : activePrincipal;
 
-  if (!isPending && (hasYieldInfo || item.rebate > 0)) { 
-      // REMOVED artificial limits (-100/1000) to accurately reflect significant losses
-      // For floating assets, use Total Cost as weight to avoid skewing yields when current principal is low due to losses.
-      const weight = (isCompleted || item.type === 'Floating') ? item.totalCost : item.currentPrincipal;
-      if (weight > 0) {
-          if (item.type === 'Fixed' && !isCompleted && item.expectedRate && realDurationDays > 0) {
-              const rebateYield = (item.rebate / yieldBase) * 100 / (realDurationDays / 365);
-              comprehensiveYield = item.expectedRate + rebateYield;
-          } else if (realDurationDays > 0) {
-              const yieldVal = (totalReturn / yieldBase) * 100;
-              comprehensiveYield = yieldVal / (realDurationDays / 365);
-          }
+  if (!isPending && (hasYieldInfo || item.rebate > 0) && realDurationDays > 0 && yieldBase > 0) {
+      if (item.type === 'Fixed' && !isCompleted && item.expectedRate) {
+          const rebateYield = (item.rebate / yieldBase) * 100 / (realDurationDays / 365);
+          comprehensiveYield = item.expectedRate + rebateYield;
+      } else {
+          const yieldVal = (totalReturn / yieldBase) * 100;
+          comprehensiveYield = yieldVal / (realDurationDays / 365);
       }
   } else if (isPending && item.type === 'Fixed' && item.expectedRate) {
       comprehensiveYield = item.expectedRate; 
@@ -555,20 +509,18 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     // Base Projection
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
         // Fixed: Accrued (Today) + Rebate + Realized (Dividends)
-        // NOTE: This is conservative. We assume users rely on batch generator for future interest
-        // or just Accrued for standard CDs. 
         projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
     } else if (!metrics.isCompleted && item.type === 'Floating') {
-        // Floating: metrics.profit already includes Current Unrealized + Realized Dividends
+        // Floating: profit (which is Unrealized + Realized + Rebate)
+        // BUG FIX: metrics.profit already includes item.totalRealizedProfit. 
+        // Previously we were adding it again: (metrics.profit + item.totalRealizedProfit)
+        // Correct is just metrics.profit.
         projectedTotalProfit += metrics.profit;
     } else {
         projectedTotalProfit += metrics.profit;
     }
     
     // Subtract Future Scheduled Fees from Projection
-    // Logic check: Fees are normally negative in Realized.
-    // If a Fee is scheduled for next month, we subtract it here to lower the projection.
-    // Past/Today Fees are already in item.totalRealizedProfit (subtracted there).
     if (!metrics.isCompleted && item.transactions) {
         item.transactions.forEach(tx => {
             const txDate = tx.date.split('T')[0];
@@ -593,13 +545,10 @@ export const calculatePortfolioStats = (items: Investment[]) => {
       realizedInterest += metrics.baseInterest;
     } else {
       activePrincipal += item.currentPrincipal;
-      // Realized Interest includes dividends, interest payments from active assets
       realizedInterest += item.totalRealizedProfit;
     }
 
     if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0)) { 
-        // REMOVED artificial limits (-100/1000) to accurately reflect significant losses
-        // For floating assets, use Total Cost as weight to avoid skewing yields when current principal is low due to losses.
         const weight = (metrics.isCompleted || item.type === 'Floating') ? item.totalCost : item.currentPrincipal;
         
         if (weight > 0) {
@@ -657,11 +606,8 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
     return totalValuation;
 };
 
-// --- Added utility functions ---
-
 export const formatCurrency = (amount: number, currency: Currency = 'CNY'): string => {
     const symbol = currency === 'USD' ? '$' : currency === 'HKD' ? 'HK$' : '¥';
-    // Handle undefined/null gracefully if necessary, though type says number
     const safeAmount = amount || 0;
     return `${symbol}${safeAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
@@ -674,13 +620,33 @@ export const formatPercent = (val: number): string => {
 export const filterInvestmentsByTime = (items: Investment[], filter: TimeFilter, customStart?: string, customEnd?: string): Investment[] => {
     if (filter === 'all') return items;
 
-    // IMPORTANT: This function filters "Vintage" (Origination).
-    // It's kept for the InvestmentList where we want to see "Items bought in 2023".
-    
-    const { start, end } = getTimeFilterRange(filter, customStart, customEnd);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
     return items.filter(item => {
         const date = new Date(item.depositDate);
-        return date >= start && date <= end;
+
+        if (filter === 'custom') {
+            if (customStart && customEnd) {
+                const start = new Date(customStart);
+                const end = new Date(customEnd);
+                end.setHours(23, 59, 59, 999);
+                return date >= start && date <= end;
+            }
+            return true;
+        }
+
+        let cutoff = new Date(today);
+
+        switch (filter) {
+            case '1m': cutoff.setMonth(cutoff.getMonth() - 1); break;
+            case '3m': cutoff.setMonth(cutoff.getMonth() - 3); break;
+            case '6m': cutoff.setMonth(cutoff.getMonth() - 6); break;
+            case '1y': cutoff.setFullYear(cutoff.getFullYear() - 1); break;
+            case 'ytd': cutoff = new Date(now.getFullYear(), 0, 1); break;
+            case 'mtd': cutoff = new Date(now.getFullYear(), now.getMonth(), 1); break;
+            default: return true;
+        }
+        return date >= cutoff;
     });
 };
