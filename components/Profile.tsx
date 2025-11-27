@@ -11,14 +11,19 @@ interface Props {
     currentTheme: ThemeOption;
     onSaveRates: (rates: ExchangeRates, mode: 'auto' | 'manual') => void;
     onSaveTheme: (theme: ThemeOption) => void;
+    onSaveProfile: (nickname: string, avatar: string) => void;
     onLogout: () => void;
     onNotify: (msg: string, type: ToastType) => void;
 }
 
-const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSaveTheme, onLogout, onNotify }) => {
+const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSaveTheme, onSaveProfile, onLogout, onNotify }) => {
     const [editRates, setEditRates] = useState<ExchangeRates>({...rates});
     const [rateMode, setRateMode] = useState<'auto' | 'manual'>(user?.preferences?.rateMode || 'manual');
     const [loadingRates, setLoadingRates] = useState(false);
+    
+    // Profile State
+    const [nickname, setNickname] = useState(user?.preferences?.nickname || '');
+    const [avatar, setAvatar] = useState(user?.preferences?.avatar || '');
 
     useEffect(() => {
         if (rateMode === 'auto') {
@@ -45,29 +50,82 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
         setEditRates(prev => ({ ...prev, [c]: parseFloat(val) || 0 }));
     };
 
-    const handleSave = () => {
+    const handleSaveRates = () => {
         onSaveRates(editRates, rateMode);
-        onNotify('设置已保存', 'success');
+        onNotify('汇率设置已保存', 'success');
+    };
+
+    const handleRandomAvatar = () => {
+        const seed = Math.random().toString(36).substring(7);
+        // Using DiceBear Adventurer style for fun avatars
+        const newAvatarUrl = `https://api.dicebear.com/9.x/adventurer/svg?seed=${seed}`;
+        setAvatar(newAvatarUrl);
+    };
+
+    const handleSaveUserProfile = () => {
+        onSaveProfile(nickname, avatar);
+        onNotify('个人信息已更新', 'success');
     };
 
     return (
         <div className="max-w-3xl mx-auto space-y-8 animate-fade-in">
-            {/* User Card */}
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-6">
-                <div className="flex items-center gap-4">
-                    <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold text-white ${THEMES[currentTheme].button}`}>
-                        {user ? user.email[0].toUpperCase() : 'G'}
+            {/* User Card & Profile Settings */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                <div className="flex flex-col md:flex-row gap-8 items-start">
+                    {/* Left: Avatar & Info */}
+                    <div className="flex flex-col items-center gap-4 min-w-[120px]">
+                        <div className="relative group">
+                            <div className={`w-24 h-24 rounded-full flex items-center justify-center text-3xl font-bold text-white overflow-hidden shadow-md ${THEMES[currentTheme].button} border-4 border-white`}>
+                                {avatar ? (
+                                    <img src={avatar} alt="Avatar" className="w-full h-full object-cover" />
+                                ) : (
+                                    <span>{user ? (nickname?.[0] || user.email[0]).toUpperCase() : 'G'}</span>
+                                )}
+                            </div>
+                            <button 
+                                onClick={handleRandomAvatar}
+                                className="absolute bottom-0 right-0 p-1.5 bg-white rounded-full shadow-md text-slate-500 hover:text-indigo-600 border border-slate-200 transition transform hover:scale-110"
+                                title="随机生成头像"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            </button>
+                        </div>
+                        {user && (
+                            <button onClick={onLogout} className="text-xs text-red-400 hover:text-red-600 font-medium transition">
+                                退出登录
+                            </button>
+                        )}
                     </div>
-                    <div>
-                        <h2 className="text-xl font-bold text-slate-800">{user ? user.email.split('@')[0] : '访客用户'}</h2>
-                        <p className="text-slate-500 text-sm">{user ? '数据已同步至 Vercel Postgres' : '数据仅存储在本地浏览器'}</p>
+
+                    {/* Right: Inputs */}
+                    <div className="flex-1 w-full space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">账号 (Email)</label>
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 font-mono text-sm">
+                                {user ? user.email : '未登录 (访客模式)'}
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">昵称 (Nickname)</label>
+                            <div className="flex gap-3">
+                                <input 
+                                    type="text" 
+                                    value={nickname}
+                                    onChange={(e) => setNickname(e.target.value)}
+                                    placeholder="设置一个好听的昵称"
+                                    className="flex-1 p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-200 outline-none transition"
+                                />
+                                <button 
+                                    onClick={handleSaveUserProfile}
+                                    className={`px-6 rounded-xl font-bold text-white shadow-md transition active:scale-95 ${THEMES[currentTheme].button}`}
+                                >
+                                    保存
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                {user && (
-                    <button onClick={onLogout} className="px-6 py-2 border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition font-medium">
-                        退出登录
-                    </button>
-                )}
             </div>
 
             {/* Theme Selection */}
@@ -137,7 +195,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
 
                 {rateMode === 'manual' && (
                     <div className="mt-6 flex justify-end">
-                        <button onClick={handleSave} className={`px-5 py-2 text-white text-sm font-bold rounded-xl shadow-md ${THEMES[currentTheme].button}`}>
+                        <button onClick={handleSaveRates} className={`px-5 py-2 text-white text-sm font-bold rounded-xl shadow-md ${THEMES[currentTheme].button}`}>
                             保存汇率
                         </button>
                     </div>

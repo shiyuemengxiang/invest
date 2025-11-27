@@ -19,6 +19,8 @@ export interface UserPreferences {
     theme?: ThemeOption;
     rates?: ExchangeRates;
     rateMode?: 'auto' | 'manual';
+    nickname?: string;
+    avatar?: string;
 }
 
 export interface User {

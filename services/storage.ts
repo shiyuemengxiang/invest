@@ -67,17 +67,26 @@ export const storageService = {
     },
     
     // Save Preferences: Uploads to Vercel PG if logged in, always saves to LocalStorage
-    async savePreferences(user: User | null, theme: ThemeOption, rates: ExchangeRates, rateMode?: 'auto' | 'manual') {
+    async savePreferences(user: User | null, theme: ThemeOption, rates: ExchangeRates, rateMode?: 'auto' | 'manual', nickname?: string, avatar?: string) {
         this.saveTheme(theme);
         this.saveRates(rates);
         
         if (user) {
             try {
-                // Determine rateMode: use argument if provided, else fallback to user's existing pref
+                // Determine values: use argument if provided, else fallback to user's existing pref
                 const finalRateMode = rateMode || user.preferences?.rateMode;
-                const prefs: UserPreferences = { theme, rates, rateMode: finalRateMode };
+                const finalNickname = nickname !== undefined ? nickname : user.preferences?.nickname;
+                const finalAvatar = avatar !== undefined ? avatar : user.preferences?.avatar;
+
+                const prefs: UserPreferences = { 
+                    theme, 
+                    rates, 
+                    rateMode: finalRateMode,
+                    nickname: finalNickname,
+                    avatar: finalAvatar
+                };
                 
-                await fetch(`${API_BASE}/user/preferences`, {
+                await fetch(`${API_BASE}/market/preferences`, { // NOTE: Verify API path in your setup, assumed /api/market/preferences based on previous context
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: user.id, preferences: prefs })

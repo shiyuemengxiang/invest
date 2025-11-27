@@ -223,6 +223,15 @@ const App: React.FC = () => {
       }
   };
 
+  const handleProfileUpdate = (nickname: string, avatar: string) => {
+      if (user) {
+          const updatedUser = { ...user, preferences: { ...user.preferences, nickname, avatar } };
+          setUser(updatedUser);
+          storageService.saveLocalUser(updatedUser);
+          storageService.savePreferences(updatedUser, theme, rates, user.preferences?.rateMode, nickname, avatar);
+      }
+  };
+
   const handleNav = (targetView: ViewState) => {
       if (targetView === 'list' && view !== 'list') {
           setTimeout(() => handleRefreshMarketData(true), 500); 
@@ -312,11 +321,15 @@ const App: React.FC = () => {
           {/* User Snippet */}
           <div className="p-4 mt-auto">
               <div className={`${profileBg} backdrop-blur-sm rounded-2xl p-3 flex items-center gap-3 transition hover:shadow-md cursor-pointer`} onClick={() => handleNav('profile')}>
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white shadow-sm shrink-0">
-                      {user ? user.email[0].toUpperCase() : 'G'}
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white shadow-sm shrink-0 overflow-hidden border border-white/20">
+                      {user?.preferences?.avatar ? (
+                          <img src={user.preferences.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                      ) : (
+                          <span>{user ? (user.preferences?.nickname?.[0] || user.email[0]).toUpperCase() : 'G'}</span>
+                      )}
                   </div>
                   <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-bold truncate ${profileTextMain}`}>{user ? user.email.split('@')[0] : 'Guest User'}</p>
+                      <p className={`text-sm font-bold truncate ${profileTextMain}`}>{user ? (user.preferences?.nickname || user.email.split('@')[0]) : 'Guest User'}</p>
                       <button onClick={(e) => { e.stopPropagation(); user ? handleLogout() : setView('auth'); }} className={`text-[10px] font-medium transition text-left ${profileTextSub}`}>
                           {user ? 'Sign Out' : 'Sign In / Sync'}
                       </button>
@@ -376,8 +389,12 @@ const App: React.FC = () => {
                  <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Smart Ledger</h1>
                  <p className="text-xs text-slate-400">{user ? 'Cloud Sync Active' : 'Local Mode'}</p>
              </div>
-             <div className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-sm font-bold text-indigo-700 shadow-sm" onClick={() => handleNav('profile')}>
-                 {user ? user.email[0].toUpperCase() : 'G'}
+             <div className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-sm font-bold text-indigo-700 shadow-sm overflow-hidden" onClick={() => handleNav('profile')}>
+                 {user?.preferences?.avatar ? (
+                     <img src={user.preferences.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                 ) : (
+                     <span>{user ? (user.preferences?.nickname?.[0] || user.email[0]).toUpperCase() : 'G'}</span>
+                 )}
              </div>
          </div>
 
@@ -404,7 +421,7 @@ const App: React.FC = () => {
             </div>
 
             {view === 'calendar' && <CalendarView items={items} />}
-            {view === 'profile' && <Profile user={user} rates={rates} currentTheme={theme} onSaveRates={handleRatesChange} onSaveTheme={handleThemeChange} onLogout={handleLogout} onNotify={showToast} />}
+            {view === 'profile' && <Profile user={user} rates={rates} currentTheme={theme} onSaveRates={handleRatesChange} onSaveTheme={handleThemeChange} onSaveProfile={handleProfileUpdate} onLogout={handleLogout} onNotify={showToast} />}
          </div>
 
          {/* --- Mobile Bottom Nav --- */}
