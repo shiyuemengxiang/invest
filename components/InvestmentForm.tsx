@@ -1,540 +1,743 @@
 
 import React, { useState, useEffect } from 'react';
-import { Investment, Transaction, CATEGORY_LABELS, TransactionType } from '../types';
-import { recalculateInvestmentState, formatCurrency } from '../utils';
+// ... (imports same as before)
+import { Currency, Investment, InvestmentCategory, InvestmentType, CATEGORY_LABELS, Transaction, TransactionType } from '../types';
+import { ToastType } from './Toast';
+import { recalculateInvestmentState, formatDateTime } from '../utils';
 
 interface Props {
-  onSave: (item: Investment) => void;
+  onSave: (investment: Investment) => void;
   onCancel: () => void;
   initialData?: Investment | null;
-  onNotify: (msg: string, type: 'success' | 'error' | 'info') => void;
+  onNotify: (msg: string, type: ToastType) => void;
 }
 
+// Helper for datetime-local input
 const getCurrentLocalISO = () => {
     const now = new Date();
-    const offset = now.getTimezoneOffset() * 60000;
-    const local = new Date(now.getTime() - offset);
-    return local.toISOString().slice(0, 16);
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
 };
 
 const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNotify }) => {
-    const [formData, setFormData] = useState<Investment>(() => {
-        if (initialData) {
-            return recalculateInvestmentState(initialData);
-        }
-        return {
-            id: self.crypto.randomUUID(),
-            name: '',
-            category: 'Fixed',
-            type: 'Fixed',
-            currency: 'CNY',
-            depositDate: new Date().toISOString().split('T')[0],
-            maturityDate: '',
-            withdrawalDate: null,
-            principal: 0,
-            currentPrincipal: 0,
-            totalCost: 0,
-            totalRealizedProfit: 0,
-            transactions: [],
-            interestBasis: '365',
-            notes: '',
-            rebate: 0,
-            isRebateReceived: false
-        };
-    });
+  // ... (all state and handlers same as before)
+  const parseInitialSymbol = () => {
+      if (!initialData?.symbol) return { code: '', market: 'sh' };
+      const s = initialData.symbol;
+      if (initialData.category === 'Stock' && initialData.currency === 'CNY') {
+          if (s.startsWith('sh')) return { code: s.slice(2), market: 'sh' };
+          if (s.startsWith('sz')) return { code: s.slice(2), market: 'sz' };
+          if (s.startsWith('bj')) return { code: s.slice(2), market: 'bj' };
+      }
+      return { code: s, market: 'sh' };
+  };
 
-    const [showBatchForm, setShowBatchForm] = useState(false);
-    const [batchConfig, setBatchConfig] = useState({
-        mode: 'fixed', // 'fixed' | 'rate' | 'annual'
-        amount: 0,
-        rate: 0,
-        type: 'Dividend' as TransactionType,
-        frequency: 'monthly', // weekly, monthly, quarterly, yearly
-        startDate: '',
-        endDate: ''
-    });
-    
-    // Auto-fill rate and dates when opening batch form
-    useEffect(() => {
-        if (showBatchForm) {
-            const newConfig = { ...batchConfig };
-            
-            // Auto-fill rate
-            if (formData.expectedRate) {
-                newConfig.rate = formData.expectedRate || 0;
-                newConfig.mode = 'annual';
-            }
-            
-            // Auto-fill start date (Deposit Date or Today)
-            if (!newConfig.startDate) {
-                newConfig.startDate = formData.depositDate;
-            }
+  const initialSym = parseInitialSymbol();
 
-            // Auto-fill end date (Maturity Date or Start + 1 Year)
-            if (!newConfig.endDate) {
-                if (formData.maturityDate) {
-                    newConfig.endDate = formData.maturityDate;
-                } else {
-                    const d = new Date(newConfig.startDate);
-                    d.setFullYear(d.getFullYear() + 1);
-                    newConfig.endDate = d.toISOString().split('T')[0];
-                }
-            }
-            
-            setBatchConfig(newConfig);
-        }
-    }, [showBatchForm]);
+  const [formData, setFormData] = useState<Partial<Investment>>(
+    initialData || {
+      name: '',
+      category: 'Fixed',
+      type: 'Fixed',
+      currency: 'CNY',
+      depositDate: new Date().toISOString().split('T')[0],
+      maturityDate: '',
+      principal: 10000,
+      quantity: undefined,
+      symbol: '',
+      isAutoQuote: false,
+      expectedRate: undefined,
+      interestBasis: '365', // Default to 365
+      currentReturn: undefined,
+      realizedReturn: undefined,
+      rebate: 0,
+      isRebateReceived: false,
+      withdrawalDate: null,
+      notes: ''
+    }
+  );
 
-    // Update computed state whenever transactions change
-    useEffect(() => {
-        setFormData(prev => recalculateInvestmentState(prev));
-    }, [formData.transactions]);
+  const [stockCode, setStockCode] = useState(initialSym.code);
+  const [stockMarket, setStockMarket] = useState(initialSym.market);
 
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-        const { name, value, type } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: type === 'number' ? parseFloat(value) : value
-        }));
-    };
+  const [isCompleted, setIsCompleted] = useState(!!initialData?.withdrawalDate);
+  const [isFloating, setIsFloating] = useState(initialData?.type === 'Floating');
 
-    const handleTransactionChange = (index: number, field: keyof Transaction, value: any) => {
-        const newTransactions = [...(formData.transactions || [])];
-        newTransactions[index] = { ...newTransactions[index], [field]: value };
-        setFormData({ ...formData, transactions: newTransactions });
-    };
+  // --- Phase 3: Transaction Modal State ---
+  const [showTxForm, setShowTxForm] = useState(false);
+  const [showBatchForm, setShowBatchForm] = useState(false); // New: Batch Generator
+  const [editingTxId, setEditingTxId] = useState<string | null>(null);
+  
+  const [txData, setTxData] = useState<{
+      type: TransactionType;
+      date: string;
+      amount: string;
+      price: string;
+      quantity: string;
+      notes: string;
+      newMaturityDate: string;
+      newExpectedRate: string;
+  }>({ 
+      type: 'Buy', 
+      date: getCurrentLocalISO(), 
+      amount: '', 
+      price: '', 
+      quantity: '', 
+      notes: '',
+      newMaturityDate: '',
+      newExpectedRate: ''
+  });
 
-    const addTransaction = () => {
-        const newTx: Transaction = {
-            id: self.crypto.randomUUID(),
-            date: new Date().toISOString().split('T')[0],
-            type: 'Buy',
-            amount: 0,
-            notes: ''
-        };
-        setFormData({ ...formData, transactions: [...(formData.transactions || []), newTx] });
-    };
+  // Batch Generator State
+  const [batchData, setBatchData] = useState({
+      startDate: '',
+      frequency: 'Monthly', // Weekly, Monthly, Quarterly, Yearly
+      amount: '',
+      endDate: '',
+      notes: '自动派息'
+  });
 
-    const removeTransaction = (index: number) => {
-        const newTransactions = [...(formData.transactions || [])];
-        newTransactions.splice(index, 1);
-        setFormData({ ...formData, transactions: newTransactions });
-    };
+  useEffect(() => {
+    setIsCompleted(!!formData.withdrawalDate);
+  }, [formData.withdrawalDate]);
 
-    const handleClearFutureDividends = () => {
-      if (!window.confirm("确定要清除所有日期在今天之后的派息/分红记录吗？\n\n当本金发生变动时，建议清除旧计划并重新生成。")) return;
+  useEffect(() => {
+      setIsFloating(formData.type === 'Floating');
+  }, [formData.type]);
 
-      const todayStr = getCurrentLocalISO().split('T')[0];
-      
+  // Auto-calc amount/quantity logic for Tx Form
+  useEffect(() => {
+      if (isFloating && txData.price && txData.quantity && (document.activeElement as HTMLInputElement)?.name !== 'amount') {
+          const amt = (parseFloat(txData.price) * parseFloat(txData.quantity)).toFixed(2);
+          setTxData(prev => ({...prev, amount: amt}));
+      }
+  }, [txData.price, txData.quantity, isFloating]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value, type } = e.target;
+    if (type === 'checkbox') {
+        const checked = (e.target as HTMLInputElement).checked;
+        setFormData(prev => ({ ...prev, [name]: checked }));
+    } else {
+        setFormData(prev => ({ ...prev, [name]: value }));
+    }
+  };
+
+  // --- Transaction Operations ---
+
+  const openTxForm = (type: TransactionType) => {
+      setTxData({
+          type,
+          date: getCurrentLocalISO(),
+          amount: '',
+          price: '',
+          quantity: '',
+          notes: '',
+          newMaturityDate: formData.maturityDate || '',
+          newExpectedRate: formData.expectedRate ? String(formData.expectedRate) : ''
+      });
+      setEditingTxId(null);
+      setShowTxForm(true);
+      setShowBatchForm(false);
+  };
+
+  const openBatchForm = () => {
+      setBatchData({
+          startDate: formData.depositDate || '',
+          frequency: 'Monthly',
+          amount: '',
+          endDate: formData.maturityDate || '',
+          notes: '自动派息'
+      });
+      setShowBatchForm(true);
+      setShowTxForm(false);
+  };
+
+  const handleSaveBatch = () => {
+      if (!batchData.startDate || !batchData.amount || Number(batchData.amount) <= 0 || !batchData.endDate) {
+          onNotify("请完整填写批量生成信息", "error");
+          return;
+      }
+
       const currentTxs = formData.transactions && formData.transactions.length > 0
           ? [...formData.transactions] 
-          : [];
+          : (initialData?.transactions ? [...initialData.transactions] : []);
 
-      const keptTxs = currentTxs.filter(tx => {
-          if (tx.type !== 'Dividend') return true;
-          const txDate = tx.date.split('T')[0];
-          return txDate <= todayStr;
-      });
+      const start = new Date(batchData.startDate);
+      const end = new Date(batchData.endDate);
+      const amount = Number(batchData.amount);
+      let current = new Date(start);
+      let count = 0;
 
-      const removedCount = currentTxs.length - keptTxs.length;
+      while (current <= end) {
+          // Generate TX
+          currentTxs.push({
+              id: self.crypto.randomUUID(),
+              date: current.toISOString().split('T')[0] + 'T08:00', // Default morning time
+              type: 'Dividend',
+              amount: amount,
+              notes: batchData.notes + ` (${current.toISOString().split('T')[0]})`
+          });
+          count++;
+
+          // Increment Date
+          if (batchData.frequency === 'Weekly') current.setDate(current.getDate() + 7);
+          else if (batchData.frequency === 'Monthly') current.setMonth(current.getMonth() + 1);
+          else if (batchData.frequency === 'Quarterly') current.setMonth(current.getMonth() + 3);
+          else if (batchData.frequency === 'Yearly') current.setFullYear(current.getFullYear() + 1);
+          else break;
+      }
+
+      setFormData({ ...formData, transactions: currentTxs });
+      setShowBatchForm(false);
+      onNotify(`已批量生成 ${count} 条派息记录`, "success");
+  };
+
+  const handleSaveTx = () => {
+      if (!txData.amount || Number(txData.amount) <= 0) {
+          onNotify("请输入有效的金额", "error");
+          return;
+      }
+
+      // 1. Prepare Transaction List - FIXED: Fallback to initialData if formData has no transactions yet
+      const currentTxs = formData.transactions && formData.transactions.length > 0
+          ? [...formData.transactions] 
+          : (initialData?.transactions ? [...initialData.transactions] : []);
+
+      const newTx: Transaction = {
+          id: editingTxId || self.crypto.randomUUID(),
+          date: txData.date, 
+          type: txData.type,
+          amount: Number(txData.amount),
+          price: txData.price ? Number(txData.price) : undefined,
+          quantity: txData.quantity ? Number(txData.quantity) : undefined,
+          notes: txData.notes
+      };
+
+      if (editingTxId) {
+          const index = currentTxs.findIndex(t => t.id === editingTxId);
+          if (index >= 0) currentTxs[index] = newTx;
+      } else {
+          currentTxs.push(newTx);
+      }
+
+      // 2. Apply Updates to Parent State
+      const updatedFormData = { ...formData, transactions: currentTxs };
+
+      // If it's a Fixed Income 'Buy' (Add Principal), allow updating Maturity/Rate
+      if (!isFloating && txData.type === 'Buy') {
+          if (txData.newMaturityDate) updatedFormData.maturityDate = txData.newMaturityDate;
+          if (txData.newExpectedRate) updatedFormData.expectedRate = Number(txData.newExpectedRate);
+      }
+
+      setFormData(updatedFormData);
       
-      setFormData({ ...formData, transactions: keptTxs });
-      onNotify(`已清除 ${removedCount} 条未来派息记录`, "info");
-    };
+      setShowTxForm(false);
+      setEditingTxId(null);
+      onNotify(editingTxId ? "交易记录已更新" : "交易记录已添加", "success");
+  };
 
-    const handleSaveBatch = () => {
-        if (!batchConfig.endDate) {
-            onNotify("请选择结束日期", "error");
-            return;
+  const handleEditTransaction = (tx: Transaction) => {
+      let dateVal = tx.date;
+      if (tx.date.endsWith('Z') || tx.date.includes('T')) {
+          const d = new Date(tx.date);
+          d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+          dateVal = d.toISOString().slice(0, 16);
+      }
+
+      setTxData({
+          type: tx.type,
+          date: dateVal,
+          amount: String(tx.amount),
+          price: tx.price ? String(tx.price) : '',
+          quantity: tx.quantity ? String(tx.quantity) : '',
+          notes: tx.notes || '',
+          newMaturityDate: formData.maturityDate || '',
+          newExpectedRate: formData.expectedRate ? String(formData.expectedRate) : ''
+      });
+      setEditingTxId(tx.id);
+      setShowTxForm(true);
+      setShowBatchForm(false);
+  };
+
+  const handleDeleteTransaction = (id: string) => {
+      if (!window.confirm("确定要删除这条交易记录吗？")) return;
+      
+      // FIXED: Fallback to initialData to prevent wiping history
+      const currentTxs = formData.transactions && formData.transactions.length > 0
+          ? [...formData.transactions] 
+          : (initialData?.transactions ? [...initialData.transactions] : []);
+
+      const updatedTxs = currentTxs.filter(t => t.id !== id);
+      setFormData(prev => ({ ...prev, transactions: updatedTxs }));
+      onNotify("交易记录已删除", "info");
+      
+      if (editingTxId === id) {
+          setShowTxForm(false);
+          setEditingTxId(null);
+      }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name || !formData.depositDate || !formData.principal) {
+      onNotify("请填写必要信息（名称、本金、存入时间）", "error");
+      return;
+    }
+    
+    if (!isFloating && !formData.maturityDate) {
+        onNotify("固收型产品请填写到期时间", "error");
+        return;
+    }
+
+    let finalSymbol = formData.symbol;
+    if (formData.category === 'Stock' && formData.currency === 'CNY' && stockCode) {
+        finalSymbol = `${stockMarket}${stockCode}`;
+    } else if ((formData.category === 'Fund' || formData.category === 'Stock') && stockCode) {
+        finalSymbol = stockCode;
+    }
+
+    const principal = Number(formData.principal);
+    const quantity = formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined;
+
+    let transactions: Transaction[] = formData.transactions && formData.transactions.length > 0
+        ? [...formData.transactions] 
+        : (initialData?.transactions ? [...initialData.transactions] : []);
+    
+    if (transactions.length === 0) {
+        transactions.push({
+            id: self.crypto.randomUUID(),
+            date: formData.depositDate!,
+            type: 'Buy',
+            amount: principal,
+            quantity: quantity,
+            price: quantity ? principal / quantity : undefined,
+            notes: 'Initial Deposit'
+        });
+    } else {
+        const firstBuyIndex = transactions.findIndex(t => t.type === 'Buy');
+        if (firstBuyIndex >= 0) {
+             if (transactions[firstBuyIndex].notes === 'Initial Deposit' || transactions[firstBuyIndex].notes === 'Initial Deposit (Migrated)') {
+                 transactions[firstBuyIndex] = {
+                    ...transactions[firstBuyIndex],
+                    date: formData.depositDate!,
+                    amount: principal,
+                    quantity: quantity,
+                    price: quantity ? principal / quantity : undefined
+                 };
+             }
         }
+    }
 
-        const newTxs: Transaction[] = [];
-        let currentDate = new Date(batchConfig.startDate);
-        // To avoid timezone issues with simple dates, set to noon
-        currentDate.setHours(12,0,0,0);
-        
-        const endDateObj = new Date(batchConfig.endDate);
-        endDateObj.setHours(23,59,59,999);
-        
-        let safetyCounter = 0;
-
-        while (currentDate <= endDateObj && safetyCounter < 500) {
-            let txAmount = 0;
-            if (batchConfig.mode === 'fixed') {
-                txAmount = Number(batchConfig.amount);
-            } else if (batchConfig.mode === 'annual') {
-                // Annual Rate based calculation
-                const principal = formData.currentPrincipal;
-                const rateVal = Number(batchConfig.rate) / 100;
-                
-                if (batchConfig.frequency === 'weekly') {
-                    // Precise Weekly: Principal * Rate / Basis * 7
-                    const basis = Number(formData.interestBasis || 365);
-                    txAmount = (principal * rateVal / basis) * 7;
-                } else {
-                    // Standard Division for Monthly/Quarterly/Yearly
-                    let divisor = 1;
-                    if (batchConfig.frequency === 'monthly') divisor = 12;
-                    else if (batchConfig.frequency === 'quarterly') divisor = 4;
-                    
-                    txAmount = (principal * rateVal) / divisor;
-                }
-                txAmount = parseFloat(txAmount.toFixed(2));
-            } else {
-                // Single Period Rate: Principal * Rate%
-                txAmount = formData.currentPrincipal * (Number(batchConfig.rate) / 100);
-                txAmount = parseFloat(txAmount.toFixed(2));
-            }
-
-            newTxs.push({
-                id: self.crypto.randomUUID(),
-                date: currentDate.toISOString().split('T')[0],
-                type: batchConfig.type,
-                amount: txAmount,
-                notes: `Batch: ${batchConfig.mode === 'fixed' ? 'Fixed' : `${batchConfig.rate}%/${batchConfig.mode === 'annual' ? 'Yr' : 'Pd'}`}`
-            });
-
-            // Increment date
-            if (batchConfig.frequency === 'weekly') currentDate.setDate(currentDate.getDate() + 7);
-            else if (batchConfig.frequency === 'monthly') currentDate.setMonth(currentDate.getMonth() + 1);
-            else if (batchConfig.frequency === 'quarterly') currentDate.setMonth(currentDate.getMonth() + 3);
-            else if (batchConfig.frequency === 'yearly') currentDate.setFullYear(currentDate.getFullYear() + 1);
-            else currentDate.setDate(currentDate.getDate() + 30); 
-
-            safetyCounter++;
-        }
-
-        setFormData({ ...formData, transactions: [...(formData.transactions || []), ...newTxs] });
-        setShowBatchForm(false);
-        onNotify(`已生成 ${newTxs.length} 条记录`, "success");
+    const baseInvestment: Investment = {
+      id: initialData?.id || self.crypto.randomUUID(),
+      name: formData.name!,
+      category: (formData.category as InvestmentCategory) || 'Fixed',
+      type: (formData.type as InvestmentType) || 'Fixed',
+      currency: (formData.currency as Currency) || 'CNY',
+      depositDate: formData.depositDate!,
+      maturityDate: formData.maturityDate || '', 
+      withdrawalDate: formData.withdrawalDate || null,
+      principal: principal, 
+      quantity: quantity,   
+      symbol: finalSymbol || undefined,
+      isAutoQuote: !!formData.isAutoQuote,
+      expectedRate: formData.expectedRate && formData.expectedRate !== 0 ? Number(formData.expectedRate) : undefined,
+      interestBasis: formData.interestBasis as '360' | '365' || '365',
+      currentReturn: formData.currentReturn ? Number(formData.currentReturn) : undefined,
+      realizedReturn: formData.realizedReturn ? Number(formData.realizedReturn) : undefined,
+      rebate: Number(formData.rebate || 0),
+      isRebateReceived: !!formData.isRebateReceived,
+      notes: formData.notes || '',
+      
+      transactions: transactions,
+      currentPrincipal: 0, 
+      currentQuantity: 0, 
+      totalCost: 0, 
+      totalRealizedProfit: 0 
     };
+    
+    const finalizedInvestment = recalculateInvestmentState(baseInvestment);
+    onSave(finalizedInvestment);
+  };
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        onSave(recalculateInvestmentState(formData));
-    };
+  const isFundOrStock = formData.category === 'Fund' || formData.category === 'Stock';
+  const isCNYStock = formData.category === 'Stock' && formData.currency === 'CNY';
 
-    return (
-        <div className="bg-white p-6 rounded-3xl shadow-lg border border-slate-100 animate-fade-in max-w-4xl mx-auto">
-           {/* Header */}
-           <h2 className="text-2xl font-bold mb-6 text-slate-800 flex items-center gap-2">
-               {initialData ? '编辑资产' : '新增资产'}
-               <span className="text-sm font-normal text-slate-400 bg-slate-50 px-2 py-1 rounded-md border border-slate-100">
-                   {formData.type === 'Fixed' ? '固收模式' : '浮动模式'}
-               </span>
-           </h2>
-           
-           <form onSubmit={handleSubmit} className="space-y-8">
-                {/* Section 1: Basic Information (Grid Layout) */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+  const getTxTypeLabel = (type: string) => {
+      switch(type) {
+          case 'Buy': return isFloating ? '加仓/买入' : '存入/追加';
+          case 'Sell': return isFloating ? '减仓/卖出' : '提取/赎回';
+          case 'Dividend': return '派息/分红';
+          default: return type;
+      }
+  };
+
+  const displayTransactions = formData.transactions && formData.transactions.length > 0 
+      ? formData.transactions 
+      : (initialData?.transactions || []);
+
+  return (
+    <div className="bg-white/95 backdrop-blur-sm p-8 rounded-3xl shadow-xl shadow-slate-200/50 max-w-2xl mx-auto border border-white/50 animate-fade-in-up">
+      <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-100">
+        <h2 className="text-2xl font-bold text-slate-800 tracking-tight">{initialData ? '编辑资产' : '录入新资产'}</h2>
+        <span className="text-xs px-2.5 py-1 bg-slate-800 text-white rounded-lg font-medium shadow-sm">Smart Ledger</span>
+      </div>
+      
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="flex gap-4 p-1 bg-slate-100 rounded-xl mb-4">
+            <button 
+                type="button"
+                onClick={() => setFormData({...formData, type: 'Fixed'})}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${!isFloating ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+                固收型 (Fixed)
+            </button>
+            <button 
+                type="button"
+                onClick={() => setFormData({...formData, type: 'Floating'})}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${isFloating ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+                浮动型 (Floating)
+            </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="md:col-span-3">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">资产名称</label>
+                <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none" placeholder="例如: 某宝30天新人专享 / 腾讯控股" required />
+            </div>
+             <div>
+                 <label className="block text-sm font-semibold text-slate-700 mb-2">分类标签</label>
+                 <select name="category" value={formData.category} onChange={handleChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none">
+                    {Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                 </select>
+            </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div>
+             <label className="block text-sm font-semibold text-slate-700 mb-2">币种</label>
+             <select name="currency" value={formData.currency} onChange={handleChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none">
+                <option value="CNY">CNY (¥)</option>
+                <option value="USD">USD ($)</option>
+                <option value="HKD">HKD (HK$)</option>
+             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">初始/当前本金</label>
+            <input type="number" name="principal" value={formData.principal} onChange={handleChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono text-lg" required />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">{isFloating ? '预计年化 (%)' : '预计年化 (%)'} <span className="text-slate-400 text-xs">{isFloating ? '(可选)' : '(必填)'}</span></label>
+            <div className="flex gap-2">
+                <input type="number" step="0.01" name="expectedRate" value={formData.expectedRate === undefined ? '' : formData.expectedRate} onChange={handleChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono text-lg" required={!isFloating} />
+                {!isFloating && (
+                    <select name="interestBasis" value={formData.interestBasis || '365'} onChange={handleChange} className="w-24 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none">
+                        <option value="365">365天</option>
+                        <option value="360">360天</option>
+                    </select>
+                )}
+            </div>
+          </div>
+        </div>
+        
+        {isFundOrStock && (
+             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-1.5">资产名称</label>
-                        <input name="name" value={formData.name} onChange={handleInputChange} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 focus:ring-2 focus:ring-slate-200 outline-none transition" required placeholder="例如: 招商银行定存" />
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">持有份额 (Quantity)</label>
+                        <input type="number" step="0.0001" name="quantity" value={formData.quantity === undefined ? '' : formData.quantity} onChange={handleChange} className="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono" />
                     </div>
-                    <div className="grid grid-cols-3 gap-3">
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1.5">分类</label>
-                            <select name="category" value={formData.category} onChange={handleInputChange} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none">
-                                {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
-                                    <option key={k} value={k}>{v}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1.5">类型</label>
-                            <select name="type" value={formData.type} onChange={handleInputChange} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none">
-                                <option value="Fixed">固收型</option>
-                                <option value="Floating">浮动型</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1.5">币种</label>
-                            <select name="currency" value={formData.currency} onChange={handleInputChange} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none">
-                                <option value="CNY">CNY</option>
-                                <option value="USD">USD</option>
-                                <option value="HKD">HKD</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Section 2: Dates */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                     <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-1.5">开始日期 (Deposit)</label>
-                        <input type="date" name="depositDate" value={formData.depositDate} onChange={handleInputChange} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none" required />
-                     </div>
-                     
-                     {/* Maturity is primary for Fixed, optional for Floating */}
-                     <div className={formData.type === 'Floating' ? 'opacity-70' : ''}>
-                        <label className="block text-sm font-bold text-slate-700 mb-1.5">
-                            到期日期 (Maturity)
-                            {formData.type === 'Floating' && <span className="text-xs font-normal text-slate-400 ml-1">(选填)</span>}
-                        </label>
-                        <input type="date" name="maturityDate" value={formData.maturityDate} onChange={handleInputChange} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none" />
-                     </div>
-
-                     <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-1.5">
-                            已完结日期 (Exit)
-                            <span className="text-xs font-normal text-slate-400 ml-1">(选填)</span>
-                        </label>
-                        <input type="date" name="withdrawalDate" value={formData.withdrawalDate || ''} onChange={handleInputChange} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none" />
-                     </div>
-                </div>
-
-                {/* Section 3: Type Specifics (Clean Layout) */}
-                <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
-                    
-                    {/* Fixed Income Row */}
-                    {formData.type === 'Fixed' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1.5">预期年化 (%)</label>
-                                <div className="relative">
-                                    <input type="number" step="0.01" name="expectedRate" value={formData.expectedRate || ''} onChange={handleInputChange} className="w-full p-3 bg-white rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-100" placeholder="0.00" />
-                                    <span className="absolute right-4 top-3.5 text-slate-400 text-sm">%</span>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1.5">计息基准 (Days)</label>
-                                <select name="interestBasis" value={formData.interestBasis || '365'} onChange={handleInputChange} className="w-full p-3 bg-white rounded-xl border border-slate-200 outline-none">
-                                    <option value="365">365天 / 年</option>
-                                    <option value="360">360天 / 年 (银行)</option>
-                                </select>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Floating Asset Row */}
-                    {formData.type === 'Floating' && (
-                        <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1.5">
-                                    行情代码 (Symbol) 
-                                    <span className="text-xs font-normal text-slate-400 ml-2">支持 sh/sz/bj, 基金代码, 美股代码</span>
-                                </label>
-                                <div className="flex gap-3">
-                                    <input name="symbol" value={formData.symbol || ''} onChange={handleInputChange} className="flex-1 p-3 bg-white rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-100" placeholder="如: sh600519, 000001, AAPL" />
-                                    
-                                    {/* Auto Quote Toggle Button */}
-                                    <button
-                                        type="button"
-                                        onClick={() => setFormData({ ...formData, isAutoQuote: !formData.isAutoQuote })}
-                                        className={`px-4 rounded-xl border flex items-center gap-2 transition-all ${
-                                            formData.isAutoQuote 
-                                            ? 'bg-indigo-50 border-indigo-200 text-indigo-700' 
-                                            : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
-                                        }`}
-                                    >
-                                        <div className={`w-3 h-3 rounded-full ${formData.isAutoQuote ? 'bg-indigo-500' : 'bg-slate-300'}`}></div>
-                                        <span className="text-sm font-bold">自动行情</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Rebate Row (Common) */}
                     <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-1.5">返利/红包 (Rebate)</label>
-                        <div className="flex gap-3">
-                            <input type="number" step="0.01" name="rebate" value={formData.rebate || ''} onChange={handleInputChange} className="flex-1 p-3 bg-white rounded-xl border border-slate-200 outline-none" placeholder="0.00" />
-                            
-                            {/* Rebate Received Toggle Button */}
-                            <button
-                                type="button"
-                                onClick={() => setFormData({ ...formData, isRebateReceived: !formData.isRebateReceived })}
-                                className={`px-4 rounded-xl border flex items-center gap-2 transition-all ${
-                                    formData.isRebateReceived 
-                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
-                                    : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
-                                }`}
-                            >
-                                <div className={`w-3 h-3 rounded-full ${formData.isRebateReceived ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                                <span className="text-sm font-bold">{formData.isRebateReceived ? '已到账' : '未到账'}</span>
-                            </button>
-                        </div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">{isCNYStock ? '股票代码 (Code)' : '交易代码 (Symbol)'}</label>
+                        <input type="text" value={isCNYStock ? stockCode : (formData.symbol || '')} onChange={(e) => { if (isCNYStock) setStockCode(e.target.value); else setFormData(prev => ({ ...prev, symbol: e.target.value })); }} className="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none font-mono uppercase" />
                     </div>
                 </div>
+                {isCNYStock && (
+                    <div className="flex gap-2 items-center bg-white p-2 rounded-lg border border-slate-200">
+                        <span className="text-sm font-bold text-slate-600 px-2">A股市场:</span>
+                        <label className="flex items-center gap-1 cursor-pointer"><input type="radio" name="market" value="sh" checked={stockMarket === 'sh'} onChange={() => setStockMarket('sh')} className="text-indigo-600"/><span className="text-sm text-slate-700">上证 (SH)</span></label>
+                        <label className="flex items-center gap-1 cursor-pointer ml-2"><input type="radio" name="market" value="sz" checked={stockMarket === 'sz'} onChange={() => setStockMarket('sz')} className="text-indigo-600"/><span className="text-sm text-slate-700">深证 (SZ)</span></label>
+                        <label className="flex items-center gap-1 cursor-pointer ml-2"><input type="radio" name="market" value="bj" checked={stockMarket === 'bj'} onChange={() => setStockMarket('bj')} className="text-indigo-600"/><span className="text-sm text-slate-700">北证 (BJ)</span></label>
+                    </div>
+                )}
+                <label className="flex items-center cursor-pointer select-none group pt-2">
+                    <input type="checkbox" name="isAutoQuote" checked={!!formData.isAutoQuote} onChange={handleChange} className="sr-only peer" />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 transition-colors"></div>
+                    <span className="ml-2 text-sm text-slate-600">开启自动行情更新</span>
+                </label>
+             </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">买入/存入时间</label>
+            <input type="date" name="depositDate" value={formData.depositDate} onChange={handleChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none" required />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">到期/目标时间</label>
+            <input type="date" name="maturityDate" value={formData.maturityDate} onChange={handleChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none" required={!isFloating} />
+          </div>
+           <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">卖出/取出时间</label>
+            <input type="date" name="withdrawalDate" value={formData.withdrawalDate || ''} onChange={handleChange} className={`w-full p-3 border rounded-xl focus:ring-2 outline-none transition ${isCompleted ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`} />
+          </div>
+        </div>
+        
+        {isFloating && !isCompleted && (
+             <div className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 animate-fade-in">
+                 <div className="flex items-start gap-3">
+                    <div className="mt-1 text-indigo-500"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg></div>
+                    <div className="w-full">
+                        <label className="block text-sm font-bold text-indigo-900 mb-2">当前持仓累计收益额 (Current Return)</label>
+                        <div className="relative">
+                            <input type="number" name="currentReturn" value={formData.currentReturn !== undefined ? formData.currentReturn : ''} onChange={handleChange} disabled={formData.isAutoQuote} className={`w-full p-3 pl-4 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-lg text-indigo-900 ${formData.isAutoQuote ? 'bg-indigo-100/50 cursor-not-allowed' : 'bg-white'}`} placeholder="0.00" />
+                            <span className="absolute right-4 top-3.5 text-indigo-600/50 text-sm font-medium">{formData.currency}</span>
+                        </div>
+                    </div>
+                 </div>
+            </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-5 rounded-xl border border-dashed border-slate-200">
+           <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">返利/红包金额</label>
+            <input type="number" name="rebate" value={formData.rebate} onChange={handleChange} className="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none transition" />
+          </div>
+          <div className="flex items-center pt-8">
+             <label className="flex items-center cursor-pointer select-none group">
+                <input type="checkbox" name="isRebateReceived" checked={!!formData.isRebateReceived} onChange={handleChange} className="sr-only peer" />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 transition-colors"></div>
+                <span className="ml-3 text-sm font-medium text-slate-600 group-hover:text-slate-800 transition">返利已到账</span>
+            </label>
+          </div>
+        </div>
+
+        <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">备注</label>
+            <textarea name="notes" value={formData.notes} onChange={handleChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none h-24 resize-none transition" />
+        </div>
+
+        <div className="flex justify-end gap-4 pt-6 border-t border-slate-100">
+          <button type="button" onClick={onCancel} className="px-6 py-2.5 text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 rounded-xl transition font-medium">取消</button>
+          <button type="submit" className="px-8 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl shadow-lg shadow-slate-300 transition transform active:scale-95 font-medium">保存记录</button>
+        </div>
+      </form>
+
+      <div className="mt-8 pt-6 border-t border-slate-100 animate-fade-in">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                    交易流水 (Transaction History)
+                </h3>
                 
-                {/* Section 4: Live Stats Preview */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-100/50 rounded-2xl border border-slate-200/50">
-                    <div className="text-center">
-                        <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">当前本金</p>
-                        <p className="text-lg font-bold text-slate-800 font-mono">{formatCurrency(formData.currentPrincipal, formData.currency)}</p>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">持仓份额</p>
-                        <p className="text-lg font-bold text-slate-800 font-mono">{formData.currentQuantity || 0}</p>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">累计投入</p>
-                        <p className="text-lg font-bold text-slate-800 font-mono">{formatCurrency(formData.totalCost, formData.currency)}</p>
-                    </div>
-                     <div className="text-center">
-                        <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">已落袋收益</p>
-                        <p className={`text-lg font-bold font-mono ${formData.totalRealizedProfit >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
-                            {formatCurrency(formData.totalRealizedProfit, formData.currency)}
-                        </p>
-                    </div>
-                </div>
-
-                {/* Section 5: Transactions (Advanced) */}
-                <div>
-                    <div className="flex justify-between items-center mb-3">
-                        <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                            <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                            交易流水 (Transactions)
-                        </label>
-                        <div className="flex gap-2">
-                            <button type="button" onClick={() => setShowBatchForm(!showBatchForm)} className="text-xs px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 font-bold border border-purple-100 transition">
-                                ⚡ 批量生成工具
-                            </button>
-                            <button type="button" onClick={addTransaction} className="text-xs px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 font-bold transition">
-                                + 添加记录
-                            </button>
-                        </div>
-                    </div>
-                    
-                    {/* Batch Generator UI */}
-                    {showBatchForm && (
-                        <div className="mb-4 bg-purple-50 p-5 rounded-2xl border border-purple-100 animate-fade-in shadow-sm">
-                            <div className="flex justify-between items-center mb-4">
-                                <h4 className="text-sm font-bold text-purple-800">批量生成流水 (Batch Generator)</h4>
-                                <button type="button" onClick={() => setShowBatchForm(false)} className="text-purple-400 hover:text-purple-600"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
-                            </div>
-                            
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                                <div>
-                                    <label className="text-xs font-bold text-purple-700 block mb-1.5">交易类型</label>
-                                    <select value={batchConfig.type} onChange={e => setBatchConfig({...batchConfig, type: e.target.value as TransactionType})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none">
-                                        <option value="Dividend">分红/派息 (Dividend)</option>
-                                        <option value="Interest">利息 (Interest)</option>
-                                        <option value="Buy">定投/存入 (Buy)</option>
-                                        <option value="Fee">费用 (Fee)</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-purple-700 block mb-1.5">计算模式</label>
-                                    <select value={batchConfig.mode} onChange={e => setBatchConfig({...batchConfig, mode: e.target.value})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none">
-                                        <option value="annual">年化利率 (自动按周期分摊)</option>
-                                        <option value="fixed">固定金额 (Fixed Amount)</option>
-                                        <option value="rate">单期比例 (Single Period %)</option>
-                                    </select>
-                                </div>
-                                {batchConfig.mode === 'fixed' ? (
-                                    <div>
-                                        <label className="text-xs font-bold text-purple-700 block mb-1.5">单次金额</label>
-                                        <input type="number" value={batchConfig.amount} onChange={e => setBatchConfig({...batchConfig, amount: parseFloat(e.target.value)})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none" placeholder="0.00" />
-                                    </div>
-                                ) : (
-                                    <div>
-                                        <label className="text-xs font-bold text-purple-700 block mb-1.5">
-                                            {batchConfig.mode === 'annual' ? '年化利率 (%)' : '单次比例 (%)'}
-                                        </label>
-                                        <input type="number" value={batchConfig.rate} onChange={e => setBatchConfig({...batchConfig, rate: parseFloat(e.target.value)})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none" placeholder="e.g. 4.0" />
-                                    </div>
-                                )}
-                                <div>
-                                    <label className="text-xs font-bold text-purple-700 block mb-1.5">频率</label>
-                                    <select value={batchConfig.frequency} onChange={e => setBatchConfig({...batchConfig, frequency: e.target.value})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none">
-                                        <option value="monthly">每月 (Monthly) / 12</option>
-                                        <option value="quarterly">每季 (Quarterly) / 4</option>
-                                        <option value="weekly">每周 (Weekly) / 52</option>
-                                        <option value="yearly">每年 (Yearly) / 1</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-purple-700 block mb-1.5">开始日期</label>
-                                    <input type="date" value={batchConfig.startDate} onChange={e => setBatchConfig({...batchConfig, startDate: e.target.value})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none" />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-purple-700 block mb-1.5">结束日期</label>
-                                    <input type="date" value={batchConfig.endDate} onChange={e => setBatchConfig({...batchConfig, endDate: e.target.value})} className="w-full p-2 text-xs border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-200 outline-none" />
-                                </div>
-                            </div>
-                            <div className="flex justify-between items-center pt-2">
-                                <button 
-                                    type="button" 
-                                    onClick={handleClearFutureDividends}
-                                    className="text-xs text-red-500 hover:text-red-700 font-medium underline decoration-red-200 underline-offset-2"
-                                >
-                                    清除今天以后的预估记录
+                {initialData && !isCompleted && !showTxForm && !showBatchForm && (
+                    <div className="flex gap-2 flex-wrap">
+                        {isFloating ? (
+                            <>
+                                <button onClick={() => openTxForm('Buy')} className="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg font-bold transition flex items-center gap-1">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                    加仓 (Buy)
                                 </button>
-                                <button type="button" onClick={handleSaveBatch} className="px-5 py-2 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 shadow-md shadow-purple-200 transition active:scale-95">立即生成</button>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="space-y-2 overflow-x-auto custom-scrollbar pb-2">
-                        {formData.transactions?.map((tx, index) => (
-                            <div key={tx.id || index} className="flex gap-2 items-center bg-slate-50 p-2 rounded-xl border border-slate-100 min-w-[600px]">
-                                <select 
-                                    value={tx.type} 
-                                    onChange={(e) => handleTransactionChange(index, 'type', e.target.value)}
-                                    className="text-xs p-2 rounded-lg border border-slate-200 w-28 bg-white font-medium"
-                                >
-                                    <option value="Buy">买入/存入</option>
-                                    <option value="Sell">卖出/赎回</option>
-                                    <option value="Dividend">派息/分红</option>
-                                    <option value="Interest">利息</option>
-                                    <option value="Fee">手续费</option>
-                                </select>
-                                <input 
-                                    type="datetime-local" 
-                                    value={tx.date.length > 16 ? tx.date.slice(0, 16) : tx.date}
-                                    onChange={(e) => handleTransactionChange(index, 'date', e.target.value)}
-                                    className="text-xs p-2 rounded-lg border border-slate-200 w-40 bg-white font-mono"
-                                />
-                                <div className="relative flex-1 min-w-[100px]">
-                                    <input 
-                                        type="number" 
-                                        placeholder="金额"
-                                        value={tx.amount || ''} 
-                                        onChange={(e) => handleTransactionChange(index, 'amount', parseFloat(e.target.value))}
-                                        className="text-xs p-2 rounded-lg border border-slate-200 w-full bg-white font-mono font-bold text-slate-700"
-                                    />
-                                </div>
-                                {formData.type === 'Floating' && (
-                                    <div className="relative w-24">
-                                        <input 
-                                            type="number" 
-                                            placeholder="份额 Qty"
-                                            value={tx.quantity || ''} 
-                                            onChange={(e) => handleTransactionChange(index, 'quantity', parseFloat(e.target.value))}
-                                            className="text-xs p-2 rounded-lg border border-slate-200 w-full bg-white font-mono"
-                                        />
-                                    </div>
-                                )}
-                                <input 
-                                    type="text" 
-                                    placeholder="备注..."
-                                    value={tx.notes || ''} 
-                                    onChange={(e) => handleTransactionChange(index, 'notes', e.target.value)}
-                                    className="text-xs p-2 rounded-lg border border-slate-200 flex-[2] bg-white min-w-[150px]"
-                                />
-                                <button type="button" onClick={() => removeTransaction(index)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                <button onClick={() => openTxForm('Sell')} className="text-xs px-3 py-1.5 bg-orange-50 text-orange-600 hover:bg-orange-100 rounded-lg font-bold transition flex items-center gap-1">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>
+                                    减仓 (Sell)
                                 </button>
-                            </div>
-                        ))}
-                        {(!formData.transactions || formData.transactions.length === 0) && (
-                            <div className="text-center py-8 text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                                暂无交易流水，请点击上方“添加记录”或“批量生成”
-                            </div>
+                                <button onClick={() => openTxForm('Dividend')} className="text-xs px-3 py-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg font-bold transition flex items-center gap-1">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    分红 (Div)
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button onClick={() => openTxForm('Buy')} className="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg font-bold transition flex items-center gap-1">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                    追加本金
+                                </button>
+                                <button onClick={() => openTxForm('Sell')} className="text-xs px-3 py-1.5 bg-orange-50 text-orange-600 hover:bg-orange-100 rounded-lg font-bold transition flex items-center gap-1">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>
+                                    提取本金
+                                </button>
+                                <button onClick={() => openTxForm('Dividend')} className="text-xs px-3 py-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg font-bold transition flex items-center gap-1">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    记录利息
+                                </button>
+                                <button onClick={openBatchForm} className="text-xs px-3 py-1.5 bg-purple-50 text-purple-600 hover:bg-purple-100 rounded-lg font-bold transition flex items-center gap-1">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                    批量生成利息
+                                </button>
+                            </>
                         )}
                     </div>
-                </div>
+                )}
+            </div>
 
-                {/* Footer Actions */}
-                <div className="pt-6 border-t border-slate-100 flex gap-4 justify-end">
-                    <button type="button" onClick={onCancel} className="px-6 py-3 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold transition">取消</button>
-                    <button type="submit" className="px-10 py-3 text-white bg-slate-900 hover:bg-slate-800 rounded-xl font-bold shadow-lg shadow-slate-200 transition transform active:scale-95">保存资产</button>
+            {/* Batch Generator Modal */}
+            {showBatchForm && (
+                <div className="mb-4 bg-purple-50/50 p-4 rounded-xl border border-purple-100 animate-fade-in">
+                    <h4 className="text-sm font-bold text-purple-900 mb-3 flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                        批量生成派息计划 (Batch Generate)
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div>
+                            <label className="block text-[10px] font-bold text-purple-400 mb-1">开始日期</label>
+                            <input type="date" value={batchData.startDate} onChange={e => setBatchData({...batchData, startDate: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-purple-400 mb-1">频率</label>
+                            <select value={batchData.frequency} onChange={e => setBatchData({...batchData, frequency: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300">
+                                <option value="Weekly">每周 (Weekly)</option>
+                                <option value="Monthly">每月 (Monthly)</option>
+                                <option value="Quarterly">每季 (Quarterly)</option>
+                                <option value="Yearly">每年 (Yearly)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-purple-400 mb-1">每次金额</label>
+                            <input type="number" step="0.01" value={batchData.amount} onChange={e => setBatchData({...batchData, amount: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-purple-400 mb-1">结束日期 (含)</label>
+                            <input type="date" value={batchData.endDate} onChange={e => setBatchData({...batchData, endDate: e.target.value})} className="w-full p-2 border border-purple-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-300" />
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2 border-t border-purple-100 pt-3">
+                        <button type="button" onClick={() => setShowBatchForm(false)} className="px-3 py-1.5 bg-white text-slate-500 border border-slate-200 rounded-lg text-xs hover:bg-slate-50">取消</button>
+                        <button type="button" onClick={handleSaveBatch} className="px-4 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 shadow-sm">立即生成</button>
+                    </div>
                 </div>
-           </form>
-        </div>
-    );
+            )}
+
+            {/* Transaction Modal */}
+            {showTxForm && (
+                <div className="mb-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 animate-fade-in">
+                    <h4 className="text-sm font-bold text-indigo-900 mb-3">
+                        {editingTxId ? '编辑交易' : `新增: ${getTxTypeLabel(txData.type)}`}
+                    </h4>
+                    
+                    {!isFloating && txData.type === 'Buy' && (
+                        <div className="mb-3 text-[10px] text-orange-600 bg-orange-50/80 p-2 rounded border border-orange-100">
+                            <strong>注意：</strong> 系统将根据每笔交易的实际存续天数自动计算“分段利息”。<br/>
+                            如果您修改了“综合利率”或“到期时间”，新条款将适用于此资产。若追加资金的利率与原资产差异较大，建议新建一条资产记录。
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div className="col-span-1">
+                            <label className="block text-[10px] font-bold text-indigo-400 mb-1">日期时间</label>
+                            <input type="datetime-local" value={txData.date} onChange={e => setTxData({...txData, date: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
+                        </div>
+                        
+                        {isFloating && txData.type !== 'Dividend' && (
+                            <>
+                                <div className="col-span-1">
+                                    <label className="block text-[10px] font-bold text-indigo-400 mb-1">单价 (Price)</label>
+                                    <input type="number" step="0.0001" name="price" value={txData.price} onChange={e => setTxData({...txData, price: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" placeholder="0.00" />
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="block text-[10px] font-bold text-indigo-400 mb-1">数量 (Qty)</label>
+                                    <input type="number" step="0.0001" name="quantity" value={txData.quantity} onChange={e => setTxData({...txData, quantity: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" placeholder="0" />
+                                </div>
+                            </>
+                        )}
+
+                        <div className="col-span-1">
+                            <label className="block text-[10px] font-bold text-indigo-400 mb-1">总金额 (Total)</label>
+                            <input type="number" step="0.01" name="amount" value={txData.amount} onChange={e => setTxData({...txData, amount: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300 font-bold" placeholder="0.00" />
+                        </div>
+                        
+                        {!isFloating && txData.type === 'Buy' && (
+                            <>
+                                <div className="col-span-1">
+                                    <label className="block text-[10px] font-bold text-orange-500 mb-1">更新到期时间</label>
+                                    <input type="date" value={txData.newMaturityDate} onChange={e => setTxData({...txData, newMaturityDate: e.target.value})} className="w-full p-2 border border-orange-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-orange-300" />
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="block text-[10px] font-bold text-orange-500 mb-1">更新综合利率(%)</label>
+                                    <input type="number" step="0.01" value={txData.newExpectedRate} onChange={e => setTxData({...txData, newExpectedRate: e.target.value})} className="w-full p-2 border border-orange-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-orange-300" placeholder="可选" />
+                                </div>
+                            </>
+                        )}
+
+                        <div className="col-span-1 sm:col-span-2 md:col-span-4">
+                            <label className="block text-[10px] font-bold text-indigo-400 mb-1">备注</label>
+                            <input type="text" value={txData.notes} onChange={e => setTxData({...txData, notes: e.target.value})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300" placeholder="可选备注" />
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2 border-t border-indigo-100 pt-3">
+                        <button type="button" onClick={() => { setShowTxForm(false); setEditingTxId(null); }} className="px-3 py-1.5 bg-white text-slate-500 border border-slate-200 rounded-lg text-xs hover:bg-slate-50">取消</button>
+                        <button type="button" onClick={handleSaveTx} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm">{editingTxId ? '确认修改' : '确认提交'}</button>
+                    </div>
+                </div>
+            )}
+
+            <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs min-w-[600px]">
+                        <thead className="bg-slate-100 text-slate-500 font-semibold border-b border-slate-200">
+                            <tr>
+                                <th className="p-3 w-32">日期 (Date)</th>
+                                <th className="p-3 w-20">类型</th>
+                                <th className="p-3 text-right w-24">金额 (Amount)</th>
+                                {isFloating && <th className="p-3 text-right w-24">单价/数量</th>}
+                                <th className="p-3">备注</th>
+                                <th className="p-3 text-right w-20">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {displayTransactions.map(tx => (
+                                <tr key={tx.id} className="text-slate-700 hover:bg-white transition group">
+                                    <td className="p-3 font-mono text-slate-500 whitespace-nowrap">{formatDateTime(tx.date)}</td>
+                                    <td className="p-3">
+                                        <span className={`px-1.5 py-0.5 rounded border font-medium text-[10px] whitespace-nowrap ${
+                                            tx.type === 'Buy' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                                            tx.type === 'Sell' ? 'bg-orange-50 text-orange-600 border-orange-100' :
+                                            tx.type === 'Dividend' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                            'bg-slate-100 text-slate-600 border-slate-200'
+                                        }`}>
+                                            {getTxTypeLabel(tx.type)}
+                                        </span>
+                                    </td>
+                                    <td className="p-3 text-right font-mono font-medium">
+                                        {tx.type === 'Sell' ? '-' : '+'}{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </td>
+                                    {isFloating && (
+                                        <td className="p-3 text-right font-mono text-slate-500">
+                                            {tx.price && tx.quantity ? `${tx.price} x ${tx.quantity}` : '-'}
+                                        </td>
+                                    )}
+                                    <td className="p-3 text-slate-400 truncate max-w-[100px]">{tx.notes || '-'}</td>
+                                    <td className="p-3 text-right">
+                                        <div className="flex justify-end gap-2">
+                                            <button 
+                                                type="button" 
+                                                onClick={() => handleEditTransaction(tx)}
+                                                className="text-indigo-500 hover:text-indigo-700"
+                                                title="编辑"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                            </button>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => handleDeleteTransaction(tx.id)}
+                                                className="text-red-400 hover:text-red-600"
+                                                title="删除"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+      </div>
+    </div>
+  );
 };
 
 export default InvestmentForm;
