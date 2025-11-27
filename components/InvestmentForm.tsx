@@ -32,28 +32,34 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
   const initialSym = parseInitialSymbol();
 
-  const [formData, setFormData] = useState<Partial<Investment>>(
-    initialData || {
-      name: '',
-      category: 'Fixed',
-      type: 'Fixed',
-      currency: 'CNY',
-      depositDate: new Date().toISOString().split('T')[0],
-      maturityDate: '',
-      principal: 10000,
-      quantity: undefined,
-      symbol: '',
-      isAutoQuote: false,
-      expectedRate: undefined,
-      interestBasis: '365',
-      currentReturn: undefined,
-      realizedReturn: undefined,
-      rebate: 0,
-      isRebateReceived: false,
-      withdrawalDate: null,
-      notes: ''
-    }
-  );
+  // Initialize state with robust default for transactions
+  const [formData, setFormData] = useState<Partial<Investment>>(() => {
+      const base = initialData ? { ...initialData } : {
+        name: '',
+        category: 'Fixed' as InvestmentCategory,
+        type: 'Fixed' as InvestmentType,
+        currency: 'CNY' as Currency,
+        depositDate: new Date().toISOString().split('T')[0],
+        maturityDate: '',
+        principal: 10000,
+        quantity: undefined,
+        symbol: '',
+        isAutoQuote: false,
+        expectedRate: undefined,
+        interestBasis: '365' as '365' | '360',
+        currentReturn: undefined,
+        realizedReturn: undefined,
+        rebate: 0,
+        isRebateReceived: false,
+        withdrawalDate: null,
+        notes: '',
+        transactions: [] as Transaction[]
+      };
+      
+      // Ensure transactions array exists to avoid fallback logic issues later
+      if (!base.transactions) base.transactions = [];
+      return base;
+  });
 
   const [stockCode, setStockCode] = useState(initialSym.code);
   const [stockMarket, setStockMarket] = useState(initialSym.market);
@@ -112,6 +118,23 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       }
   }, [txData.price, txData.quantity, isFloating]);
 
+  // Helper to update state and sync input fields when transactions change
+  const updateFormStateWithNewTxs = (newTxs: Transaction[]) => {
+      // Create temporary object to calculate state
+      const tempItem = { ...formData, transactions: newTxs } as Investment;
+      const newState = recalculateInvestmentState(tempItem);
+      
+      setFormData(prev => ({
+          ...prev,
+          transactions: newTxs,
+          currentPrincipal: newState.currentPrincipal,
+          currentQuantity: newState.currentQuantity,
+          principal: newState.currentPrincipal,
+          // Auto re-open if balance returns
+          withdrawalDate: (newState.currentPrincipal > 0 && prev.withdrawalDate) ? null : prev.withdrawalDate
+      }));
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
     if (type === 'checkbox') {
@@ -146,7 +169,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           frequency: 'Monthly',
           calcMode: formData.expectedRate ? 'rate' : 'fixed',
           amount: '',
-          endDate: new Date().toISOString().split('T')[0],
+          endDate: formData.maturityDate || '', 
           txType: 'Dividend',
           notes: '自动派息'
       });
@@ -154,7 +177,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       setShowTxForm(false);
   };
 
-  // Helper to calculate single period amount
   const calculateBatchAmount = () => {
       if (batchData.calcMode === 'fixed') return Number(batchData.amount) || 0;
       
@@ -166,7 +188,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
       switch (batchData.frequency) {
           case 'Weekly':
-              // Formula: Principal * Rate / Basis * 7
               return (principal * (rate / 100) / basis * 7);
           case 'Monthly':
               return (principal * (rate / 100) / 12);
@@ -191,9 +212,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           return;
       }
 
-      const currentTxs = formData.transactions && formData.transactions.length > 0
-          ? [...formData.transactions] 
-          : (initialData?.transactions ? [...initialData.transactions] : []);
+      const currentTxs = [...(formData.transactions || [])];
 
       const start = new Date(batchData.startDate);
       const end = new Date(batchData.endDate);
@@ -202,7 +221,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       let current = new Date(start);
       let count = 0;
 
-      while (current <= end) {
+      while (current <= end && count < 500) {
           const dateStr = current.toISOString().split('T')[0];
           currentTxs.push({
               id: self.crypto.randomUUID(),
@@ -220,7 +239,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           else break;
       }
 
-      setFormData({ ...formData, transactions: currentTxs });
+      updateFormStateWithNewTxs(currentTxs);
       setShowBatchForm(false);
       onNotify(`已批量生成 ${count} 条记录`, "success");
   };
@@ -229,9 +248,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       if (!window.confirm("确定要清除所有日期在今天之后的自动生成记录吗？")) return;
       
       const todayStr = new Date().toISOString().split('T')[0];
-      const currentTxs = formData.transactions && formData.transactions.length > 0
-          ? [...formData.transactions] 
-          : (initialData?.transactions ? [...initialData.transactions] : []);
+      const currentTxs = [...(formData.transactions || [])];
           
       const updatedTxs = currentTxs.filter(tx => {
           const isAutoType = tx.type === 'Dividend' || tx.type === 'Interest';
@@ -239,7 +256,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           return !(isAutoType && isFuture);
       });
       
-      setFormData({ ...formData, transactions: updatedTxs });
+      updateFormStateWithNewTxs(updatedTxs);
       onNotify("已清除未来预估记录", "info");
   };
 
@@ -249,9 +266,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           return;
       }
 
-      const currentTxs = formData.transactions && formData.transactions.length > 0
-          ? [...formData.transactions] 
-          : (initialData?.transactions ? [...initialData.transactions] : []);
+      const currentTxs = [...(formData.transactions || [])];
 
       const newTx: Transaction = {
           id: editingTxId || self.crypto.randomUUID(),
@@ -270,14 +285,13 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           currentTxs.push(newTx);
       }
 
-      const updatedFormData = { ...formData, transactions: currentTxs };
+      updateFormStateWithNewTxs(currentTxs);
 
       if (!isFloating && txData.type === 'Buy') {
-          if (txData.newMaturityDate) updatedFormData.maturityDate = txData.newMaturityDate;
-          if (txData.newExpectedRate) updatedFormData.expectedRate = Number(txData.newExpectedRate);
+          if (txData.newMaturityDate) setFormData(prev => ({ ...prev, maturityDate: txData.newMaturityDate }));
+          if (txData.newExpectedRate) setFormData(prev => ({ ...prev, expectedRate: Number(txData.newExpectedRate) }));
       }
 
-      setFormData(updatedFormData);
       setShowTxForm(false);
       setEditingTxId(null);
       onNotify(editingTxId ? "交易记录已更新" : "交易记录已添加", "success");
@@ -309,25 +323,11 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const handleDeleteTransaction = (id: string) => {
       if (!window.confirm("确定要删除这条交易记录吗？")) return;
       
-      const currentTxs = formData.transactions && formData.transactions.length > 0
-          ? [...formData.transactions] 
-          : (initialData?.transactions ? [...initialData.transactions] : []);
-
+      // Use formData.transactions directly since it's initialized
+      const currentTxs = [...(formData.transactions || [])];
       const updatedTxs = currentTxs.filter(t => t.id !== id);
       
-      // Don't just set transactions, update state to recalculate currentPrincipal
-      // BUT keep the 'principal' (input field) intact so it doesn't vanish from UI
-      const tempItem = { ...formData, transactions: updatedTxs } as Investment;
-      const newState = recalculateInvestmentState(tempItem);
-      
-      setFormData(prev => ({
-          ...prev,
-          transactions: updatedTxs,
-          currentPrincipal: newState.currentPrincipal,
-          currentQuantity: newState.currentQuantity,
-          // Preserve user input 'principal' even if calculated principal is 0
-          principal: prev.principal 
-      }));
+      updateFormStateWithNewTxs(updatedTxs);
 
       onNotify("交易记录已删除", "info");
       
@@ -340,7 +340,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Basic Validation
     if (!formData.name || !formData.depositDate || !formData.principal) {
       onNotify("请填写必要信息（名称、本金、存入时间）", "error");
       return;
@@ -361,16 +360,14 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     const inputPrincipal = Number(formData.principal);
     const inputQuantity = formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined;
 
-    // --- SMART TRANSACTION SYNC ---
-    let transactions: Transaction[] = formData.transactions && formData.transactions.length > 0
-        ? [...formData.transactions] 
-        : (initialData?.transactions ? [...initialData.transactions] : []);
+    // Always use formData.transactions
+    let transactions: Transaction[] = [...(formData.transactions || [])];
     
-    // 1. Buy/Deposit Logic
     const buyTransactions = transactions.filter(t => t.type === 'Buy');
+    const otherTransactions = transactions.filter(t => t.type !== 'Buy');
     
     if (buyTransactions.length === 0) {
-        // No Buys? Auto-create the first one from form inputs
+        // Only auto-generate if NO buys exist at all
         transactions.unshift({
             id: self.crypto.randomUUID(),
             date: formData.depositDate!,
@@ -380,8 +377,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             price: inputQuantity ? inputPrincipal / inputQuantity : undefined,
             notes: 'Initial Deposit'
         });
-    } else if (buyTransactions.length === 1) {
-        // Single Buy? We assume it is the "Simple Mode" initial deposit, so we sync it with the input field
+    } else if (buyTransactions.length === 1 && otherTransactions.length === 0) {
+        // Safe simple mode
         const buyIndex = transactions.findIndex(t => t.type === 'Buy');
         if (buyIndex >= 0) {
              transactions[buyIndex] = {
@@ -393,22 +390,18 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
              };
         }
     }
-    // If count > 1 (Multiple Buys), we do NOT touch them. The user must manage complex history in the list.
 
-    // 2. Sell/Withdrawal Logic
+    // Sync Withdrawal logic
     if (formData.withdrawalDate) {
-        // Check if there is already an auto-generated sell from a previous save (by note or date)
         const existingAutoSellIndex = transactions.findIndex(t => t.type === 'Sell' && t.notes === 'Full Withdrawal (Auto)');
         
         if (existingAutoSellIndex >= 0) {
-            // Update the existing auto-sell to the new date
             transactions[existingAutoSellIndex] = {
                 ...transactions[existingAutoSellIndex],
                 date: formData.withdrawalDate
             };
         } else {
-            // No auto-sell found. Check if balance needs clearing.
-            // Create temp object to calculate state BEFORE the final sell
+            // Calculate hypothetical balance
             const tempItem = { 
                 ...formData, 
                 transactions: transactions,
@@ -417,7 +410,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             const tempState = recalculateInvestmentState(tempItem);
             
             if (tempState.currentPrincipal > 0.01) {
-                // Create new clearance transaction
                 transactions.push({
                     id: self.crypto.randomUUID(),
                     date: formData.withdrawalDate,
@@ -427,6 +419,11 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                     notes: 'Full Withdrawal (Auto)'
                 });
             }
+        }
+    } else {
+        const autoSellIndex = transactions.findIndex(t => t.type === 'Sell' && t.notes === 'Full Withdrawal (Auto)');
+        if (autoSellIndex >= 0) {
+            transactions.splice(autoSellIndex, 1);
         }
     }
 
@@ -476,9 +473,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       }
   };
 
-  const displayTransactions = formData.transactions && formData.transactions.length > 0 
-      ? formData.transactions 
-      : (initialData?.transactions || []);
+  // This is now always reliable
+  const displayTransactions = formData.transactions || [];
 
   return (
     <div className="bg-white rounded-3xl shadow-2xl w-full overflow-hidden max-h-[90vh] flex flex-col animate-fade-in-up">
@@ -834,7 +830,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                                 <th className="p-3 w-32">日期 (Date)</th>
                                 <th className="p-3 w-20">类型</th>
                                 <th className="p-3 text-right w-24">金额 (Amount)</th>
-                                {isFloating ? <th className="p-3 text-right w-24">单价/数量</th> : <th className="p-3 w-0 hidden"></th>}
+                                {!isFloating ? <th className="p-3 w-0 hidden"></th> : <th className="p-3 text-right w-24">单价/数量</th>}
                                 <th className="p-3">备注</th>
                                 <th className="p-3 text-right w-20">操作</th>
                             </tr>
@@ -857,11 +853,11 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                                     <td className="p-3 text-right font-mono font-medium">
                                         {(tx.type === 'Sell' || tx.type === 'Fee') ? '-' : '+'}{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </td>
-                                    {isFloating ? (
+                                    {!isFloating ? <td className="hidden"></td> : (
                                         <td className="p-3 text-right font-mono text-slate-500">
                                             {tx.price && tx.quantity ? `${tx.price} x ${tx.quantity}` : '-'}
                                         </td>
-                                    ) : <td className="hidden"></td>}
+                                    )}
                                     <td className="p-3 text-slate-400 truncate max-w-[100px]">{tx.notes || '-'}</td>
                                     <td className="p-3 text-right">
                                         <div className="flex justify-end gap-2">

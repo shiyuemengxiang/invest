@@ -1,3 +1,4 @@
+
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, Transaction } from './types';
 
 export const MS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -300,8 +301,11 @@ export const calculateItemMetrics = (item: Investment) => {
           baseInterest = item.currentReturn; 
           const totalValueChange = item.currentReturn + item.totalRealizedProfit;
           
-          if (activePrincipal > 0) {
-            holdingYield = (totalValueChange / activePrincipal) * 100;
+          // For holding yield, use Total Cost as denominator to avoid skewing when value drops
+          const costBasis = item.totalCost > 0 ? item.totalCost : activePrincipal;
+          
+          if (costBasis > 0) {
+            holdingYield = (totalValueChange / costBasis) * 100;
             if (realDurationDays > 0) {
                 annualizedYield = (holdingYield / (realDurationDays / 365));
             }
@@ -321,7 +325,8 @@ export const calculateItemMetrics = (item: Investment) => {
   const totalReturn = baseInterest + item.rebate + (!isCompleted && item.type === 'Floating' ? item.totalRealizedProfit : 0);
   
   let comprehensiveYield = 0;
-  const yieldBase = isCompleted ? item.totalCost : activePrincipal;
+  // IMPORTANT: Use Total Cost for floating assets to prevent massive negative yields when principal shrinks
+  const yieldBase = isCompleted || item.type === 'Floating' ? item.totalCost : activePrincipal;
 
   if (!isPending && (hasYieldInfo || item.rebate > 0) && realDurationDays > 0 && yieldBase > 0) {
       if (item.type === 'Fixed' && !isCompleted && item.expectedRate) {
@@ -411,9 +416,14 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     }
 
     if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0) && metrics.comprehensiveYield > -100 && metrics.comprehensiveYield < 1000) { 
-        const weight = metrics.isCompleted ? item.totalCost : item.currentPrincipal;
-        weightedYieldSum += metrics.comprehensiveYield * weight;
-        totalWeight += weight;
+        // CRITICAL FIX: For floating assets, use Total Cost as weight to avoid skewing
+        // yields when current principal is low due to losses.
+        const weight = (metrics.isCompleted || item.type === 'Floating') ? item.totalCost : item.currentPrincipal;
+        
+        if (weight > 0) {
+            weightedYieldSum += metrics.comprehensiveYield * weight;
+            totalWeight += weight;
+        }
     }
   });
   

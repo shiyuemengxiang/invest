@@ -89,7 +89,36 @@ const App: React.FC = () => {
              });
         }
     }
+    
+    // Trigger initial market refresh if any items have auto-quote
+    // We use a small timeout to allow state to settle
+    setTimeout(() => {
+        // Only refresh if there are items loaded
+        const hasAutoQuote = loadedItems.some(i => i.isAutoQuote && !i.withdrawalDate);
+        if (hasAutoQuote) {
+            // Need to call the refresh function, but we need access to 'items' state which might be stale in useEffect closure
+            // So we define a self-contained refresh here or rely on the user navigating
+            // Ideally we invoke the function defined below, but closures prevent it.
+            // Best way: trigger it via a separate effect dependent on 'items' change, but that causes loops.
+            // We will rely on the definition below but need to move it up or use ref.
+            // Simpler: Just let the user know or refresh on list view entry.
+            // Actually, let's just call the service directly here for the initial load.
+            // BUT, updating state from here is tricky without the function.
+            // Let's try to use a separate Effect for "Initial Load"
+        }
+    }, 1000);
+
   }, []);
+  
+  // Separate effect to auto-refresh market data once items are loaded initially
+  useEffect(() => {
+      if (items.length > 0) {
+          const shouldRefresh = items.some(i => i.isAutoQuote && !i.withdrawalDate && (!i.lastUpdate || (new Date().getTime() - new Date(i.lastUpdate).getTime() > 3600000))); // Refresh if older than 1h
+          if (shouldRefresh) {
+              handleRefreshMarketData();
+          }
+      }
+  }, [items.length]); // Only run when item count changes (load), roughly.
 
   const saveItems = (newItems: Investment[]) => {
       setItems(newItems);
@@ -135,7 +164,7 @@ const App: React.FC = () => {
   const handleRefreshMarketData = async () => {
       const itemsToUpdate = items.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
       if (itemsToUpdate.length === 0) {
-          showToast('没有开启“自动行情”的持仓资产', 'info');
+          // showToast('没有开启“自动行情”的持仓资产', 'info'); 
           return;
       }
       const symbols = itemsToUpdate.map(i => i.symbol as string);
@@ -171,7 +200,7 @@ const App: React.FC = () => {
       }
       
       if (updatedCount > 0) showToast(`行情更新成功！已更新 ${updatedCount} 个资产`, 'success');
-      else showToast('行情更新完成，暂无数据变化', 'info');
+      // else showToast('行情更新完成，暂无数据变化', 'info');
   };
 
   const handleLogin = (loggedInUser: User) => {
