@@ -1,9 +1,7 @@
-
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, Transaction } from './types';
 
 export const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-// ... [Theme Config remains unchanged, re-including for file completeness] ...
 interface ThemeConfig {
     sidebar: string;
     accent: string;
@@ -31,8 +29,6 @@ export const THEMES: Record<ThemeOption, ThemeConfig> = {
     sakura: { sidebar: 'bg-pink-50 text-pink-900 border-r border-pink-100', accent: 'from-pink-400 to-rose-500', button: 'bg-pink-500 hover:bg-pink-600', text: 'text-pink-600', icon: 'text-pink-400', navActive: 'bg-pink-200 text-pink-900 font-bold shadow-sm', navHover: 'hover:bg-pink-100 text-pink-700' },
     ivory: { sidebar: 'bg-white text-slate-800 border-r border-slate-200', accent: 'from-slate-400 to-slate-600', button: 'bg-slate-700 hover:bg-slate-800', text: 'text-slate-700', icon: 'text-slate-400', navActive: 'bg-slate-100 text-slate-900 font-bold shadow-sm', navHover: 'hover:bg-slate-600' }
 };
-
-// --- DATA MIGRATION & CALCULATION UTILS ---
 
 export const migrateInvestmentData = (item: any): Investment => {
     if (item.transactions && Array.isArray(item.transactions) && item.transactions.length > 0) {
@@ -80,12 +76,16 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
     let currentQuantity = 0;
     let totalCost = 0;
     let totalRealizedProfit = 0;
+    
+    const now = new Date();
+    const todayISO = now.toISOString().split('T')[0];
 
     const sortedTxs = [...(item.transactions || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     for (const tx of sortedTxs) {
         const amount = Number(tx.amount) || 0;
         const qty = Number(tx.quantity) || 0;
+        const txDateStr = tx.date.split('T')[0];
 
         if (tx.type === 'Buy') {
             currentPrincipal += amount;
@@ -107,8 +107,14 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
                 if (qty) currentQuantity -= qty;
             }
 
-        } else if (tx.type === 'Dividend') {
-            totalRealizedProfit += amount;
+        } else if (tx.type === 'Dividend' || tx.type === 'Interest') {
+            if (txDateStr <= todayISO) {
+                totalRealizedProfit += amount;
+            }
+        } else if (tx.type === 'Fee' || tx.type === 'Tax') {
+             if (txDateStr <= todayISO) {
+                totalRealizedProfit -= amount;
+            }
         }
     }
 
@@ -127,7 +133,6 @@ export const recalculateInvestmentState = (item: Investment): Investment => {
         quantity: currentQuantity    
     };
 };
-
 
 export const formatDate = (dateStr: string | null): string => {
   if (!dateStr) return '-';
@@ -181,7 +186,6 @@ export const calculateDailyReturn = (item: Investment): number => {
 
     if (item.type === 'Floating') {
         if (item.estGrowth && activePrincipal > 0) {
-            // Daily Return based on Market Value
             const currentTotalValue = activePrincipal + (item.currentReturn || 0);
             const baseValue = Math.max(0, currentTotalValue);
             return baseValue * (item.estGrowth / 100);
@@ -190,7 +194,6 @@ export const calculateDailyReturn = (item: Investment): number => {
     }
 
     if (item.type === 'Fixed' && item.expectedRate) {
-        // Support 360 or 365 day basis
         const basis = Number(item.interestBasis || 365);
         return activePrincipal * (item.expectedRate / 100) / basis;
     }
@@ -211,9 +214,8 @@ export const calculateItemMetrics = (item: Investment) => {
   const activePrincipal = item.currentPrincipal; 
   const currentQuantity = item.currentQuantity || 0;
   
-  const interestBasis = Number(item.interestBasis || 365); // Default to 365
+  const interestBasis = Number(item.interestBasis || 365);
 
-  // Duration Logic
   let occupiedDurationMs = 0;
   if (!isPending) {
       if (isCompleted && withdrawal) {
@@ -237,15 +239,11 @@ export const calculateItemMetrics = (item: Investment) => {
            annualizedYield = item.expectedRate;
       }
   } else if (isCompleted && item.realizedReturn !== undefined) {
-      // ... existing completed logic ...
       baseInterest = item.realizedReturn + item.totalRealizedProfit; 
       const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
       if (calcBase > 0) {
         holdingYield = (baseInterest / calcBase) * 100;
         if (realDurationDays > 0) {
-            // For Annualized, standardizing to 365 for comparison is common, 
-            // but if product is 360 basis, maybe yield should reflect that?
-            // Usually Yield% is comparable across products, so * 365 / days is standard.
             annualizedYield = (holdingYield / (realDurationDays / 365));
         }
       }
@@ -254,10 +252,7 @@ export const calculateItemMetrics = (item: Investment) => {
       const rate = item.expectedRate;
       annualizedYield = rate;
       
-      // --- NEW LOGIC: Transaction-Weighted Accrual ---
-      
       let calculatedAccrued = 0;
-      let calculatedProjected = 0;
       
       const relevantTxs = (item.transactions || []).filter(t => t.type === 'Buy' || t.type === 'Sell');
       
@@ -281,7 +276,6 @@ export const calculateItemMetrics = (item: Investment) => {
               if (segmentEnd > txDate) {
                   const days = (segmentEnd.getTime() - txDate.getTime()) / MS_PER_DAY;
                   if (days > 0 && currentBalance > 0) {
-                      // Use configured interest basis (360 or 365)
                       totalInterest += currentBalance * (rate / 100) * (days / interestBasis);
                   }
               }
@@ -291,10 +285,8 @@ export const calculateItemMetrics = (item: Investment) => {
           return totalInterest;
       };
 
-      // Accrued: Interest up to Today
       accruedReturn = calculateSegmentedInterest(now);
       
-      // Projected: Interest up to Maturity
       if (maturity) {
           baseInterest = calculateSegmentedInterest(maturity);
       }
@@ -355,14 +347,14 @@ export const calculateItemMetrics = (item: Investment) => {
 
   return {
     interestDays: realDurationDays,
-    baseInterest, // For Fixed: Projected Interest. For Floating: Current P&L
+    baseInterest, 
     totalReturn,
     profit,
     realDurationDays,
     annualizedYield,
     holdingYield,
     comprehensiveYield,
-    accruedReturn, // Calculated using segmented transaction logic
+    accruedReturn, 
     isCompleted,
     isPending,
     hasYieldInfo,
@@ -393,10 +385,9 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     totalRebate += item.rebate;
     
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
-        // Projected Profit = Accrued (Earned so far) + Rebate + Dividends
         projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
     } else if (!metrics.isCompleted && item.type === 'Floating') {
-        projectedTotalProfit += metrics.profit;
+        projectedTotalProfit += (metrics.profit + item.totalRealizedProfit);
     } else {
         projectedTotalProfit += metrics.profit;
     }
@@ -416,7 +407,6 @@ export const calculatePortfolioStats = (items: Investment[]) => {
       realizedInterest += metrics.baseInterest;
     } else {
       activePrincipal += item.currentPrincipal;
-      // Realized Interest for active items = Dividends received
       realizedInterest += item.totalRealizedProfit;
     }
 
@@ -426,6 +416,11 @@ export const calculatePortfolioStats = (items: Investment[]) => {
         totalWeight += weight;
     }
   });
+  
+  let portfolioYield = 0;
+  if (totalWeight > 0) {
+      portfolioYield = weightedYieldSum / totalWeight;
+  }
   
   const projectedTotalYield = totalInvested > 0 ? (projectedTotalProfit / totalInvested) * 100 : 0;
 
@@ -440,7 +435,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     projectedTotalProfit,
     projectedTotalYield,
     todayEstProfit,
-    comprehensiveYield: totalWeight > 0 ? weightedYieldSum / totalWeight : 0
+    comprehensiveYield: portfolioYield
   };
 };
 
@@ -452,17 +447,15 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
         let value = item.currentPrincipal;
 
         if (metrics.isCompleted) {
-            value += metrics.totalReturn;
+            value = 0; 
         } else if (metrics.isPending) {
             value = item.currentPrincipal; 
         } else {
             if (item.type === 'Fixed') {
-                 value += metrics.accruedReturn + item.rebate + item.totalRealizedProfit;
+                 value += metrics.accruedReturn;
             } else {
-                 if (metrics.hasYieldInfo || item.currentReturn) {
-                    value += metrics.totalReturn; 
-                 } else {
-                    value += item.rebate;
+                 if (item.currentReturn) {
+                     value += item.currentReturn;
                  }
             }
         }
@@ -472,41 +465,66 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
     return totalValuation;
 };
 
-// ... (rest of file matches provided content) ...
+// --- Added utility functions ---
+
+export const formatCurrency = (amount: number, currency: Currency = 'CNY'): string => {
+    const symbol = currency === 'USD' ? '$' : currency === 'HKD' ? 'HK$' : '¥';
+    // Handle undefined/null gracefully if necessary, though type says number
+    const safeAmount = amount || 0;
+    return `${symbol}${safeAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+export const formatPercent = (val: number): string => {
+    const safeVal = val || 0;
+    return `${safeVal.toFixed(2)}%`;
+};
+
 export const filterInvestmentsByTime = (items: Investment[], filter: TimeFilter, customStart?: string, customEnd?: string): Investment[] => {
     if (filter === 'all') return items;
+
     const now = new Date();
+    // Normalize today to start of day for comparison
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
     return items.filter(item => {
-        const d = new Date(item.depositDate); 
-        d.setHours(0,0,0,0);
-        switch (filter) {
-            case '1m': return d >= new Date(new Date().setMonth(now.getMonth() - 1));
-            case '3m': return d >= new Date(new Date().setMonth(now.getMonth() - 3));
-            case '6m': return d >= new Date(new Date().setMonth(now.getMonth() - 6));
-            case '1y': return d >= new Date(new Date().setFullYear(now.getFullYear() - 1));
-            case 'mtd': return d >= new Date(now.getFullYear(), now.getMonth(), 1);
-            case 'ytd': return d >= new Date(now.getFullYear(), 0, 1);
-            case 'custom': 
-                if (customStart && customEnd) {
-                    const start = new Date(customStart);
-                    start.setHours(0,0,0,0);
-                    const end = new Date(customEnd);
-                    end.setHours(23,59,59,999);
-                    return d >= start && d <= end;
-                }
-                return true;
-            default: return true;
+        const date = new Date(item.depositDate);
+
+        if (filter === 'custom') {
+            if (customStart && customEnd) {
+                const start = new Date(customStart);
+                const end = new Date(customEnd);
+                // End date needs to include the entire day
+                end.setHours(23, 59, 59, 999);
+                return date >= start && date <= end;
+            }
+            return true;
         }
+
+        let cutoff = new Date(today);
+
+        switch (filter) {
+            case '1m':
+                cutoff.setMonth(cutoff.getMonth() - 1);
+                break;
+            case '3m':
+                cutoff.setMonth(cutoff.getMonth() - 3);
+                break;
+            case '6m':
+                cutoff.setMonth(cutoff.getMonth() - 6);
+                break;
+            case '1y':
+                cutoff.setFullYear(cutoff.getFullYear() - 1);
+                break;
+            case 'ytd':
+                cutoff = new Date(now.getFullYear(), 0, 1);
+                break;
+            case 'mtd':
+                cutoff = new Date(now.getFullYear(), now.getMonth(), 1);
+                break;
+            default:
+                return true;
+        }
+        
+        return date >= cutoff;
     });
-};
-
-export const formatCurrency = (val: number, currency: Currency = 'CNY') => {
-  const currencyCode = currency === 'CNY' ? 'CNY' : currency === 'USD' ? 'USD' : 'HKD';
-  return new Intl.NumberFormat('zh-CN', { style: 'currency', currency: currencyCode }).format(val);
-};
-
-export const formatPercent = (val: number) => {
-  if (!isFinite(val) || isNaN(val)) return '-';
-  return `${val.toFixed(2)}%`;
 };
