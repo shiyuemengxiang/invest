@@ -89,7 +89,6 @@ const InvestmentList: React.FC<Props> = ({
 
   // --- Summary Stats Calculation ---
   const summaryStats = useMemo((): Record<Currency, { totalProfit: number; dailyReturn: number }> => {
-      // Explicitly type the stats accumulator
       const stats: Record<Currency, { totalProfit: number; dailyReturn: number }> = {
           CNY: { totalProfit: 0, dailyReturn: 0 },
           USD: { totalProfit: 0, dailyReturn: 0 },
@@ -100,7 +99,6 @@ const InvestmentList: React.FC<Props> = ({
           const metrics = calculateItemMetrics(item);
           const daily = calculateDailyReturn(item);
 
-          // Total Profit Logic
           let profit = 0;
           if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
               profit = metrics.accruedReturn + item.rebate;
@@ -138,7 +136,6 @@ const InvestmentList: React.FC<Props> = ({
       setTimeout(() => setIsRefreshing(false), 1000); 
   };
 
-  // Drag is enabled ONLY if using Custom Sort and NO filters are active
   const isFiltersActive = filter !== 'all' || productFilter !== 'all' || currencyFilter !== 'all' || categoryFilter !== 'all' || showCustomDate;
   const isDragEnabled = sortType === 'custom' && !isFiltersActive;
 
@@ -412,7 +409,7 @@ const InvestmentList: React.FC<Props> = ({
                                             {/* Amount and Actions */}
                                             <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end">
                                                 <div className="text-right">
-                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">{formatCurrency(item.principal, item.currency)}</span>
+                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">{formatCurrency(item.currentPrincipal, item.currency)}</span>
                                                     <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Principal</span>
                                                 </div>
                                                 
@@ -478,7 +475,7 @@ const InvestmentList: React.FC<Props> = ({
                                                             {metrics.totalReturn > 0 ? '+' : ''}{formatCurrency(metrics.totalReturn, item.currency)}
                                                         </p>
                                                     </div>
-                                                    {!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed' && metrics.accruedReturn > 0 && (
+                                                    {!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed' && metrics.accruedReturn > 0.01 && (
                                                         <div className="flex items-center gap-1">
                                                             <span className="text-[10px] text-slate-400">截止今日:</span>
                                                             <span className="text-[10px] font-bold text-slate-600">

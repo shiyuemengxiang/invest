@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect } from 'react';
-// ... (imports same as before)
 import { Currency, Investment, InvestmentCategory, InvestmentType, CATEGORY_LABELS, Transaction, TransactionType } from '../types';
 import { ToastType } from './Toast';
 import { recalculateInvestmentState, formatDateTime } from '../utils';
@@ -20,7 +19,6 @@ const getCurrentLocalISO = () => {
 };
 
 const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNotify }) => {
-  // ... (state initialization matches previous)
   const parseInitialSymbol = () => {
       if (!initialData?.symbol) return { code: '', market: 'sh' };
       const s = initialData.symbol;
@@ -90,9 +88,9 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   // Batch Generator State
   const [batchData, setBatchData] = useState({
       startDate: '',
-      frequency: 'Monthly', // Weekly, Monthly, Quarterly, Yearly
-      calcMode: 'rate',     // 'fixed' | 'rate'
-      amount: '',           // Fixed amount
+      frequency: 'Monthly', 
+      calcMode: 'rate',     
+      amount: '',           
       endDate: '',
       txType: 'Dividend' as TransactionType,
       notes: '自动派息'
@@ -148,7 +146,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           frequency: 'Monthly',
           calcMode: formData.expectedRate ? 'rate' : 'fixed',
           amount: '',
-          endDate: new Date().toISOString().split('T')[0], // Default to Today to avoid accidental future income
+          endDate: new Date().toISOString().split('T')[0],
           txType: 'Dividend',
           notes: '自动派息'
       });
@@ -171,13 +169,10 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
               // Formula: Principal * Rate / Basis * 7
               return (principal * (rate / 100) / basis * 7);
           case 'Monthly':
-              // Formula: Principal * Rate / 12
               return (principal * (rate / 100) / 12);
           case 'Quarterly':
-              // Formula: Principal * Rate / 4
               return (principal * (rate / 100) / 4);
           case 'Yearly':
-              // Formula: Principal * Rate / 1
               return (principal * (rate / 100));
           default:
               return 0;
@@ -202,26 +197,22 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
       const start = new Date(batchData.startDate);
       const end = new Date(batchData.endDate);
-      
-      // Set end date to end of day to include it
       end.setHours(23,59,59,999);
 
       let current = new Date(start);
       let count = 0;
 
       while (current <= end) {
-          // Generate TX
           const dateStr = current.toISOString().split('T')[0];
           currentTxs.push({
               id: self.crypto.randomUUID(),
-              date: dateStr + 'T08:00', // Default morning time
+              date: dateStr + 'T08:00',
               type: batchData.txType,
               amount: Number(amountPerPeriod.toFixed(2)),
               notes: batchData.notes + ` (${dateStr})`
           });
           count++;
 
-          // Increment Date
           if (batchData.frequency === 'Weekly') current.setDate(current.getDate() + 7);
           else if (batchData.frequency === 'Monthly') current.setMonth(current.getMonth() + 1);
           else if (batchData.frequency === 'Quarterly') current.setMonth(current.getMonth() + 3);
@@ -242,7 +233,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           ? [...formData.transactions] 
           : (initialData?.transactions ? [...initialData.transactions] : []);
           
-      // Filter out Dividends/Interest in the future
       const updatedTxs = currentTxs.filter(tx => {
           const isAutoType = tx.type === 'Dividend' || tx.type === 'Interest';
           const isFuture = tx.date.split('T')[0] > todayStr;
@@ -254,7 +244,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   };
 
   const handleSaveTx = () => {
-      // ... (rest of logic same as before)
       if (!txData.amount || Number(txData.amount) <= 0) {
           onNotify("请输入有效的金额", "error");
           return;
@@ -294,7 +283,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       onNotify(editingTxId ? "交易记录已更新" : "交易记录已添加", "success");
   };
 
-  // ... (handleEditTransaction, handleDeleteTransaction, handleSubmit same as before)
   const handleEditTransaction = (tx: Transaction) => {
       let dateVal = tx.date;
       if (tx.date.endsWith('Z') || tx.date.includes('T')) {
@@ -326,7 +314,21 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           : (initialData?.transactions ? [...initialData.transactions] : []);
 
       const updatedTxs = currentTxs.filter(t => t.id !== id);
-      setFormData(prev => ({ ...prev, transactions: updatedTxs }));
+      
+      // Don't just set transactions, update state to recalculate currentPrincipal
+      // BUT keep the 'principal' (input field) intact so it doesn't vanish from UI
+      const tempItem = { ...formData, transactions: updatedTxs } as Investment;
+      const newState = recalculateInvestmentState(tempItem);
+      
+      setFormData(prev => ({
+          ...prev,
+          transactions: updatedTxs,
+          currentPrincipal: newState.currentPrincipal,
+          currentQuantity: newState.currentQuantity,
+          // Preserve user input 'principal' even if calculated principal is 0
+          principal: prev.principal 
+      }));
+
       onNotify("交易记录已删除", "info");
       
       if (editingTxId === id) {
@@ -337,6 +339,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Basic Validation
     if (!formData.name || !formData.depositDate || !formData.principal) {
       onNotify("请填写必要信息（名称、本金、存入时间）", "error");
       return;
@@ -354,35 +358,75 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
         finalSymbol = stockCode;
     }
 
-    const principal = Number(formData.principal);
-    const quantity = formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined;
+    const inputPrincipal = Number(formData.principal);
+    const inputQuantity = formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined;
 
+    // --- SMART TRANSACTION SYNC ---
     let transactions: Transaction[] = formData.transactions && formData.transactions.length > 0
         ? [...formData.transactions] 
         : (initialData?.transactions ? [...initialData.transactions] : []);
     
-    if (transactions.length === 0) {
-        transactions.push({
+    // 1. Buy/Deposit Logic
+    const buyTransactions = transactions.filter(t => t.type === 'Buy');
+    
+    if (buyTransactions.length === 0) {
+        // No Buys? Auto-create the first one from form inputs
+        transactions.unshift({
             id: self.crypto.randomUUID(),
             date: formData.depositDate!,
             type: 'Buy',
-            amount: principal,
-            quantity: quantity,
-            price: quantity ? principal / quantity : undefined,
+            amount: inputPrincipal,
+            quantity: inputQuantity,
+            price: inputQuantity ? inputPrincipal / inputQuantity : undefined,
             notes: 'Initial Deposit'
         });
-    } else {
-        const firstBuyIndex = transactions.findIndex(t => t.type === 'Buy');
-        if (firstBuyIndex >= 0) {
-             if (transactions[firstBuyIndex].notes === 'Initial Deposit' || transactions[firstBuyIndex].notes === 'Initial Deposit (Migrated)') {
-                 transactions[firstBuyIndex] = {
-                    ...transactions[firstBuyIndex],
-                    date: formData.depositDate!,
-                    amount: principal,
-                    quantity: quantity,
-                    price: quantity ? principal / quantity : undefined
-                 };
-             }
+    } else if (buyTransactions.length === 1) {
+        // Single Buy? We assume it is the "Simple Mode" initial deposit, so we sync it with the input field
+        const buyIndex = transactions.findIndex(t => t.type === 'Buy');
+        if (buyIndex >= 0) {
+             transactions[buyIndex] = {
+                ...transactions[buyIndex],
+                date: formData.depositDate!,
+                amount: inputPrincipal,
+                quantity: inputQuantity,
+                price: inputQuantity ? inputPrincipal / inputQuantity : undefined
+             };
+        }
+    }
+    // If count > 1 (Multiple Buys), we do NOT touch them. The user must manage complex history in the list.
+
+    // 2. Sell/Withdrawal Logic
+    if (formData.withdrawalDate) {
+        // Check if there is already an auto-generated sell from a previous save (by note or date)
+        const existingAutoSellIndex = transactions.findIndex(t => t.type === 'Sell' && t.notes === 'Full Withdrawal (Auto)');
+        
+        if (existingAutoSellIndex >= 0) {
+            // Update the existing auto-sell to the new date
+            transactions[existingAutoSellIndex] = {
+                ...transactions[existingAutoSellIndex],
+                date: formData.withdrawalDate
+            };
+        } else {
+            // No auto-sell found. Check if balance needs clearing.
+            // Create temp object to calculate state BEFORE the final sell
+            const tempItem = { 
+                ...formData, 
+                transactions: transactions,
+                currentPrincipal: 0, currentQuantity: 0 
+            } as Investment;
+            const tempState = recalculateInvestmentState(tempItem);
+            
+            if (tempState.currentPrincipal > 0.01) {
+                // Create new clearance transaction
+                transactions.push({
+                    id: self.crypto.randomUUID(),
+                    date: formData.withdrawalDate,
+                    type: 'Sell',
+                    amount: tempState.currentPrincipal,
+                    quantity: tempState.currentQuantity,
+                    notes: 'Full Withdrawal (Auto)'
+                });
+            }
         }
     }
 
@@ -395,8 +439,8 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       depositDate: formData.depositDate!,
       maturityDate: formData.maturityDate || '', 
       withdrawalDate: formData.withdrawalDate || null,
-      principal: principal, 
-      quantity: quantity,   
+      principal: inputPrincipal, 
+      quantity: inputQuantity,   
       symbol: finalSymbol || undefined,
       isAutoQuote: !!formData.isAutoQuote,
       expectedRate: formData.expectedRate && formData.expectedRate !== 0 ? Number(formData.expectedRate) : undefined,
@@ -418,7 +462,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     onSave(finalizedInvestment);
   };
 
-  // ... (isFundOrStock, isCNYStock, getTxTypeLabel)
   const isFundOrStock = formData.category === 'Fund' || formData.category === 'Stock';
   const isCNYStock = formData.category === 'Stock' && formData.currency === 'CNY';
 
@@ -438,14 +481,19 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
       : (initialData?.transactions || []);
 
   return (
-    <div className="bg-white/95 backdrop-blur-sm p-8 rounded-3xl shadow-xl shadow-slate-200/50 max-w-2xl mx-auto border border-white/50 animate-fade-in-up">
-      <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-100">
-        <h2 className="text-2xl font-bold text-slate-800 tracking-tight">{initialData ? '编辑资产' : '录入新资产'}</h2>
-        <span className="text-xs px-2.5 py-1 bg-slate-800 text-white rounded-lg font-medium shadow-sm">Smart Ledger</span>
+    <div className="bg-white rounded-3xl shadow-2xl w-full overflow-hidden max-h-[90vh] flex flex-col animate-fade-in-up">
+      <div className="flex justify-between items-center p-6 border-b border-slate-100 shrink-0">
+        <div>
+            <h2 className="text-xl font-bold text-slate-800 tracking-tight">{initialData ? '编辑资产' : '录入新资产'}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Transactions & Details</p>
+        </div>
+        <button onClick={onCancel} className="p-2 hover:bg-slate-100 rounded-full transition text-slate-400 hover:text-slate-600">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
       </div>
       
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* ... (Main form fields: Type Toggles, Name, Category) ... */}
         <div className="flex gap-4 p-1 bg-slate-100 rounded-xl mb-4">
             <button 
                 type="button"
@@ -503,7 +551,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           </div>
         </div>
         
-        {/* ... (Fund/Stock fields, Dates, Rebate fields same as before) ... */}
         {isFundOrStock && (
              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -524,11 +571,16 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                         <label className="flex items-center gap-1 cursor-pointer ml-2"><input type="radio" name="market" value="bj" checked={stockMarket === 'bj'} onChange={() => setStockMarket('bj')} className="text-indigo-600"/><span className="text-sm text-slate-700">北证 (BJ)</span></label>
                     </div>
                 )}
-                <label className="flex items-center cursor-pointer select-none group pt-2">
-                    <input type="checkbox" name="isAutoQuote" checked={!!formData.isAutoQuote} onChange={handleChange} className="sr-only peer" />
-                    <div className="w-9 h-5 bg-slate-200 peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 transition-colors"></div>
-                    <span className="ml-2 text-sm text-slate-600">开启自动行情更新</span>
-                </label>
+                <div className="pt-2">
+                    <button 
+                        type="button" 
+                        onClick={() => setFormData(prev => ({...prev, isAutoQuote: !prev.isAutoQuote}))}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${formData.isAutoQuote ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'}`}
+                    >
+                        <div className={`w-2 h-2 rounded-full ${formData.isAutoQuote ? 'bg-white animate-pulse' : 'bg-slate-400'}`}></div>
+                        {formData.isAutoQuote ? '自动行情更新: 已开启' : '自动行情更新: 已关闭'}
+                    </button>
+                </div>
              </div>
         )}
 
@@ -568,22 +620,22 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
             <input type="number" name="rebate" value={formData.rebate} onChange={handleChange} className="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none transition" />
           </div>
           <div className="flex items-center pt-8">
-             <label className="flex items-center cursor-pointer select-none group">
-                <input type="checkbox" name="isRebateReceived" checked={!!formData.isRebateReceived} onChange={handleChange} className="sr-only peer" />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 transition-colors"></div>
-                <span className="ml-3 text-sm font-medium text-slate-600 group-hover:text-slate-800 transition">返利已到账</span>
-            </label>
+             <button 
+                type="button"
+                onClick={() => setFormData(prev => ({...prev, isRebateReceived: !prev.isRebateReceived}))}
+                className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${formData.isRebateReceived ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-500'}`}
+             >
+                <div className={`w-4 h-4 rounded flex items-center justify-center border ${formData.isRebateReceived ? 'border-white bg-white/20' : 'border-slate-300'}`}>
+                    {formData.isRebateReceived && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                </div>
+                返利已到账
+             </button>
           </div>
         </div>
 
         <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">备注</label>
             <textarea name="notes" value={formData.notes} onChange={handleChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-500 outline-none h-24 resize-none transition" />
-        </div>
-
-        <div className="flex justify-end gap-4 pt-6 border-t border-slate-100">
-          <button type="button" onClick={onCancel} className="px-6 py-2.5 text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 rounded-xl transition font-medium">取消</button>
-          <button type="submit" className="px-8 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl shadow-lg shadow-slate-300 transition transform active:scale-95 font-medium">保存记录</button>
         </div>
       </form>
 
@@ -714,7 +766,6 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                     </h4>
                     
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                        {/* Type Selector for Single Tx */}
                         <div className="col-span-1">
                             <label className="block text-[10px] font-bold text-indigo-400 mb-1">交易类型</label>
                             <select value={txData.type} onChange={e => setTxData({...txData, type: e.target.value as TransactionType})} className="w-full p-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-300">
@@ -838,6 +889,11 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
                     </table>
                 </div>
             </div>
+      </div>
+      </div>
+      <div className="p-6 border-t border-slate-100 flex justify-end gap-4 shrink-0">
+          <button type="button" onClick={onCancel} className="px-6 py-2.5 text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 rounded-xl transition font-medium">取消</button>
+          <button type="submit" onClick={handleSubmit} className="px-8 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl shadow-lg shadow-slate-300 transition transform active:scale-95 font-medium">保存记录</button>
       </div>
     </div>
   );
