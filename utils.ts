@@ -450,9 +450,9 @@ export const calculatePortfolioStats = (items: Investment[]) => {
       realizedInterest += item.totalRealizedProfit;
     }
 
-    if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0) && metrics.comprehensiveYield > -100 && metrics.comprehensiveYield < 1000) { 
-        // CRITICAL FIX: For floating assets, use Total Cost as weight to avoid skewing
-        // yields when current principal is low due to losses.
+    if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0)) { 
+        // REMOVED artificial limits (-100/1000) to accurately reflect significant losses
+        // For floating assets, use Total Cost as weight to avoid skewing yields when current principal is low due to losses.
         const weight = (metrics.isCompleted || item.type === 'Floating') ? item.totalCost : item.currentPrincipal;
         
         if (weight > 0) {
