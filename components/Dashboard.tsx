@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption } from '../types';
-import { calculateItemMetrics, calculatePortfolioStats, calculateTotalValuation, filterInvestmentsByTime, formatCurrency, formatPercent, THEMES } from '../utils';
+import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, filterInvestmentsByTime, formatCurrency, formatPercent, THEMES } from '../utils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { getAIAnalysis } from '../services/geminiService';
 
@@ -40,10 +40,17 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   // Filter items specifically matching the selected currency for detailed stats
   const currencyItems = useMemo(() => items.filter(i => (i.currency || 'CNY') === selectedCurrency), [items, selectedCurrency]);
   
-  // Then Filter by Time for Stats
-  const statsItems = useMemo(() => filterInvestmentsByTime(currencyItems, timeFilter, customStart, customEnd), [currencyItems, timeFilter, customStart, customEnd]);
-  
-  const stats = calculatePortfolioStats(statsItems);
+  // --- STATS CALCULATION STRATEGY ---
+  // If 'all', use Lifetime stats (Total Principal, Lifetime Profit).
+  // If 'time filter' (e.g. YTD), use Period Stats (Active Capital in Period, Profit in Period).
+  const stats = useMemo(() => {
+      if (timeFilter === 'all') {
+          return calculatePortfolioStats(currencyItems);
+      } else {
+          const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
+          return calculatePeriodStats(currencyItems, start, end);
+      }
+  }, [currencyItems, timeFilter, customStart, customEnd]);
 
   const handleAIAnalysis = async () => {
     setLoadingAi(true);
@@ -57,14 +64,11 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
     { name: '已完结本金', value: stats.completedPrincipal },
   ].filter(d => d.value > 0);
 
-  // Upcoming
+  // Upcoming: Always show based on current future, regardless of time filter (usually)
   const upcoming = currencyItems
     .filter(i => {
-        // Must have maturity date
         if (!i.maturityDate) return false;
-        // Must not be explicitly withdrawn
         if (i.withdrawalDate) return false;
-        // Must have active principal (filters out items fully sold via transactions but not marked closed)
         if (i.currentPrincipal <= 0.01) return false; 
         return true;
     })
@@ -149,7 +153,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       </div>
 
       {/* Global Net Worth Card */}
-      {/* UPDATE: Added 'items-center text-center md:items-start md:text-left' for better mobile responsiveness */}
       <div className={`bg-gradient-to-br ${themeConfig.accent} p-6 md:p-8 rounded-[2rem] shadow-xl text-white relative overflow-hidden transform-gpu`}>
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
@@ -181,7 +184,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       {/* Detailed Stats Grid - Adjusted to 5 columns for large screens */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
         
-        {/* Active Principal (Restored) */}
+        {/* Active Principal */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-blue-50">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-blue-50 rounded-2xl text-blue-600">
@@ -189,27 +192,31 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             </div>
             <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
           </div>
-          <p className="text-slate-500 text-sm font-medium">在途本金</p>
+          <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '在途本金' : '期间平均持仓'}</p>
           <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.activePrincipal, selectedCurrency)}</p>
-          <div className="w-full bg-slate-100 h-1.5 mt-4 rounded-full overflow-hidden">
-             <div className="bg-blue-500 h-full rounded-full transition-all duration-1000" style={{ width: `${stats.totalInvested ? (stats.activePrincipal / stats.totalInvested) * 100 : 0}%` }}></div>
-          </div>
+          {timeFilter === 'all' && (
+              <div className="w-full bg-slate-100 h-1.5 mt-4 rounded-full overflow-hidden">
+                 <div className="bg-blue-500 h-full rounded-full transition-all duration-1000" style={{ width: `${stats.totalInvested ? (stats.activePrincipal / stats.totalInvested) * 100 : 0}%` }}></div>
+              </div>
+          )}
         </div>
 
-        {/* Estimated Total Profit (Active + Realized) */}
+        {/* Total/Period Profit */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-indigo-50">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
             </div>
-             <span className="text-xs font-bold bg-indigo-50 text-indigo-500 px-2 py-1 rounded-lg">All Time</span>
+             <span className="text-xs font-bold bg-indigo-50 text-indigo-500 px-2 py-1 rounded-lg">{timeFilter === 'all' ? 'All Time' : 'Period'}</span>
           </div>
-          <p className="text-slate-500 text-sm font-medium">总预估收益 (含在途)</p>
+          <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '总预估收益 (含在途)' : '本期产生收益'}</p>
           <p className="text-xl font-bold text-indigo-600 mt-1 tabular-nums flex flex-col gap-1">
               {formatCurrency(stats.projectedTotalProfit, selectedCurrency)}
-              <span className="text-xs font-medium text-indigo-400 bg-indigo-50 px-1.5 rounded-md w-fit" title="Total Projected Yield">
-                 {formatPercent(stats.projectedTotalYield)}
-              </span>
+              {timeFilter === 'all' && (
+                  <span className="text-xs font-medium text-indigo-400 bg-indigo-50 px-1.5 rounded-md w-fit" title="Total Projected Yield">
+                     {formatPercent(stats.projectedTotalYield)}
+                  </span>
+              )}
           </p>
         </div>
 
@@ -236,7 +243,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             </div>
              <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
           </div>
-          <p className="text-slate-500 text-sm font-medium">已落袋收益</p>
+          <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '已落袋收益' : '本期已落袋'}</p>
           <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.realizedInterest, selectedCurrency)}</p>
         </div>
 
@@ -248,7 +255,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             </div>
              <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Weighted</span>
           </div>
-          <p className="text-slate-500 text-sm font-medium">综合年化收益率</p>
+          <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '综合年化收益率' : '本期年化收益率'}</p>
           <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatPercent(stats.comprehensiveYield)}</p>
         </div>
       </div>
