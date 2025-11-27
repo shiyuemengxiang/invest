@@ -231,7 +231,16 @@ const App: React.FC = () => {
   };
   
   const themeConfig = THEMES[theme];
-  // const isLightTheme = ['lavender', 'mint', 'sky', 'sakura', 'ivory'].includes(theme);
+  // Determine if theme is light based on background conventions
+  const isLightTheme = ['lavender', 'mint', 'sky', 'sakura', 'ivory'].includes(theme);
+  
+  // Dynamic text classes for contrast
+  const logoTextColor = isLightTheme ? 'text-slate-800' : 'text-white';
+  const logoSubTextColor = isLightTheme ? 'text-slate-500' : 'text-white/50';
+  const navIconColor = isLightTheme ? 'text-slate-500' : 'text-white/60';
+  const profileBg = isLightTheme ? 'bg-slate-200/50 border-slate-200' : 'bg-white/10 border-white/5';
+  const profileTextMain = isLightTheme ? 'text-slate-800' : 'text-white';
+  const profileTextSub = isLightTheme ? 'text-slate-500 hover:text-slate-800' : 'text-white/60 hover:text-white';
 
   if (view === 'auth' && !user) {
       return (
@@ -245,55 +254,70 @@ const App: React.FC = () => {
   // --- Components for Navigation ---
 
   const DesktopSidebar = () => (
-      <div className={`hidden md:flex flex-col w-72 ${themeConfig.sidebar} h-screen sticky top-0 transition-all duration-300 shadow-xl z-50`}>
-          <div className="p-8">
-              <div className="flex items-center gap-3 mb-8">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-white/20 to-white/5 flex items-center justify-center shadow-inner border border-white/10">
-                      <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+      <div className={`hidden md:flex flex-col w-72 ${themeConfig.sidebar} h-screen sticky top-0 transition-all duration-300 shadow-xl z-50 border-r border-transparent`}>
+          <div className="px-6 py-8">
+              <div className="flex items-center gap-3 mb-10">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-md ${isLightTheme ? 'bg-white text-indigo-600' : 'bg-white/10 text-white border border-white/10'}`}>
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                   </div>
                   <div>
-                      <h1 className="text-xl font-bold tracking-tight text-white">Smart Ledger</h1>
-                      <p className="text-[10px] text-white/50 font-medium tracking-wider uppercase">Portfolio Manager</p>
+                      <h1 className={`text-lg font-extrabold tracking-tight leading-tight ${logoTextColor}`}>Smart Ledger</h1>
+                      <p className={`text-[10px] font-semibold tracking-widest uppercase ${logoSubTextColor}`}>Finance</p>
                   </div>
               </div>
               
               <button 
                   onClick={handleAddClick} 
-                  className={`w-full py-3.5 rounded-2xl font-bold shadow-lg shadow-black/10 transition-all transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2 group ${theme === 'ivory' ? 'bg-slate-800 text-white hover:bg-slate-900' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
+                  className={`w-full py-3 rounded-xl font-bold shadow-lg transition-all transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2 group ${theme === 'ivory' ? 'bg-slate-900 text-white hover:bg-slate-800' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
               >
-                  <svg className="w-5 h-5 text-current opacity-80 group-hover:rotate-90 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+                  <div className="bg-indigo-600 rounded-full w-5 h-5 flex items-center justify-center text-white">
+                      <svg className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
+                  </div>
                   记一笔
               </button>
           </div>
 
-          <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
+          <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto">
               {[
-                  { id: 'dashboard', label: '总览 Dashboard', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /> },
+                  { id: 'dashboard', label: '总览 Dashboard', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /> },
                   { id: 'list', label: '明细 Assets', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2-2v12a2 2 0 002 2h10a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /> },
                   { id: 'calendar', label: '日历 Calendar', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /> },
                   { id: 'profile', label: '设置 Settings', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /> },
-              ].map(item => (
-                  <button 
-                      key={item.id}
-                      onClick={() => handleNav(item.id as ViewState)} 
-                      className={`w-full text-left px-5 py-3.5 rounded-xl transition-all duration-200 flex items-center gap-4 group relative overflow-hidden ${view === item.id ? themeConfig.navActive : themeConfig.navHover}`}
-                  >
-                      <svg className={`w-5 h-5 transition-colors ${view === item.id ? 'text-current' : themeConfig.icon}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">{item.icon}</svg>
-                      <span className={`text-sm font-medium ${view === item.id ? 'opacity-100' : 'opacity-80 group-hover:opacity-100'}`}>{item.label}</span>
-                      {view === item.id && <div className="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-1 bg-white/30 rounded-r-full"></div>}
-                  </button>
-              ))}
+              ].map(item => {
+                  const isActive = view === item.id;
+                  // Dynamic class for active state based on theme lightness
+                  const activeClass = isLightTheme 
+                      ? 'bg-white shadow-sm text-indigo-600' 
+                      : 'bg-white/10 text-white shadow-inner border border-white/5';
+                  
+                  const hoverClass = isLightTheme 
+                      ? 'hover:bg-slate-200/50 hover:text-slate-800' 
+                      : 'hover:bg-white/5 hover:text-white';
+
+                  const textInactive = isLightTheme ? 'text-slate-500' : 'text-slate-300';
+
+                  return (
+                      <button 
+                          key={item.id}
+                          onClick={() => handleNav(item.id as ViewState)} 
+                          className={`w-full text-left px-4 py-3 rounded-xl transition-all duration-200 flex items-center gap-3.5 group ${isActive ? activeClass : `${textInactive} ${hoverClass}`}`}
+                      >
+                          <svg className={`w-5 h-5 ${isActive ? 'text-current' : navIconColor}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">{item.icon}</svg>
+                          <span className={`text-sm font-medium`}>{item.label}</span>
+                      </button>
+                  );
+              })}
           </nav>
 
           {/* User Snippet */}
           <div className="p-4 mt-auto">
-              <div className="bg-black/10 rounded-2xl p-3 flex items-center gap-3 border border-white/5 backdrop-blur-sm">
-                  <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-sm font-bold text-white border border-white/10 shrink-0">
+              <div className={`${profileBg} backdrop-blur-sm rounded-2xl p-3 flex items-center gap-3 transition hover:shadow-md cursor-pointer`} onClick={() => handleNav('profile')}>
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white shadow-sm shrink-0">
                       {user ? user.email[0].toUpperCase() : 'G'}
                   </div>
                   <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-white truncate">{user ? user.email.split('@')[0] : 'Guest User'}</p>
-                      <button onClick={user ? handleLogout : () => setView('auth')} className="text-[10px] text-white/60 hover:text-white hover:underline transition text-left">
+                      <p className={`text-sm font-bold truncate ${profileTextMain}`}>{user ? user.email.split('@')[0] : 'Guest User'}</p>
+                      <button onClick={(e) => { e.stopPropagation(); user ? handleLogout() : setView('auth'); }} className={`text-[10px] font-medium transition text-left ${profileTextSub}`}>
                           {user ? 'Sign Out' : 'Sign In / Sync'}
                       </button>
                   </div>
