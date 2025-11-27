@@ -65,6 +65,9 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
   const [isCompleted, setIsCompleted] = useState(!!initialData?.withdrawalDate);
   const [isFloating, setIsFloating] = useState(initialData?.type === 'Floating');
 
+  // Helper state for auto-calculating profit from sell amount
+  const [sellAmountHelper, setSellAmountHelper] = useState('');
+
   const [showTxForm, setShowTxForm] = useState(false);
   const [showBatchForm, setShowBatchForm] = useState(false);
   const [editingTxId, setEditingTxId] = useState<string | null>(null);
@@ -134,6 +137,16 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           setTxData(prev => ({...prev, amount: amt}));
       }
   }, [txData.price, txData.quantity, isFloating]);
+
+  // Handle Sell Amount Helper for Simple Mode Profit Calculation
+  const handleSellAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      setSellAmountHelper(val);
+      if (val && !isNaN(Number(val)) && formData.principal) {
+          const profit = Number(val) - Number(formData.principal);
+          setFormData(prev => ({ ...prev, currentReturn: parseFloat(profit.toFixed(2)) }));
+      }
+  };
 
   const updateFormStateWithNewTxs = (newTxs: Transaction[]) => {
       const tempItem = { ...formData, transactions: newTxs } as Investment;
@@ -630,16 +643,37 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
           </div>
         </div>
         
-        {isFloating && !isCompleted && (
+        {isFloating && (
              <div className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 animate-fade-in">
                  <div className="flex items-start gap-3">
                     <div className="mt-1 text-indigo-500"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg></div>
                     <div className="w-full">
-                        <label className="block text-sm font-bold text-indigo-900 mb-2">当前持仓累计收益额 (Current Return)</label>
+                        <label className="block text-sm font-bold text-indigo-900 mb-2">{isCompleted ? '最终落袋累计收益 (Manual Final Profit)' : '当前持仓累计收益额 (Current Return)'}</label>
                         <div className="relative">
-                            <input type="number" name="currentReturn" value={formData.currentReturn !== undefined ? formData.currentReturn : ''} onChange={handleChange} disabled={formData.isAutoQuote} className={`w-full p-3 pl-4 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-lg text-indigo-900 ${formData.isAutoQuote ? 'bg-indigo-100/50 cursor-not-allowed' : 'bg-white'}`} placeholder="0.00" />
+                            <input 
+                                type="number" 
+                                name="currentReturn" 
+                                value={formData.currentReturn !== undefined ? formData.currentReturn : ''} 
+                                onChange={handleChange} 
+                                disabled={formData.isAutoQuote} 
+                                className={`w-full p-3 pl-4 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-lg text-indigo-900 ${formData.isAutoQuote ? 'bg-indigo-100/50 cursor-not-allowed' : 'bg-white'}`} 
+                                placeholder="0.00" 
+                            />
                             <span className="absolute right-4 top-3.5 text-indigo-600/50 text-sm font-medium">{formData.currency}</span>
                         </div>
+                        {isCompleted && !formData.isAutoQuote && (
+                            <div className="mt-2 flex items-center gap-2">
+                                <label className="text-xs text-indigo-500">自动计算:</label>
+                                <input 
+                                    type="number" 
+                                    placeholder="输入卖出总金额" 
+                                    value={sellAmountHelper}
+                                    onChange={handleSellAmountChange}
+                                    className="px-2 py-1 text-xs border border-indigo-200 rounded bg-white w-32 focus:ring-1 focus:ring-indigo-300 outline-none"
+                                />
+                                <span className="text-[10px] text-indigo-400"> ( Sell - Principal = Profit )</span>
+                            </div>
+                        )}
                     </div>
                  </div>
             </div>

@@ -349,7 +349,6 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         comprehensiveYield: portfolioYield,
         totalInvested: totalInvested,
         completedPrincipal: 0,
-        // FIX: Return the calculated rebate stats instead of 0
         totalRebate: totalRebate, 
         pendingRebate: pendingRebate, 
         receivedRebate: receivedRebate,
@@ -459,7 +458,22 @@ export const calculateItemMetrics = (item: Investment) => {
            baseInterest = activePrincipal * (rate / 100) * (realDurationDays / 365);
            if (activePrincipal > 0) holdingYield = (baseInterest / activePrincipal) * 100;
       } else {
-          hasYieldInfo = false;
+          // AUTO-CALCULATION FALLBACK: If manual return is empty, check for transaction profit
+          if (item.totalRealizedProfit !== 0) {
+              baseInterest = item.totalRealizedProfit;
+              hasYieldInfo = true;
+              
+              const costBasis = item.totalCost > 0 ? item.totalCost : item.principal > 0 ? item.principal : activePrincipal;
+              
+              if (costBasis > 0) {
+                  holdingYield = (baseInterest / costBasis) * 100;
+                  if (realDurationDays > 0) {
+                      annualizedYield = (holdingYield / (realDurationDays / 365));
+                  }
+              }
+          } else {
+              hasYieldInfo = false;
+          }
       }
   } else {
       hasYieldInfo = false;
