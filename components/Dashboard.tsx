@@ -396,9 +396,18 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   const safeFormatDate = (dateStr: string) => {
       if (!dateStr) return '-';
       const d = new Date(dateStr);
-      // 核心修复：防止非法日期导致页面白屏
+      // Core fix: prevent crash on invalid date
       return !isNaN(d.getTime()) ? formatDate(dateStr) : '-';
   };
+
+  // 🚑 FIX: This block was missing in previous version causing ReferenceError!
+  // Get items for rebate modal
+  const rebateItems = useMemo(() => {
+      if (!rebateModalType) return [];
+      return currencyItems.filter(i => 
+          i.rebate > 0 && (rebateModalType === 'received' ? i.isRebateReceived : !i.isRebateReceived)
+      ).sort((a, b) => b.rebate - a.rebate);
+  }, [currencyItems, rebateModalType]);
 
   const showTotalProfitInfo = () => setInfoModal({ title: "总预估收益 (含在途)", content: <div className="text-sm text-slate-600 space-y-2"><p>历史总回报，包含账面浮盈和已落袋资金。</p><p className="font-bold text-indigo-600">公式：浮盈 + 已结 + 返利 - 费用</p></div> });
   const showTodayProfitInfo = () => setInfoModal({ title: "今日/昨日预估收益", content: <div className="text-sm text-slate-600 space-y-2"><p>仅计算今天产生的价值变化。</p><p className="font-bold text-orange-600">公式：固收日息 + 浮动资产今日涨跌</p></div> });
