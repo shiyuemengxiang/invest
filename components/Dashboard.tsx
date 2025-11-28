@@ -1,7 +1,6 @@
-
 import React, { useState, useMemo } from 'react';
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption } from '../types';
-import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES } from '../utils';
+import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, formatDate } from '../utils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { getAIAnalysis } from '../services/geminiService';
 
@@ -29,18 +28,19 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   
+  // Modal States
+  const [rebateModalType, setRebateModalType] = useState<'received' | 'pending' | null>(null);
+  const [infoModal, setInfoModal] = useState<{ title: string; content: React.ReactNode } | null>(null);
+  
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [loadingAi, setLoadingAi] = useState(false);
 
   const themeConfig = THEMES[theme];
 
-  // Global Valuation across all currencies using dynamic rates
   const globalValuation = useMemo(() => calculateTotalValuation(items, selectedCurrency, rates), [items, selectedCurrency, rates]);
 
-  // Filter items specifically matching the selected currency for detailed stats
   const currencyItems = useMemo(() => items.filter(i => (i.currency || 'CNY') === selectedCurrency), [items, selectedCurrency]);
   
-  // --- STATS CALCULATION STRATEGY ---
   const stats = useMemo(() => {
       if (timeFilter === 'all') {
           return calculatePortfolioStats(currencyItems);
@@ -62,7 +62,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
     { name: '已完结本金', value: stats.completedPrincipal },
   ].filter(d => d.value > 0);
 
-  // Upcoming
   const upcoming = currencyItems
     .filter(i => {
         if (!i.maturityDate) return false;
@@ -91,8 +90,80 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       }
   };
 
+  // Get items for rebate modal
+  const rebateItems = useMemo(() => {
+      if (!rebateModalType) return [];
+      return currencyItems.filter(i => 
+          i.rebate > 0 && (rebateModalType === 'received' ? i.isRebateReceived : !i.isRebateReceived)
+      ).sort((a, b) => b.rebate - a.rebate);
+  }, [currencyItems, rebateModalType]);
+
+  // Info Content Definitions
+  const showTotalProfitInfo = () => {
+      setInfoModal({
+          title: "总预估收益 (含在途)",
+          content: (
+              <div className="space-y-3 text-sm text-slate-600">
+                  <p>当前所有资产的<strong>历史总回报</strong>，包含账面浮盈和已落袋资金。</p>
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                      <p className="font-mono text-xs text-slate-500 mb-1">计算公式：</p>
+                      <p className="font-bold text-indigo-600">账面未结盈亏 + 累计已结盈亏 + 潜在利息 + 返利 - 费用</p>
+                  </div>
+                  <ul className="list-disc pl-4 space-y-1 text-xs">
+                      <li><strong>固收类：</strong>截止今日的应计利息 + 返利 + 历史派息</li>
+                      <li><strong>浮动类：</strong>(当前市值 - 投入本金) + 历史分红 + 波段操作盈利</li>
+                      <li><strong>扣减项：</strong>所有已发生的交易费用和税费</li>
+                  </ul>
+              </div>
+          )
+      });
+  };
+
+  const showTodayProfitInfo = () => {
+      setInfoModal({
+          title: "今日/昨日预估收益",
+          content: (
+              <div className="space-y-3 text-sm text-slate-600">
+                  <p>仅计算<strong>今天这一天</strong>产生的资产价值变化。</p>
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                      <p className="font-mono text-xs text-slate-500 mb-1">计算逻辑：</p>
+                      <ul className="space-y-1">
+                          <li><span className="font-bold text-blue-600">固收类：</span>本金 × (年化利率% / 365)</li>
+                          <li><span className="font-bold text-emerald-600">浮动类：</span>(当前本金 + 累计盈亏) × 今日涨跌幅%</li>
+                      </ul>
+                  </div>
+                  <p className="text-xs text-orange-500">* 如果今日有费用支出，会直接从今日收益中扣除。</p>
+              </div>
+          )
+      });
+  };
+
+  const showRealizedProfitInfo = () => {
+      setInfoModal({
+          title: "已落袋收益",
+          content: (
+              <div className="space-y-3 text-sm text-slate-600">
+                  <p>真正<strong>“落袋为安”</strong>的现金流收益，不包含账面浮盈。</p>
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                      <p className="font-mono text-xs text-slate-500 mb-1">包含内容：</p>
+                      <ul className="space-y-1 font-medium text-slate-700">
+                          <li>1. 已完结项目的最终净利润</li>
+                          <li>2. 持仓中项目产生的现金流：
+                              <ul className="list-disc pl-4 mt-1 text-xs font-normal text-slate-500">
+                                  <li>已派发的利息/分红</li>
+                                  <li>已确认到账的返利</li>
+                                  <li>减仓操作产生的盈利</li>
+                              </ul>
+                          </li>
+                      </ul>
+                  </div>
+              </div>
+          )
+      });
+  };
+
   return (
-    <div className="space-y-6 animate-fade-in pb-12">
+    <div className="space-y-6 animate-fade-in pb-12 relative">
       {/* Controls */}
       <div className="flex flex-col gap-4 bg-white md:bg-white/80 md:backdrop-blur-md p-4 rounded-3xl shadow-sm border border-white/50 relative md:sticky md:top-2 z-20">
          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
@@ -129,7 +200,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
              </div>
          </div>
          
-         {/* Custom Date Inputs */}
          {showCustomDate && (
               <div className="flex flex-col sm:flex-row items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-fade-in">
                   <span className="text-xs font-bold text-slate-400 uppercase">Range:</span>
@@ -198,14 +268,18 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           )}
         </div>
 
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-indigo-50">
+        {/* 2. 总预估收益 (带说明 Tips) */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-indigo-50 relative cursor-pointer" onClick={showTotalProfitInfo}>
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
             </div>
              <span className="text-xs font-bold bg-indigo-50 text-indigo-500 px-2 py-1 rounded-lg">{timeFilter === 'all' ? 'All Time' : 'Period'}</span>
           </div>
-          <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '总预估收益 (含在途)' : '本期产生收益'}</p>
+          <div className="flex items-center gap-1 group/title">
+              <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '总预估收益 (含在途)' : '本期产生收益'}</p>
+              <svg className="w-4 h-4 text-slate-300 group-hover/title:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          </div>
           <p className="text-xl font-bold text-indigo-600 mt-1 tabular-nums flex flex-col gap-1">
               {formatCurrency(stats.projectedTotalProfit, selectedCurrency)}
               {timeFilter === 'all' && (
@@ -216,28 +290,36 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           </p>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-orange-50">
+        {/* 3. 今日收益 (带说明 Tips) */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-orange-50 cursor-pointer" onClick={showTodayProfitInfo}>
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-orange-50 rounded-2xl text-orange-600">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
             </div>
              <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Today/Est</span>
           </div>
-          <p className="text-slate-500 text-sm font-medium">今日/昨日预估收益</p>
+          <div className="flex items-center gap-1 group/title">
+              <p className="text-slate-500 text-sm font-medium">今日/昨日预估收益</p>
+              <svg className="w-4 h-4 text-slate-300 group-hover/title:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          </div>
           <p className={`text-2xl font-bold mt-1 tabular-nums ${stats.todayEstProfit >= 0 ? 'text-orange-500' : 'text-emerald-500'}`}>
               {stats.todayEstProfit > 0 ? '+' : ''}{formatCurrency(stats.todayEstProfit, selectedCurrency)}
           </p>
           <p className="text-[10px] text-slate-400 mt-1">含基金/股票今日估值及固收日息</p>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-amber-50">
+        {/* 4. 已落袋收益 (带说明 Tips) */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-amber-50 cursor-pointer" onClick={showRealizedProfitInfo}>
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-amber-50 rounded-2xl text-amber-600">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             </div>
              <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
           </div>
-          <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '已落袋收益' : '本期已落袋'}</p>
+          <div className="flex items-center gap-1 group/title">
+              <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '已落袋收益' : '本期已落袋'}</p>
+              <svg className="w-4 h-4 text-slate-300 group-hover/title:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          </div>
           <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.realizedInterest, selectedCurrency)}</p>
         </div>
 
@@ -266,17 +348,29 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                     <span className="font-bold text-xl text-slate-800 font-mono tabular-nums">{formatCurrency(stats.totalRebate, selectedCurrency)}</span>
                  </div>
                  <div className="h-px bg-slate-100 w-full"></div>
-                 <div className="flex justify-between items-center">
+                 
+                 {/* Clickable Row: Received */}
+                 <div 
+                    onClick={() => setRebateModalType('received')}
+                    className="flex justify-between items-center group cursor-pointer p-2 -mx-2 rounded-xl hover:bg-emerald-50 transition-colors"
+                 >
                     <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-emerald-400 ring-4 ring-emerald-50"></div>
-                        <span className="text-slate-600 text-sm">已到账</span>
+                        <div className="w-2 h-2 rounded-full bg-emerald-400 ring-4 ring-emerald-50 group-hover:ring-emerald-200 transition-all"></div>
+                        <span className="text-slate-600 text-sm font-medium">已到账</span>
+                        <svg className="w-3 h-3 text-slate-300 group-hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-all transform -translate-x-2 group-hover:translate-x-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                     </div>
                     <span className="font-semibold text-emerald-600 font-mono tabular-nums">{formatCurrency(stats.receivedRebate, selectedCurrency)}</span>
                  </div>
-                 <div className="flex justify-between items-center">
+
+                 {/* Clickable Row: Pending */}
+                 <div 
+                    onClick={() => setRebateModalType('pending')}
+                    className="flex justify-between items-center group cursor-pointer p-2 -mx-2 rounded-xl hover:bg-amber-50 transition-colors"
+                 >
                     <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-amber-400 ring-4 ring-amber-50"></div>
-                        <span className="text-slate-600 text-sm">待返利</span>
+                        <div className="w-2 h-2 rounded-full bg-amber-400 ring-4 ring-amber-50 group-hover:ring-amber-200 transition-all"></div>
+                        <span className="text-slate-600 text-sm font-medium">待返利</span>
+                        <svg className="w-3 h-3 text-slate-300 group-hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-all transform -translate-x-2 group-hover:translate-x-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                     </div>
                     <span className="font-semibold text-amber-500 font-mono tabular-nums">{formatCurrency(stats.pendingRebate, selectedCurrency)}</span>
                  </div>
@@ -386,6 +480,72 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             )}
         </div>
       </div>
+
+      {/* Rebate Details Modal */}
+      {rebateModalType && (
+          <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setRebateModalType(null)}>
+              <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                  <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                      <div>
+                          <h3 className="text-lg font-bold text-slate-800">
+                              {rebateModalType === 'received' ? '已到账返利明细' : '待返利资产明细'}
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-0.5">Rebate Details</p>
+                      </div>
+                      <button onClick={() => setRebateModalType(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                  </div>
+                  <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-3">
+                      {rebateItems.length === 0 ? (
+                          <div className="py-10 text-center text-slate-400 text-sm flex flex-col items-center gap-2">
+                              <svg className="w-10 h-10 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>
+                              暂无相关记录
+                          </div>
+                      ) : (
+                          rebateItems.map(item => (
+                              <div key={item.id} className="flex justify-between items-center p-3 rounded-2xl bg-slate-50 border border-slate-100">
+                                  <div className="min-w-0">
+                                      <p className="font-bold text-slate-700 text-sm truncate">{item.name}</p>
+                                      <p className="text-xs text-slate-400 mt-0.5">{formatDate(item.depositDate)}</p>
+                                  </div>
+                                  <div className="text-right">
+                                      <p className={`font-bold font-mono text-sm ${rebateModalType === 'received' ? 'text-emerald-600' : 'text-amber-500'}`}>
+                                          +{formatCurrency(item.rebate, item.currency)}
+                                      </p>
+                                      <span className="text-[10px] text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100 shadow-sm">
+                                          {item.type === 'Fixed' ? '固收' : '浮动'}
+                                      </span>
+                                  </div>
+                              </div>
+                          ))
+                      )}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Info Modal */}
+      {infoModal && (
+          <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setInfoModal(null)}>
+              <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in-up relative" onClick={e => e.stopPropagation()}>
+                  <div className="p-6">
+                      <div className="flex justify-between items-start mb-4">
+                          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                              <svg className="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              {infoModal.title}
+                          </h3>
+                          <button onClick={() => setInfoModal(null)} className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-400 transition-colors">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                          </button>
+                      </div>
+                      <div className="bg-white">
+                          {infoModal.content}
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 };

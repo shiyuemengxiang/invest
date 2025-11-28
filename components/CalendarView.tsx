@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { Investment, Currency, ExchangeRates } from '../types';
 import { calculateItemMetrics, formatCurrency, formatPercent, convertCurrency } from '../utils';
@@ -13,12 +12,13 @@ type ViewMode = 'name' | 'profit' | 'yield';
 interface CalendarEvent {
     id: string;
     date: string; // YYYY-MM-DD
-    type: 'deposit' | 'payout' | 'expense' | 'settlement';
+    type: 'deposit' | 'payout' | 'expense' | 'settlement' | 'rebate'; // 新增 rebate 类型
     name: string;
     amount: number; 
     currency: Currency;
     yield?: number; 
     item: Investment;
+    isReceived?: boolean; // 用于返利状态
 }
 
 const CalendarView: React.FC<Props> = ({ items }) => {
@@ -44,20 +44,38 @@ const CalendarView: React.FC<Props> = ({ items }) => {
       items.forEach(item => {
           const metrics = calculateItemMetrics(item);
 
-          // A. Deposit Event
+          // A. Deposit Event (存入) - 使用 totalCost 确保历史记录不消失
           if (item.depositDate) {
+              const depositAmount = item.totalCost > 0 ? item.totalCost : item.principal;
+              if (depositAmount > 0) {
+                  events.push({
+                      id: `${item.id}-dep`,
+                      date: item.depositDate,
+                      type: 'deposit',
+                      name: item.name,
+                      amount: depositAmount, 
+                      currency: item.currency,
+                      item
+                  });
+              }
+          }
+
+          // B. Rebate Event (新增：返利事件)
+          // 默认显示在存入日，如果已到账则显示，未到账也显示（作为预期）
+          if (item.rebate > 0) {
               events.push({
-                  id: `${item.id}-dep`,
-                  date: item.depositDate,
-                  type: 'deposit',
+                  id: `${item.id}-rebate`,
+                  date: item.depositDate, // 返利通常绑定在存入日
+                  type: 'rebate',
                   name: item.name,
-                  amount: item.principal, 
+                  amount: item.rebate,
                   currency: item.currency,
+                  isReceived: item.isRebateReceived, // 传递状态
                   item
               });
           }
 
-          // B. Transaction Events
+          // C. Transaction Events (交易流水)
           let totalNetPayouts = 0; 
           
           if (item.transactions && item.transactions.length > 0) {
@@ -92,11 +110,15 @@ const CalendarView: React.FC<Props> = ({ items }) => {
               });
           }
 
-          // C. Settlement Event
+          // D. Settlement Event (结清/到期)
           const endDate = item.withdrawalDate || item.maturityDate;
           if (endDate) {
-              const residualProfit = metrics.profit - totalNetPayouts;
-              if (Math.abs(residualProfit) > 1 || (totalNetPayouts === 0 && !item.withdrawalDate)) {
+              // 核心修正：剩余收益 = 总收益 - 中途派息 - 返利(因为返利已经单独显示了)
+              const residualProfit = metrics.profit - totalNetPayouts - item.rebate;
+              
+              // 只有当真的有剩余收益（比如利息/价差），或者没有其他流水的纯固收项目时才显示
+              // 避免出现仅有返利的项目在到期日显示金额为0的结算事件
+              if (Math.abs(residualProfit) > 1 || (totalNetPayouts === 0 && item.rebate === 0 && !item.withdrawalDate)) {
                   events.push({
                       id: `${item.id}-end`,
                       date: endDate,
@@ -132,7 +154,8 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                   if (currencyBreakdown[ev.currency]) {
                       currencyBreakdown[ev.currency].deposit += ev.amount;
                   }
-              } else if (ev.type === 'payout' || ev.type === 'settlement') {
+              } else if (ev.type === 'payout' || ev.type === 'settlement' || ev.type === 'rebate') {
+                  // 返利也计入本月收益
                   profitTotal += convertCurrency(ev.amount, ev.currency, selectedCurrency, rates);
                   if (currencyBreakdown[ev.currency]) {
                       currencyBreakdown[ev.currency].profit += ev.amount;
@@ -164,13 +187,16 @@ const CalendarView: React.FC<Props> = ({ items }) => {
 
     if (viewMode === 'profit') {
         if (ev.type === 'expense') return `支: -${formatCurrency(ev.amount, ev.currency)}`;
+        if (ev.type === 'rebate') return `返: +${formatCurrency(ev.amount, ev.currency)}`;
         const prefix = ev.type === 'payout' ? '收' : '结';
         return `${prefix}: ${formatCurrency(ev.amount, ev.currency)}`;
     }
     if (viewMode === 'yield') {
+        if (ev.type === 'rebate') return ev.isReceived ? '返利(已到)' : '返利(待收)';
         return ev.type === 'expense' ? '费率' : `年化: ${formatPercent(ev.yield || 0)}`;
     }
     
+    if (ev.type === 'rebate') return `返利: ${ev.name}`;
     if (ev.type === 'payout') return `派息: ${ev.name}`;
     if (ev.type === 'expense') return `费用: ${ev.name}`;
     return `到期: ${ev.name}`;
@@ -198,9 +224,16 @@ const CalendarView: React.FC<Props> = ({ items }) => {
           <div className="space-y-1 overflow-y-auto max-h-[calc(100%-28px)] no-scrollbar">
             {events.map(ev => {
                 let badgeClass = '';
+                // 样式逻辑
                 if (ev.type === 'deposit') badgeClass = 'bg-emerald-50 border-emerald-100 text-emerald-700';
                 else if (ev.type === 'payout') badgeClass = 'bg-blue-50 border-blue-100 text-blue-700'; 
                 else if (ev.type === 'expense') badgeClass = 'bg-red-50 border-red-100 text-red-700'; 
+                else if (ev.type === 'rebate') {
+                    // 返利：已到账(实心 amber)，未到账(空心 dashed amber)
+                    badgeClass = ev.isReceived 
+                        ? 'bg-amber-100 border-amber-200 text-amber-800' 
+                        : 'bg-amber-50 border-amber-200 text-amber-600 border-dashed';
+                }
                 else badgeClass = 'bg-orange-50 border-orange-100 text-orange-700';
 
                 return (
@@ -259,7 +292,7 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                 <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 relative overflow-hidden group">
                      <p className="text-sm font-bold text-orange-800/70 uppercase tracking-wider">本月净收益 (Net Profit)</p>
                      <p className={`text-2xl font-bold mt-1 tabular-nums font-mono ${monthlyStats.profitTotal >= 0 ? 'text-orange-700' : 'text-slate-600'}`}>{formatCurrency(monthlyStats.profitTotal, selectedCurrency)}</p>
-                     <p className="text-[10px] text-orange-400 mt-0.5">收益 + 派息 - 费用</p>
+                     <p className="text-[10px] text-orange-400 mt-0.5">收益 + 返利 + 派息 - 费用</p>
                      
                      <div className="mt-3 flex gap-3 text-xs text-orange-600/60 font-medium">
                          <span>CNY: {formatCurrency(monthlyStats.currencyBreakdown.CNY.profit, 'CNY')}</span>
@@ -317,6 +350,11 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                                     if (ev.type === 'deposit') { typeLabel = '存入本金'; bgColor = 'bg-emerald-50'; textColor = 'text-emerald-700'; }
                                     else if (ev.type === 'payout') { typeLabel = '派息/分红'; bgColor = 'bg-blue-50'; textColor = 'text-blue-700'; }
                                     else if (ev.type === 'expense') { typeLabel = '费用支出'; bgColor = 'bg-red-50'; textColor = 'text-red-700'; }
+                                    else if (ev.type === 'rebate') {
+                                        typeLabel = ev.isReceived ? '返利(已到)' : '返利(待收)';
+                                        bgColor = ev.isReceived ? 'bg-amber-100' : 'bg-amber-50';
+                                        textColor = 'text-amber-800';
+                                    }
                                     else { typeLabel = '到期/结算'; bgColor = 'bg-orange-50'; textColor = 'text-orange-700'; }
 
                                     return (
