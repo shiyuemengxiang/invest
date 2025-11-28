@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { ExchangeRates, Investment, User, ViewState, ThemeOption, FilterType, ProductTypeFilter, CurrencyFilter, CategoryFilter, SortType } from './types';
 import Dashboard from './components/Dashboard';
@@ -22,7 +21,7 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [rates, setRates] = useState<ExchangeRates>(storageService.getRates());
   const [theme, setTheme] = useState<ThemeOption>('slate');
-  
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
   const [listFilter, setListFilter] = useState<FilterType>('all');
@@ -237,6 +236,7 @@ const App: React.FC = () => {
           setTimeout(() => handleRefreshMarketData(true), 500); 
       }
       setView(targetView);
+      setIsMobileMenuOpen(false);
   };
   
   const themeConfig = THEMES[theme];
@@ -260,78 +260,91 @@ const App: React.FC = () => {
       );
   }
 
-  // --- Components for Navigation ---
-
+  // --- 现代化 PC 端侧边栏 (Modernized DesktopSidebar) ---
   const DesktopSidebar = () => (
-      <div className={`hidden md:flex flex-col w-72 ${themeConfig.sidebar} h-screen sticky top-0 transition-all duration-300 shadow-xl z-50 border-r border-transparent`}>
-          <div className="px-6 py-8">
-              <div className="flex items-center gap-3 mb-10">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-md ${isLightTheme ? 'bg-white text-indigo-600' : 'bg-white/10 text-white border border-white/10'}`}>
-                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+      <div className={`hidden md:flex flex-col w-72 h-[calc(100vh-2rem)] sticky top-4 m-4 rounded-[2rem] shadow-2xl z-50 border border-white/10 transition-all duration-300 overflow-hidden ${themeConfig.sidebar}`}>
+          
+          {/* 1. 顶部 Logo 区域 */}
+          <div className="px-8 pt-10 pb-6">
+              <div className="flex items-center gap-4 mb-8 group cursor-pointer" onClick={() => handleNav('dashboard')}>
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg transform group-hover:rotate-12 transition-transform duration-300 ${isLightTheme ? 'bg-white text-indigo-600' : 'bg-gradient-to-br from-white/20 to-white/5 text-white border border-white/10'}`}>
+                      <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                   </div>
                   <div>
-                      <h1 className={`text-lg font-extrabold tracking-tight leading-tight ${logoTextColor}`}>Smart Ledger</h1>
-                      <p className={`text-[10px] font-semibold tracking-widest uppercase ${logoSubTextColor}`}>Finance</p>
+                      <h1 className={`text-2xl font-black tracking-tight leading-none ${logoTextColor}`}>Smart</h1>
+                      <h1 className={`text-2xl font-black tracking-tight leading-none opacity-80 ${logoTextColor}`}>Ledger</h1>
                   </div>
               </div>
               
+              {/* 2. 醒目的“记一笔”按钮 */}
               <button 
                   onClick={handleAddClick} 
-                  className={`w-full py-3 rounded-xl font-bold shadow-lg transition-all transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2 group ${theme === 'ivory' ? 'bg-slate-900 text-white hover:bg-slate-800' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
+                  className={`w-full py-4 rounded-2xl font-bold shadow-xl shadow-indigo-500/20 transition-all transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-3 group relative overflow-hidden bg-gradient-to-r from-indigo-600 to-violet-600 text-white border border-white/10`}
               >
-                  <div className="bg-indigo-600 rounded-full w-5 h-5 flex items-center justify-center text-white">
-                      <svg className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
+                  <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 blur-md"></div>
+                  <div className="bg-white/20 rounded-full w-6 h-6 flex items-center justify-center text-white relative z-10">
+                      <svg className="w-4 h-4 transition-transform duration-300 group-hover:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
                   </div>
-                  记一笔
+                  <span className="relative z-10 tracking-wide">记一笔</span>
               </button>
           </div>
 
-          <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto">
+          {/* 3. 导航菜单区域 (胶囊式布局) */}
+          <nav className="flex-1 px-4 space-y-2 overflow-y-auto custom-scrollbar py-2">
               {[
-                  { id: 'dashboard', label: '总览 Dashboard', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /> },
+                  { id: 'dashboard', label: '总览 Dashboard', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /> },
                   { id: 'list', label: '明细 Assets', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2-2v12a2 2 0 002 2h10a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /> },
                   { id: 'calendar', label: '日历 Calendar', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /> },
                   { id: 'profile', label: '设置 Settings', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /> },
               ].map(item => {
                   const isActive = view === item.id;
-                  // Dynamic class for active state based on theme lightness
+                  
                   const activeClass = isLightTheme 
-                      ? 'bg-white shadow-sm text-indigo-600' 
-                      : 'bg-white/10 text-white shadow-inner border border-white/5';
+                      ? 'bg-slate-900 text-white shadow-lg translate-x-2' 
+                      : 'bg-white text-slate-900 shadow-lg shadow-white/10 translate-x-2';
                   
                   const hoverClass = isLightTheme 
-                      ? 'hover:bg-slate-200/50 hover:text-slate-800' 
-                      : 'hover:bg-white/5 hover:text-white';
+                      ? 'hover:bg-slate-200/60 hover:pl-6' 
+                      : 'hover:bg-white/10 hover:pl-6';
 
-                  const textInactive = isLightTheme ? 'text-slate-500' : 'text-slate-300';
+                  const textInactive = isLightTheme ? 'text-slate-500 font-medium' : 'text-slate-400 font-medium';
 
                   return (
                       <button 
                           key={item.id}
                           onClick={() => handleNav(item.id as ViewState)} 
-                          className={`w-full text-left px-4 py-3 rounded-xl transition-all duration-200 flex items-center gap-3.5 group ${isActive ? activeClass : `${textInactive} ${hoverClass}`}`}
+                          className={`w-full text-left px-5 py-3.5 rounded-2xl transition-all duration-300 ease-out flex items-center gap-4 group relative overflow-hidden ${isActive ? activeClass : `${textInactive} ${hoverClass}`}`}
                       >
-                          <svg className={`w-5 h-5 ${isActive ? 'text-current' : navIconColor}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">{item.icon}</svg>
-                          <span className={`text-sm font-medium`}>{item.label}</span>
+                          <svg className={`w-5 h-5 transition-colors ${isActive ? 'text-current' : navIconColor} group-hover:scale-110`} fill="none" viewBox="0 0 24 24" stroke="currentColor">{item.icon}</svg>
+                          <span className={`text-sm tracking-wide ${isActive ? 'font-bold' : ''}`}>{item.label}</span>
+                          {isActive && <div className="absolute right-4 w-1.5 h-1.5 rounded-full bg-current animate-pulse"></div>}
                       </button>
                   );
               })}
           </nav>
 
-          {/* User Snippet */}
-          <div className="p-4 mt-auto">
-              <div className={`${profileBg} backdrop-blur-sm rounded-2xl p-3 flex items-center gap-3 transition hover:shadow-md cursor-pointer`} onClick={() => handleNav('profile')}>
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white shadow-sm shrink-0 overflow-hidden border border-white/20">
-                      {user?.preferences?.avatar ? (
-                          <img src={user.preferences.avatar} alt="Avatar" className="w-full h-full object-cover" />
-                      ) : (
-                          <span>{user ? (user.preferences?.nickname?.[0] || user.email[0]).toUpperCase() : 'G'}</span>
-                      )}
+          {/* 4. 底部用户卡片 */}
+          <div className="p-6 mt-auto">
+              <div 
+                className={`relative rounded-3xl p-4 flex items-center gap-4 transition-all duration-300 group cursor-pointer border ${isLightTheme ? 'bg-white/60 border-slate-200 hover:bg-white hover:shadow-xl hover:-translate-y-1' : 'bg-white/5 border-white/5 hover:bg-white/10 hover:shadow-lg hover:shadow-black/20 hover:-translate-y-1'}`} 
+                onClick={() => handleNav('profile')}
+              >
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-500 p-[2px] shadow-sm shrink-0">
+                      <div className="w-full h-full rounded-[14px] overflow-hidden bg-white">
+                        {user?.preferences?.avatar ? (
+                            <img src={user.preferences.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-slate-100 text-slate-600 font-bold">
+                                {user ? (user.preferences?.nickname?.[0] || user.email[0]).toUpperCase() : 'G'}
+                            </div>
+                        )}
+                      </div>
                   </div>
                   <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-bold truncate ${profileTextMain}`}>{user ? (user.preferences?.nickname || user.email.split('@')[0]) : 'Guest User'}</p>
-                      <button onClick={(e) => { e.stopPropagation(); user ? handleLogout() : setView('auth'); }} className={`text-[10px] font-medium transition text-left ${profileTextSub}`}>
-                          {user ? 'Sign Out' : 'Sign In / Sync'}
+                      <p className={`text-sm font-bold truncate ${profileTextMain}`}>{user ? (user.preferences?.nickname || user.email.split('@')[0]) : '访客用户'}</p>
+                      <button onClick={(e) => { e.stopPropagation(); user ? handleLogout() : setView('auth'); }} className={`text-xs font-semibold mt-0.5 flex items-center gap-1 transition-colors ${isLightTheme ? 'text-indigo-500 group-hover:text-indigo-600' : 'text-indigo-300 group-hover:text-white'}`}>
+                          {user ? '点击退出' : '登录同步'}
+                          <svg className="w-3 h-3 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
                       </button>
                   </div>
               </div>
@@ -433,9 +446,9 @@ const App: React.FC = () => {
                  <div className="w-full max-w-2xl relative" onClick={e => e.stopPropagation()}>
                      <button 
                         onClick={() => setIsFormOpen(false)}
-                        className="absolute -top-12 right-0 md:-right-12 p-2 text-white/80 hover:text-white transition bg-white/10 rounded-full backdrop-blur-md"
+                        className="absolute -top-10 right-0 md:-right-10 p-2 text-white/80 hover:text-white transition"
                      >
-                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                         <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                      </button>
                      <InvestmentForm 
                         onSave={handleSaveItem} 
