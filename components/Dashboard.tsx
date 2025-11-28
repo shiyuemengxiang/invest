@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, CATEGORY_LABELS } from '../types';
-import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, calculateDailyReturn, formatDate } from '../utils';
+import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, calculateDailyReturn, formatDate, MS_PER_DAY } from '../utils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from 'recharts';
 import { getAIAnalysis } from '../services/geminiService';
 
@@ -96,7 +96,6 @@ const MetricCard: React.FC<MetricCardProps> = ({
                             </div>
                         </div>
                         
-                        {/* 修复：增加底部 padding (pb-3) 防止文字贴边 */}
                         <div className="mt-auto pt-3 border-t border-slate-50 space-y-2.5 pb-3">
                             {breakdownList.map((item, idx) => (
                                 <div key={idx} className="flex justify-between items-center text-xs">
@@ -180,6 +179,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
 
   const currencyItems = useMemo(() => items.filter(i => (i.currency || 'CNY') === selectedCurrency), [items, selectedCurrency]);
   
+  // Calculate main stats based on time filter
   const stats = useMemo(() => {
       if (timeFilter === 'all') {
           return calculatePortfolioStats(currencyItems);
@@ -189,7 +189,9 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       }
   }, [currencyItems, timeFilter, customStart, customEnd]);
 
-  // Breakdown Data Calculation
+  // --- Breakdown Data Calculation ---
+
+  // 1. Total Projected Profit Breakdown & Category Data (Corrected for Time Filter)
   const { totalBreakdownList, totalCategoryData } = useMemo(() => {
       const list = [
           { label: '持仓浮盈/利息', value: stats.projectedTotalProfit - stats.realizedInterest - stats.totalRebate, color: 'bg-blue-400' },
@@ -198,11 +200,55 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       ];
 
       const catMap: Record<string, number> = {};
+      const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
+
       currencyItems.forEach(item => {
-          const m = calculateItemMetrics(item);
           let p = 0;
-          if (!m.isCompleted && !m.isPending && item.type === 'Fixed') p = m.accruedReturn + item.rebate + item.totalRealizedProfit;
-          else p = m.profit;
+          if (timeFilter === 'all') {
+              // All time logic
+              const m = calculateItemMetrics(item);
+              if (!m.isCompleted && !m.isPending && item.type === 'Fixed') p = m.accruedReturn + item.rebate + item.totalRealizedProfit;
+              else p = m.profit;
+          } else {
+              // Period logic (Replicate calculatePeriodStats logic for categories)
+              const depositDate = new Date(item.depositDate);
+              const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
+              
+              // Skip if completely out of range
+              if (depositDate > end) return;
+              if (withdrawalDate && withdrawalDate < start) return;
+
+              const overlapStart = depositDate > start ? depositDate : start;
+              const itemEnd = withdrawalDate || item.maturityDate ? new Date(item.maturityDate) : null || end;
+              const overlapEnd = itemEnd < end ? itemEnd : end;
+              
+              let overlapDays = 0;
+              if (overlapEnd > overlapStart) {
+                  overlapDays = (overlapEnd.getTime() - overlapStart.getTime()) / MS_PER_DAY;
+              }
+
+              // Fixed Interest
+              if (item.type === 'Fixed' && item.expectedRate) {
+                  const basis = Number(item.interestBasis || 365);
+                  p += item.currentPrincipal * (item.expectedRate / 100) * (overlapDays / basis);
+              }
+              
+              // Rebate
+              if (depositDate >= start && depositDate <= end) {
+                  p += item.rebate;
+              }
+
+              // Transactions
+              if (item.transactions) {
+                  item.transactions.forEach(tx => {
+                      const d = new Date(tx.date);
+                      if (d >= start && d <= end) {
+                          if (tx.type === 'Dividend' || tx.type === 'Interest') p += tx.amount;
+                          else if (tx.type === 'Fee' || tx.type === 'Tax') p -= tx.amount;
+                      }
+                  });
+              }
+          }
           
           if (Math.abs(p) > 0.01) {
               const name = CATEGORY_LABELS[item.category];
@@ -212,8 +258,9 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
 
       return { totalBreakdownList: list, totalCategoryData: chart };
-  }, [stats, currencyItems]);
+  }, [stats, currencyItems, timeFilter, customStart, customEnd]);
 
+  // 2. Today Profit Breakdown (Always Today)
   const { todayBreakdownList, todayCategoryData } = useMemo(() => {
       let fixedDaily = 0;
       let floatingDaily = 0;
@@ -239,21 +286,48 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       return { todayBreakdownList: list, todayCategoryData: chart };
   }, [currencyItems]);
 
+  // 3. Realized Profit Breakdown (Corrected for Time Filter)
   const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
       let completedNet = 0;
       let txRealized = 0;
       const catMap: Record<string, number> = {};
+      const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
 
       currencyItems.forEach(item => {
-          const m = calculateItemMetrics(item);
           let itemRealized = 0;
           
-          if (m.isCompleted) {
-              itemRealized = m.baseInterest;
-              completedNet += itemRealized;
+          if (timeFilter === 'all') {
+              const m = calculateItemMetrics(item);
+              if (m.isCompleted) {
+                  itemRealized = m.baseInterest;
+                  completedNet += itemRealized;
+              } else {
+                  itemRealized = item.totalRealizedProfit;
+                  txRealized += itemRealized;
+              }
           } else {
-              itemRealized = item.totalRealizedProfit;
-              txRealized += itemRealized;
+              // Period Logic
+              // 1. Transactions in period
+              if (item.transactions) {
+                  item.transactions.forEach(tx => {
+                      const d = new Date(tx.date);
+                      if (d >= start && d <= end) {
+                          if (tx.type === 'Dividend' || tx.type === 'Interest') {
+                              itemRealized += tx.amount;
+                              txRealized += tx.amount;
+                          } else if (tx.type === 'Fee' || tx.type === 'Tax') {
+                              itemRealized -= tx.amount;
+                              txRealized -= tx.amount;
+                          }
+                      }
+                  });
+              }
+              // 2. Rebate in period
+              const depositDate = new Date(item.depositDate);
+              if (depositDate >= start && depositDate <= end && item.isRebateReceived) {
+                  itemRealized += item.rebate;
+                  // Rebate usually counts towards realized if received
+              }
           }
           
           if (Math.abs(itemRealized) > 0.01) {
@@ -271,7 +345,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
 
       return { realizedBreakdownList: list, realizedCategoryData: chart };
-  }, [currencyItems, stats]);
+  }, [currencyItems, stats, timeFilter, customStart, customEnd]);
 
   const handleAIAnalysis = async () => {
     setLoadingAi(true);
@@ -322,7 +396,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   const safeFormatDate = (dateStr: string) => {
       if (!dateStr) return '-';
       const d = new Date(dateStr);
-      // 核心修复：检查日期是否合法，防止 Invalid Date 导致 crash
+      // 核心修复：防止非法日期导致页面白屏
       return !isNaN(d.getTime()) ? formatDate(dateStr) : '-';
   };
 
