@@ -361,4 +361,168 @@ const App: React.FC = () => {
           {/* 4. 底部用户卡片 */}
           <div className={`p-6 mt-auto ${isSidebarCollapsed ? 'px-2 flex justify-center' : ''}`}>
               <div 
-                className={`relative rounded-3xl p-3 flex items-center transition-all duration-300 group cursor-pointer border ${isSidebarCollapsed ? 'justify-center bg-transparent border-transparent' : `gap-3 ${isLightTheme ? 'bg-white/60 border-slate-200 hover:bg-white hover:shadow-xl hover:-translate-y-1' : 'bg-white/5 border
+                className={`relative rounded-3xl p-3 flex items-center transition-all duration-300 group cursor-pointer border ${isSidebarCollapsed ? 'justify-center bg-transparent border-transparent' : `gap-3 ${isLightTheme ? 'bg-white/60 border-slate-200 hover:bg-white hover:shadow-xl hover:-translate-y-1' : 'bg-white/5 border-white/5 hover:bg-white/10 hover:shadow-lg hover:shadow-black/20 hover:-translate-y-1'}`}`} 
+                onClick={() => handleNav('profile')}
+                title={user ? (user.preferences?.nickname || user.email) : '访客用户'}
+              >
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-500 p-[2px] shadow-sm shrink-0">
+                      <div className="w-full h-full rounded-[14px] overflow-hidden bg-white flex items-center justify-center">
+                        {user?.preferences?.avatar ? (
+                            <img src={user.preferences.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-slate-100 text-slate-600 font-bold text-xs">
+                                {user ? (user.preferences?.nickname?.[0] || user.email[0]).toUpperCase() : 'G'}
+                            </div>
+                        )}
+                      </div>
+                  </div>
+                  
+                  {!isSidebarCollapsed && (
+                      <div className="flex-1 min-w-0 animate-fade-in">
+                          <p className={`text-sm font-bold truncate ${profileTextMain}`}>
+                              {user ? (user.preferences?.nickname || maskEmail(user.email)) : '访客用户'}
+                          </p>
+                          
+                          <button onClick={(e) => { e.stopPropagation(); user ? handleLogout() : setView('auth'); }} className={`text-[10px] font-semibold mt-0.5 flex items-center gap-1 transition-colors ${isLightTheme ? 'text-indigo-500 group-hover:text-indigo-600' : 'text-indigo-300 group-hover:text-white'}`}>
+                              {user ? '点击退出' : '登录同步'}
+                              <svg className="w-3 h-3 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+                          </button>
+                      </div>
+                  )}
+              </div>
+          </div>
+      </div>
+      );
+  };
+
+  // --- 移动端顶部导航 (已添加登录按钮) ---
+  const MobileTopHeader = () => (
+      <div className="md:hidden px-6 pt-10 pb-2 flex justify-between items-end bg-slate-50 sticky top-0 z-40 border-b border-slate-100">
+         <div>
+             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Smart Ledger</h1>
+             <p className="text-xs text-slate-400">{user ? 'Cloud Sync Active' : 'Local Mode'}</p>
+         </div>
+         
+         {user ? (
+             // 已登录：显示头像
+             <div className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-sm font-bold text-indigo-700 shadow-sm overflow-hidden" onClick={() => handleNav('profile')}>
+                 {user?.preferences?.avatar ? (
+                     <img src={user.preferences.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                 ) : (
+                     <span>{(user?.preferences?.nickname?.[0] || user.email[0]).toUpperCase()}</span>
+                 )}
+             </div>
+         ) : (
+             // 未登录：显示醒目的登录按钮
+             <button 
+                onClick={() => setView('auth')}
+                className="px-4 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-full shadow-md active:scale-95 transition-transform"
+             >
+                登录 / 同步
+             </button>
+         )}
+     </div>
+  );
+
+  // --- 移动端底部导航 ---
+  const MobileBottomNav = () => (
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-slate-200 px-6 py-2 z-50 safe-area-pb flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+          {[
+              { id: 'dashboard', label: '总览', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
+              { id: 'list', label: '明细', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2-2v12a2 2 0 002 2h10a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /> },
+              { id: 'add', label: '记一笔', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />, isAction: true },
+              { id: 'calendar', label: '日历', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /> },
+              { id: 'profile', label: '我的', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /> },
+          ].map(item => {
+              if (item.isAction) {
+                  return (
+                      <button 
+                          key={item.id}
+                          onClick={handleAddClick}
+                          className="relative -top-6 bg-slate-900 text-white p-4 rounded-full shadow-lg shadow-slate-900/30 transition transform active:scale-90 flex items-center justify-center border-4 border-slate-50"
+                      >
+                          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">{item.icon}</svg>
+                      </button>
+                  );
+              }
+              const isActive = view === item.id;
+              return (
+                  <button 
+                      key={item.id}
+                      onClick={() => handleNav(item.id as ViewState)} 
+                      className={`flex flex-col items-center gap-1 p-2 transition-colors ${isActive ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
+                  >
+                      <svg className={`w-6 h-6 ${isActive ? 'fill-slate-100' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">{item.icon}</svg>
+                      <span className={`text-[10px] font-medium ${isActive ? 'font-bold' : ''}`}>{item.label}</span>
+                  </button>
+              );
+          })}
+      </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans overflow-hidden md:overflow-visible">
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      
+      {/* --- Desktop Sidebar --- */}
+      <DesktopSidebar />
+
+      {/* --- Main Content Area --- */}
+      <div className="flex-1 flex flex-col md:overflow-y-auto md:min-h-screen relative pb-24 md:pb-0">
+         
+         {/* Mobile Top Header (独立组件化) */}
+         <MobileTopHeader />
+
+         <div className="p-4 md:p-10 max-w-7xl mx-auto w-full">
+            {view === 'dashboard' && <Dashboard items={items} rates={rates} theme={theme} />}
+            
+            <div style={{ display: view === 'list' ? 'block' : 'none' }}>
+                <InvestmentList 
+                    items={items} 
+                    onDelete={handleDelete} 
+                    onEdit={handleEditClick} 
+                    onReorder={handleReorder} 
+                    onRefreshMarket={() => handleRefreshMarketData(false)} 
+                    filter={listFilter} setFilter={setListFilter}
+                    productFilter={listProductFilter} setProductFilter={setListProductFilter}
+                    currencyFilter={listCurrencyFilter} setCurrencyFilter={setListCurrencyFilter}
+                    categoryFilter={listCategoryFilter} setCategoryFilter={setListCategoryFilter}
+                    sortType={listSortType} setSortType={setListSortType}
+                    showCustomDate={listShowCustomDate} setShowCustomDate={setListShowCustomDate}
+                    customStart={listCustomStart} setCustomStart={setListCustomStart}
+                    customEnd={listCustomEnd} setCustomEnd={setListCustomEnd}
+                />
+            </div>
+
+            {view === 'calendar' && <CalendarView items={items} />}
+            {view === 'profile' && <Profile user={user} rates={rates} currentTheme={theme} onSaveRates={handleRatesChange} onSaveTheme={handleThemeChange} onSaveProfile={handleProfileUpdate} onLogout={handleLogout} onNotify={showToast} />}
+         </div>
+
+         {/* --- Mobile Bottom Nav --- */}
+         <MobileBottomNav />
+
+         {/* Modal Layer for Add/Edit Form */}
+         {isFormOpen && (
+             <div className="fixed inset-0 z-[100] overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 animate-fade-in">
+                 <div className="w-full max-w-2xl relative" onClick={e => e.stopPropagation()}>
+                     <button 
+                        onClick={() => setIsFormOpen(false)}
+                        className="absolute -top-10 right-0 md:-right-10 p-2 text-white/80 hover:text-white transition"
+                     >
+                         <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                     </button>
+                     <InvestmentForm 
+                        onSave={handleSaveItem} 
+                        onCancel={() => setIsFormOpen(false)} 
+                        initialData={editingItem} 
+                        onNotify={showToast} 
+                     />
+                 </div>
+             </div>
+         )}
+      </div>
+    </div>
+  );
+};
+
+export default App;
