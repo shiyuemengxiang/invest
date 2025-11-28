@@ -24,6 +24,9 @@ const App: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
+  // Sidebar Collapse State
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   const [listFilter, setListFilter] = useState<FilterType>('all');
   const [listProductFilter, setListProductFilter] = useState<ProductTypeFilter>('all');
   const [listCurrencyFilter, setListCurrencyFilter] = useState<CurrencyFilter>('all');
@@ -239,11 +242,18 @@ const App: React.FC = () => {
       setIsMobileMenuOpen(false);
   };
   
+  // 邮箱脱敏函数
+  const maskEmail = (email: string) => {
+      if (!email) return '';
+      const [name, domain] = email.split('@');
+      if (!name || !domain) return email;
+      const maskedName = name.length > 2 ? `${name.slice(0, 2)}***` : `${name}***`;
+      return `${maskedName}@${domain}`;
+  };
+
   const themeConfig = THEMES[theme];
-  // Determine if theme is light based on background conventions
   const isLightTheme = ['lavender', 'mint', 'sky', 'sakura', 'ivory'].includes(theme);
   
-  // Dynamic text classes for contrast
   const logoTextColor = isLightTheme ? 'text-slate-800' : 'text-white';
   const logoSubTextColor = isLightTheme ? 'text-slate-500' : 'text-white/50';
   const navIconColor = isLightTheme ? 'text-slate-500' : 'text-white/60';
@@ -260,37 +270,57 @@ const App: React.FC = () => {
       );
   }
 
-  // --- 现代化 PC 端侧边栏 (Modernized DesktopSidebar) ---
-  const DesktopSidebar = () => (
-      <div className={`hidden md:flex flex-col w-72 h-[calc(100vh-2rem)] sticky top-4 m-4 rounded-[2rem] shadow-2xl z-50 border border-white/10 transition-all duration-300 overflow-hidden ${themeConfig.sidebar}`}>
+  // --- PC 端侧边栏 (支持折叠 + 皮肤跟随 + 隐私保护) ---
+  const DesktopSidebar = () => {
+      const sidebarWidth = isSidebarCollapsed ? 'w-24' : 'w-72';
+      
+      return (
+      <div className={`hidden md:flex flex-col ${sidebarWidth} h-[calc(100vh-2rem)] sticky top-4 m-4 rounded-[2.5rem] shadow-2xl z-50 border border-white/10 transition-all duration-300 overflow-hidden ${themeConfig.sidebar}`}>
           
-          {/* 1. 顶部 Logo 区域 */}
-          <div className="px-8 pt-10 pb-6">
-              <div className="flex items-center gap-4 mb-8 group cursor-pointer" onClick={() => handleNav('dashboard')}>
+          {/* 1. 顶部区域：折叠按钮 + Logo */}
+          <div className={`pt-8 pb-6 flex flex-col ${isSidebarCollapsed ? 'items-center px-0' : 'px-8'}`}>
+              
+              {/* 折叠切换按钮 (右上角或居中) */}
+              <button 
+                  onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                  className={`mb-6 p-2 rounded-xl transition-colors ${isLightTheme ? 'bg-white/50 hover:bg-white text-slate-500' : 'bg-white/10 hover:bg-white/20 text-white/70'} ${!isSidebarCollapsed ? 'self-end' : ''}`}
+                  title={isSidebarCollapsed ? "展开菜单" : "收起菜单"}
+              >
+                  {isSidebarCollapsed ? (
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
+                  ) : (
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
+                  )}
+              </button>
+
+              <div className={`flex items-center gap-4 group cursor-pointer ${isSidebarCollapsed ? 'flex-col justify-center' : ''}`} onClick={() => handleNav('dashboard')}>
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg transform group-hover:rotate-12 transition-transform duration-300 ${isLightTheme ? 'bg-white text-indigo-600' : 'bg-gradient-to-br from-white/20 to-white/5 text-white border border-white/10'}`}>
                       <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                   </div>
-                  <div>
-                      <h1 className={`text-2xl font-black tracking-tight leading-none ${logoTextColor}`}>Smart</h1>
-                      <h1 className={`text-2xl font-black tracking-tight leading-none opacity-80 ${logoTextColor}`}>Ledger</h1>
-                  </div>
+                  {!isSidebarCollapsed && (
+                      <div className="animate-fade-in">
+                          <h1 className={`text-2xl font-black tracking-tight leading-none ${logoTextColor}`}>Smart</h1>
+                          <h1 className={`text-2xl font-black tracking-tight leading-none opacity-80 ${logoTextColor}`}>Ledger</h1>
+                      </div>
+                  )}
               </div>
               
-              {/* 2. 醒目的“记一笔”按钮 */}
+              {/* 2. 记一笔按钮 (颜色跟随皮肤主题 Accent) */}
               <button 
                   onClick={handleAddClick} 
-                  className={`w-full py-4 rounded-2xl font-bold shadow-xl shadow-indigo-500/20 transition-all transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-3 group relative overflow-hidden bg-gradient-to-r from-indigo-600 to-violet-600 text-white border border-white/10`}
+                  className={`mt-8 py-4 rounded-2xl font-bold shadow-xl shadow-black/10 transition-all transform hover:scale-[1.02] active:scale-95 flex items-center justify-center group relative overflow-hidden bg-gradient-to-r ${themeConfig.accent} text-white border border-white/10 ${isSidebarCollapsed ? 'w-12 h-12 p-0' : 'w-full gap-3'}`}
+                  title="记一笔"
               >
                   <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 blur-md"></div>
                   <div className="bg-white/20 rounded-full w-6 h-6 flex items-center justify-center text-white relative z-10">
                       <svg className="w-4 h-4 transition-transform duration-300 group-hover:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
                   </div>
-                  <span className="relative z-10 tracking-wide">记一笔</span>
+                  {!isSidebarCollapsed && <span className="relative z-10 tracking-wide animate-fade-in">记一笔</span>}
               </button>
           </div>
 
-          {/* 3. 导航菜单区域 (胶囊式布局) */}
-          <nav className="flex-1 px-4 space-y-2 overflow-y-auto custom-scrollbar py-2">
+          {/* 3. 导航菜单区域 */}
+          <nav className={`flex-1 space-y-2 overflow-y-auto custom-scrollbar py-2 ${isSidebarCollapsed ? 'px-2' : 'px-4'}`}>
               {[
                   { id: 'dashboard', label: '总览 Dashboard', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /> },
                   { id: 'list', label: '明细 Assets', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2-2v12a2 2 0 002 2h10a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /> },
@@ -299,13 +329,19 @@ const App: React.FC = () => {
               ].map(item => {
                   const isActive = view === item.id;
                   
+                  // 适配深浅色模式的选中态
                   const activeClass = isLightTheme 
-                      ? 'bg-slate-900 text-white shadow-lg translate-x-2' 
-                      : 'bg-white text-slate-900 shadow-lg shadow-white/10 translate-x-2';
+                      ? 'bg-slate-900 text-white shadow-lg' 
+                      : 'bg-white text-slate-900 shadow-lg shadow-white/10';
+                  
+                  // 选中时文字右移，悬停时文字右移
+                  const translateClass = !isSidebarCollapsed ? 'translate-x-2' : '';
                   
                   const hoverClass = isLightTheme 
-                      ? 'hover:bg-slate-200/60 hover:pl-6' 
-                      : 'hover:bg-white/10 hover:pl-6';
+                      ? 'hover:bg-slate-200/60' 
+                      : 'hover:bg-white/10';
+                  
+                  const hoverPadding = !isSidebarCollapsed ? 'hover:pl-6' : '';
 
                   const textInactive = isLightTheme ? 'text-slate-500 font-medium' : 'text-slate-400 font-medium';
 
@@ -313,44 +349,59 @@ const App: React.FC = () => {
                       <button 
                           key={item.id}
                           onClick={() => handleNav(item.id as ViewState)} 
-                          className={`w-full text-left px-5 py-3.5 rounded-2xl transition-all duration-300 ease-out flex items-center gap-4 group relative overflow-hidden ${isActive ? activeClass : `${textInactive} ${hoverClass}`}`}
+                          className={`w-full text-left py-3.5 rounded-2xl transition-all duration-300 ease-out flex items-center group relative overflow-hidden ${isSidebarCollapsed ? 'justify-center px-0' : 'px-5 gap-4'} ${isActive ? `${activeClass} ${translateClass}` : `${textInactive} ${hoverClass} ${hoverPadding}`}`}
+                          title={isSidebarCollapsed ? item.label : ''}
                       >
                           <svg className={`w-5 h-5 transition-colors ${isActive ? 'text-current' : navIconColor} group-hover:scale-110`} fill="none" viewBox="0 0 24 24" stroke="currentColor">{item.icon}</svg>
-                          <span className={`text-sm tracking-wide ${isActive ? 'font-bold' : ''}`}>{item.label}</span>
-                          {isActive && <div className="absolute right-4 w-1.5 h-1.5 rounded-full bg-current animate-pulse"></div>}
+                          {!isSidebarCollapsed && (
+                              <>
+                                <span className={`text-sm tracking-wide truncate ${isActive ? 'font-bold' : ''}`}>{item.label}</span>
+                                {isActive && <div className="absolute right-4 w-1.5 h-1.5 rounded-full bg-current animate-pulse"></div>}
+                              </>
+                          )}
                       </button>
                   );
               })}
           </nav>
 
-          {/* 4. 底部用户卡片 */}
-          <div className="p-6 mt-auto">
+          {/* 4. 底部用户卡片 (同步数据库昵称/头像 + 邮箱脱敏) */}
+          <div className={`p-6 mt-auto ${isSidebarCollapsed ? 'px-2 flex justify-center' : ''}`}>
               <div 
-                className={`relative rounded-3xl p-4 flex items-center gap-4 transition-all duration-300 group cursor-pointer border ${isLightTheme ? 'bg-white/60 border-slate-200 hover:bg-white hover:shadow-xl hover:-translate-y-1' : 'bg-white/5 border-white/5 hover:bg-white/10 hover:shadow-lg hover:shadow-black/20 hover:-translate-y-1'}`} 
+                className={`relative rounded-3xl p-3 flex items-center transition-all duration-300 group cursor-pointer border ${isSidebarCollapsed ? 'justify-center bg-transparent border-transparent' : `gap-3 ${isLightTheme ? 'bg-white/60 border-slate-200 hover:bg-white hover:shadow-xl hover:-translate-y-1' : 'bg-white/5 border-white/5 hover:bg-white/10 hover:shadow-lg hover:shadow-black/20 hover:-translate-y-1'}`}`} 
                 onClick={() => handleNav('profile')}
+                title={user ? (user.preferences?.nickname || user.email) : '访客用户'}
               >
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-500 p-[2px] shadow-sm shrink-0">
-                      <div className="w-full h-full rounded-[14px] overflow-hidden bg-white">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-500 p-[2px] shadow-sm shrink-0">
+                      <div className="w-full h-full rounded-[14px] overflow-hidden bg-white flex items-center justify-center">
                         {user?.preferences?.avatar ? (
                             <img src={user.preferences.avatar} alt="Avatar" className="w-full h-full object-cover" />
                         ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-slate-100 text-slate-600 font-bold">
+                            <div className="w-full h-full flex items-center justify-center bg-slate-100 text-slate-600 font-bold text-xs">
                                 {user ? (user.preferences?.nickname?.[0] || user.email[0]).toUpperCase() : 'G'}
                             </div>
                         )}
                       </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-bold truncate ${profileTextMain}`}>{user ? (user.preferences?.nickname || user.email.split('@')[0]) : '访客用户'}</p>
-                      <button onClick={(e) => { e.stopPropagation(); user ? handleLogout() : setView('auth'); }} className={`text-xs font-semibold mt-0.5 flex items-center gap-1 transition-colors ${isLightTheme ? 'text-indigo-500 group-hover:text-indigo-600' : 'text-indigo-300 group-hover:text-white'}`}>
-                          {user ? '点击退出' : '登录同步'}
-                          <svg className="w-3 h-3 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
-                      </button>
-                  </div>
+                  
+                  {!isSidebarCollapsed && (
+                      <div className="flex-1 min-w-0 animate-fade-in">
+                          {/* 优先显示昵称，没有则显示脱敏邮箱 */}
+                          <p className={`text-sm font-bold truncate ${profileTextMain}`}>
+                              {user ? (user.preferences?.nickname || maskEmail(user.email)) : '访客用户'}
+                          </p>
+                          
+                          {/* 退出登录按钮 */}
+                          <button onClick={(e) => { e.stopPropagation(); user ? handleLogout() : setView('auth'); }} className={`text-[10px] font-semibold mt-0.5 flex items-center gap-1 transition-colors ${isLightTheme ? 'text-indigo-500 group-hover:text-indigo-600' : 'text-indigo-300 group-hover:text-white'}`}>
+                              {user ? '点击退出' : '登录同步'}
+                              <svg className="w-3 h-3 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+                          </button>
+                      </div>
+                  )}
               </div>
           </div>
       </div>
-  );
+      );
+  };
 
   const MobileBottomNav = () => (
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-slate-200 px-6 py-2 z-50 safe-area-pb flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
@@ -391,7 +442,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans overflow-hidden md:overflow-visible">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       
-      {/* --- Desktop Sidebar --- */}
+      {/* --- Desktop Sidebar (Enhanced) --- */}
       <DesktopSidebar />
 
       {/* --- Main Content Area --- */}
@@ -421,7 +472,6 @@ const App: React.FC = () => {
                     onEdit={handleEditClick} 
                     onReorder={handleReorder} 
                     onRefreshMarket={() => handleRefreshMarketData(false)} 
-                    // Pass persisted filter state
                     filter={listFilter} setFilter={setListFilter}
                     productFilter={listProductFilter} setProductFilter={setListProductFilter}
                     currencyFilter={listCurrencyFilter} setCurrencyFilter={setListCurrencyFilter}
@@ -446,9 +496,9 @@ const App: React.FC = () => {
                  <div className="w-full max-w-2xl relative" onClick={e => e.stopPropagation()}>
                      <button 
                         onClick={() => setIsFormOpen(false)}
-                        className="absolute -top-10 right-0 md:-right-10 p-2 text-white/80 hover:text-white transition"
+                        className="absolute -top-12 right-0 md:-right-12 p-2 text-white/80 hover:text-white transition bg-white/10 rounded-full backdrop-blur-md"
                      >
-                         <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                      </button>
                      <InvestmentForm 
                         onSave={handleSaveItem} 
