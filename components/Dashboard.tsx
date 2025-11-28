@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, CATEGORY_LABELS, InvestmentCategory } from '../types';
-import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, calculateDailyReturn } from '../utils';
+import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, CATEGORY_LABELS } from '../types';
+import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, calculateDailyReturn, formatDate } from '../utils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from 'recharts';
 import { getAIAnalysis } from '../services/geminiService';
 
@@ -10,44 +10,36 @@ interface Props {
   theme: ThemeOption;
 }
 
-// 扩展配色池
 const COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#f43f5e', '#06b6d4', '#84cc16', '#6366f1'];
 
-// ---------------------------
-// 内部组件: 可切换的指标卡片
-// ---------------------------
 interface MetricCardProps {
     title: string;
     mainValue: number;
-    subValue?: string; // e.g. yield or percentage
+    subValue?: string;
     currency: Currency;
-    breakdownList: { label: string; value: number; color?: string }[]; // 列表视图数据 (明细求和)
-    categoryData: { name: string; value: number }[]; // 图表视图数据 (资产分类)
+    breakdownList: { label: string; value: number; color?: string }[];
+    categoryData: { name: string; value: number }[];
     infoAction?: () => void;
     themeConfig: any;
-    colorTheme: 'indigo' | 'blue' | 'orange' | 'amber' | 'purple'; // 卡片主色调
+    colorTheme: 'indigo' | 'blue' | 'orange' | 'amber' | 'purple';
 }
 
 const MetricCard: React.FC<MetricCardProps> = ({ 
-    title, mainValue, subValue, currency, breakdownList, categoryData, infoAction, themeConfig, colorTheme 
+    title, mainValue, subValue, currency, breakdownList, categoryData, infoAction, colorTheme 
 }) => {
     const [mode, setMode] = useState<'list' | 'chart'>('list');
-    const [activeIndex, setActiveIndex] = useState(0); // For Pie Chart active sector
+    const [activeIndex, setActiveIndex] = useState(0);
 
-    // 动态颜色映射
     const themeColors = {
-        indigo: { bg: 'bg-indigo-50', text: 'text-indigo-600', icon: 'text-indigo-500', ring: 'ring-indigo-100' },
-        blue: { bg: 'bg-blue-50', text: 'text-blue-600', icon: 'text-blue-500', ring: 'ring-blue-100' },
-        orange: { bg: 'bg-orange-50', text: 'text-orange-600', icon: 'text-orange-500', ring: 'ring-orange-100' },
-        amber: { bg: 'bg-amber-50', text: 'text-amber-600', icon: 'text-amber-500', ring: 'ring-amber-100' },
-        purple: { bg: 'bg-purple-50', text: 'text-purple-600', icon: 'text-purple-500', ring: 'ring-purple-100' },
+        indigo: { bg: 'bg-indigo-50', text: 'text-indigo-600' },
+        blue: { bg: 'bg-blue-50', text: 'text-blue-600' },
+        orange: { bg: 'bg-orange-50', text: 'text-orange-600' },
+        amber: { bg: 'bg-amber-50', text: 'text-amber-600' },
+        purple: { bg: 'bg-purple-50', text: 'text-purple-600' },
     }[colorTheme];
 
-    const onPieEnter = (_: any, index: number) => {
-        setActiveIndex(index);
-    };
+    const onPieEnter = (_: any, index: number) => setActiveIndex(index);
 
-    // 自定义 Active Shape (中间显示文字)
     const renderActiveShape = (props: any) => {
         const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, payload, value } = props;
         return (
@@ -67,26 +59,23 @@ const MetricCard: React.FC<MetricCardProps> = ({
     };
 
     return (
-        <div className={`bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition-all group relative overflow-hidden h-[240px] flex flex-col`}>
+        <div className={`bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition-all group relative overflow-hidden h-[260px] flex flex-col`}>
             {/* Header */}
             <div className="flex justify-between items-start mb-2 shrink-0 relative z-10">
                 <div className={`p-2.5 ${themeColors.bg} rounded-xl ${themeColors.text} cursor-pointer hover:scale-105 transition-transform`} onClick={infoAction}>
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
                 
-                {/* Toggle Button */}
                 <div className="flex bg-slate-100 p-1 rounded-lg">
                     <button 
                         onClick={() => setMode('list')}
                         className={`p-1.5 rounded-md transition-all ${mode === 'list' ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
-                        title="数值明细"
                     >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
                     </button>
                     <button 
                         onClick={() => setMode('chart')}
                         className={`p-1.5 rounded-md transition-all ${mode === 'chart' ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
-                        title="资产分布"
                     >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>
                     </button>
@@ -94,9 +83,9 @@ const MetricCard: React.FC<MetricCardProps> = ({
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 flex flex-col justify-between relative z-10">
+            <div className="flex-1 flex flex-col relative z-10 min-h-0">
                 {mode === 'list' ? (
-                    <div className="animate-fade-in flex flex-col h-full justify-between">
+                    <div className="animate-fade-in flex flex-col h-full">
                         <div>
                             <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1 opacity-80">{title}</p>
                             <div className="flex items-baseline gap-2">
@@ -107,8 +96,8 @@ const MetricCard: React.FC<MetricCardProps> = ({
                             </div>
                         </div>
                         
-                        {/* List Breakdown */}
-                        <div className="mt-3 pt-3 border-t border-slate-50 space-y-2">
+                        {/* 修复点: 使用 mt-auto 将列表推到底部，并增加 pb-1 防止贴边 */}
+                        <div className="mt-auto pt-3 border-t border-slate-50 space-y-2.5 pb-1">
                             {breakdownList.map((item, idx) => (
                                 <div key={idx} className="flex justify-between items-center text-xs">
                                     <span className="text-slate-400 flex items-center gap-1.5">
@@ -155,7 +144,6 @@ const MetricCard: React.FC<MetricCardProps> = ({
                 )}
             </div>
             
-            {/* Background Decoration */}
             <div className={`absolute -bottom-4 -right-4 w-24 h-24 rounded-full ${themeColors.bg} opacity-50 blur-2xl pointer-events-none`}></div>
         </div>
     );
@@ -201,43 +189,34 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       }
   }, [currencyItems, timeFilter, customStart, customEnd]);
 
-  // --- Breakdown Data Calculation ---
-
-  // 1. Total Projected Profit Breakdown & Category Data
+  // Breakdown Data Calculation
   const { totalBreakdownList, totalCategoryData } = useMemo(() => {
-      // List: Floating+Accrued, Realized, Rebate
       const list = [
           { label: '持仓浮盈/利息', value: stats.projectedTotalProfit - stats.realizedInterest - stats.totalRebate, color: 'bg-blue-400' },
           { label: '已结盈亏', value: stats.realizedInterest, color: 'bg-emerald-400' },
           { label: '总返利', value: stats.totalRebate, color: 'bg-amber-400' }
       ];
 
-      // Chart: Sum(metrics.profit) by Category
       const catMap: Record<string, number> = {};
       currencyItems.forEach(item => {
           const m = calculateItemMetrics(item);
-          // Projected total profit for this item
           let p = 0;
           if (!m.isCompleted && !m.isPending && item.type === 'Fixed') p = m.accruedReturn + item.rebate + item.totalRealizedProfit;
-          else p = m.profit; // Floating or Completed
-          
-          // Adjust for Fee subtraction if needed, but let's keep it simple for distribution
+          else p = m.profit;
           
           if (Math.abs(p) > 0.01) {
               const name = CATEGORY_LABELS[item.category];
               catMap[name] = (catMap[name] || 0) + p;
           }
       });
-      const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) })); // Pie chart needs positive, logic handles text
+      const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
 
       return { totalBreakdownList: list, totalCategoryData: chart };
   }, [stats, currencyItems]);
 
-  // 2. Today Profit Breakdown & Category Data
   const { todayBreakdownList, todayCategoryData } = useMemo(() => {
       let fixedDaily = 0;
       let floatingDaily = 0;
-      
       const catMap: Record<string, number> = {};
 
       currencyItems.forEach(item => {
@@ -260,17 +239,9 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       return { todayBreakdownList: list, todayCategoryData: chart };
   }, [currencyItems]);
 
-  // 3. Realized Profit Breakdown & Category Data
   const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
-      // List: Trading/Interest, Received Rebate
-      // Note: stats.realizedInterest does NOT include rebate in the current util logic, it's separated.
-      // But user wants "Total Realized" context. 
-      // Current Card shows `stats.realizedInterest`. To make the list sum up to it, we must split `stats.realizedInterest` itself.
-      // `stats.realizedInterest` = (Completed Item Net) + (Active Item Transaction Realized).
-      
       let completedNet = 0;
       let txRealized = 0;
-      
       const catMap: Record<string, number> = {};
 
       currencyItems.forEach(item => {
@@ -278,10 +249,10 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           let itemRealized = 0;
           
           if (m.isCompleted) {
-              itemRealized = m.baseInterest; // Base interest of completed items
+              itemRealized = m.baseInterest;
               completedNet += itemRealized;
           } else {
-              itemRealized = item.totalRealizedProfit; // Dividends/Partial Sells
+              itemRealized = item.totalRealizedProfit;
               txRealized += itemRealized;
           }
           
@@ -294,7 +265,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       const list = [
           { label: '已完结项目净利', value: completedNet, color: 'bg-slate-400' },
           { label: '持仓中派息/减仓', value: txRealized, color: 'bg-emerald-400' },
-          // Optional: Add Received Rebate visually but maybe not in sum if main value doesn't include it
           { label: '已到账返利(额外)', value: stats.receivedRebate, color: 'bg-amber-400' }
       ];
       
@@ -303,9 +273,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       return { realizedBreakdownList: list, realizedCategoryData: chart };
   }, [currencyItems, stats]);
 
-
-  // --- Existing Logic ---
-  
   const handleAIAnalysis = async () => {
     setLoadingAi(true);
     const result = await getAIAnalysis(currencyItems); 
@@ -313,7 +280,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
     setLoadingAi(false);
   };
 
-  // Pie Data for Bottom Card
   const pieDataStatus = [
     { name: '在途本金', value: stats.activePrincipal },
     { name: '已完结本金', value: stats.completedPrincipal },
@@ -352,7 +318,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       else { setShowCustomDate(false); setCustomStart(''); setCustomEnd(''); }
   };
 
-  // Info Modals Content
   const showTotalProfitInfo = () => setInfoModal({ title: "总预估收益 (含在途)", content: <div className="text-sm text-slate-600 space-y-2"><p>历史总回报，包含账面浮盈和已落袋资金。</p><p className="font-bold text-indigo-600">公式：浮盈 + 已结 + 返利 - 费用</p></div> });
   const showTodayProfitInfo = () => setInfoModal({ title: "今日/昨日预估收益", content: <div className="text-sm text-slate-600 space-y-2"><p>仅计算今天产生的价值变化。</p><p className="font-bold text-orange-600">公式：固收日息 + 浮动资产今日涨跌</p></div> });
   const showRealizedProfitInfo = () => setInfoModal({ title: "已落袋收益", content: <div className="text-sm text-slate-600 space-y-2"><p>真正“落袋为安”的收益。</p><p className="font-bold text-amber-600">包含：完结项目净利 + 派息 + 减仓盈利</p></div> });
@@ -409,11 +374,11 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         </div>
       </div>
 
-      {/* NEW: Metric Cards with Flip Functionality */}
+      {/* NEW: Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
         
-        {/* 1. Principal Card (Keep Simple) */}
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-blue-50 h-[240px] flex flex-col">
+        {/* 1. Principal Card */}
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-blue-50 h-[260px] flex flex-col">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-blue-50 rounded-2xl text-blue-600"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg></div>
             <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
@@ -427,7 +392,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           </div>
         </div>
 
-        {/* 2. Total Profit Card (Interactive) */}
+        {/* 2. Total Profit */}
         <MetricCard 
             title={timeFilter === 'all' ? '总预估收益 (含在途)' : '本期产生收益'}
             mainValue={stats.projectedTotalProfit}
@@ -440,7 +405,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             themeConfig={themeConfig}
         />
 
-        {/* 3. Today Profit Card (Interactive) */}
+        {/* 3. Today Profit */}
         <MetricCard 
             title="今日/昨日预估收益"
             mainValue={stats.todayEstProfit}
@@ -452,7 +417,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             themeConfig={themeConfig}
         />
 
-        {/* 4. Realized Profit Card (Interactive) */}
+        {/* 4. Realized Profit */}
         <MetricCard 
             title={timeFilter === 'all' ? '已落袋收益' : '本期已落袋'}
             mainValue={stats.realizedInterest}
@@ -464,8 +429,8 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             themeConfig={themeConfig}
         />
 
-        {/* 5. Weighted Yield (Keep Simple) */}
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-purple-50 h-[240px] flex flex-col">
+        {/* 5. Weighted Yield */}
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-purple-50 h-[260px] flex flex-col">
           <div className="flex justify-between items-start mb-4">
              <div className="p-3 bg-purple-50 rounded-2xl text-purple-600"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></div>
              <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Weighted</span>
@@ -550,20 +515,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
          </div>
       </div>
 
-      {/* AI & Modals (Rebate, Info) Logic Included Below (Standard) */}
-      <div className={`relative group rounded-3xl p-[1px] bg-gradient-to-r ${themeConfig.accent} shadow-xl opacity-90 hover:opacity-100 transition`}>
-        <div className="bg-white rounded-[23px] p-8 relative overflow-hidden">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 relative z-10 gap-4">
-                <div className="flex items-center gap-4">
-                    <div className={`p-3 bg-gradient-to-br ${themeConfig.accent} rounded-xl text-white shadow-lg`}><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg></div>
-                    <div><h3 className="text-xl font-bold text-slate-800">AI 智能理财顾问</h3><p className="text-sm text-slate-500">基于 Gemini 的个性化资产分析</p></div>
-                </div>
-                <button onClick={handleAIAnalysis} disabled={loadingAi} className={`px-6 py-3 ${themeConfig.button} text-white text-sm font-bold rounded-xl shadow-lg transition-all disabled:opacity-70 flex items-center gap-2 active:scale-95`}>{loadingAi ? '分析中...' : '生成分析报告'}</button>
-            </div>
-            {aiInsight && <div className="prose prose-sm prose-slate max-w-none bg-slate-50 p-6 rounded-2xl border border-slate-100 animate-fade-in"><div dangerouslySetInnerHTML={{ __html: aiInsight.replace(/\n/g, '<br/>').replace(/\*\*(.*?)\*\*/g, '<strong class="text-indigo-800">$1</strong>') }} /></div>}
-        </div>
-      </div>
-
+      {/* Modals */}
       {rebateModalType && (
           <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setRebateModalType(null)}>
               <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in-up" onClick={e => e.stopPropagation()}>
@@ -573,7 +525,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                   </div>
                   <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-3">
                       {rebateItems.length === 0 ? <div className="py-10 text-center text-slate-400 text-sm flex flex-col items-center gap-2"><svg className="w-10 h-10 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>暂无相关记录</div> : rebateItems.map(item => (
-                          <div key={item.id} className="flex justify-between items-center p-3 rounded-2xl bg-slate-50 border border-slate-100"><div className="min-w-0"><p className="font-bold text-slate-700 text-sm truncate">{item.name}</p><p className="text-xs text-slate-400 mt-0.5">{formatDate(item.depositDate)}</p></div><div className="text-right"><p className={`font-bold font-mono text-sm ${rebateModalType === 'received' ? 'text-emerald-600' : 'text-amber-500'}`}>+{formatCurrency(item.rebate, item.currency)}</p><span className="text-[10px] text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100 shadow-sm">{item.type === 'Fixed' ? '固收' : '浮动'}</span></div></div>
+                          <div key={item.id} className="flex justify-between items-center p-3 rounded-2xl bg-slate-50 border border-slate-100"><div className="min-w-0"><p className="font-bold text-slate-700 text-sm truncate">{item.name}</p><p className="text-xs text-slate-400 mt-0.5">{new Date(item.depositDate).toString() !== 'Invalid Date' ? formatDate(item.depositDate) : '-'}</p></div><div className="text-right"><p className={`font-bold font-mono text-sm ${rebateModalType === 'received' ? 'text-emerald-600' : 'text-amber-500'}`}>+{formatCurrency(item.rebate, item.currency)}</p><span className="text-[10px] text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100 shadow-sm">{item.type === 'Fixed' ? '固收' : '浮动'}</span></div></div>
                       ))}
                   </div>
               </div>
