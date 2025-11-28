@@ -1,4 +1,3 @@
-
 import yahooFinance from 'yahoo-finance2';
 
 interface QuoteResult {
@@ -6,6 +5,21 @@ interface QuoteResult {
     change?: number;
     time?: string;
 }
+
+// 简单的内存缓存，避免频繁搜索同一个股票的 ID
+// 在 Vercel Serverless 的热启动期间可以复用，减少接口请求
+const WEBULL_ID_CACHE: Record<string, string> = {
+    'TQQQ': '913243251',
+    'SQQQ': '913243252',
+    'TSLA': '913255598',
+    'AAPL': '913256135',
+    'NVDA': '913257561',
+    'AMD': '913256446',
+    'MSFT': '913256424',
+    'AMZN': '913256290',
+    'GOOG': '913256299',
+    'META': '913256337'
+};
 
 export default async function handler(request: any, response: any) {
   if (request.method !== 'POST') {
@@ -28,8 +42,68 @@ export default async function handler(request: any, response: any) {
     const uniqueSymbols = Array.from(new Set(symbols as string[]));
     const result: Record<string, QuoteResult> = {};
 
+    // --- Helper: Webull Fetcher Logic ---
+    // 专门用于获取美股夜盘/盘前数据的函数
+    const fetchWebullQuote = async (symbol: string): Promise<QuoteResult | null> => {
+        try {
+            let tickerId = WEBULL_ID_CACHE[symbol];
+
+            // 1. 如果没有缓存 ID，先去 Webull 搜索接口查 ID
+            if (!tickerId) {
+                const searchUrl = `https://quotes-gw.webullfintech.com/api/search/pc/tickers?keyword=${symbol}&regionId=6&pageIndex=1&pageSize=1`;
+                const searchRes = await fetch(searchUrl);
+                const searchJson = await searchRes.json();
+                
+                if (searchJson.data && searchJson.data.length > 0) {
+                    // 简单校验：确保搜索结果的 symbol 和请求的一致
+                    if (searchJson.data[0].symbol === symbol) {
+                        tickerId = String(searchJson.data[0].tickerId);
+                        WEBULL_ID_CACHE[symbol] = tickerId; // 存入缓存
+                    }
+                }
+            }
+
+            if (!tickerId) return null;
+
+            // 2. 用 ID 获取实时报价 (含夜盘 pPrice)
+            const quoteUrl = `https://quotes-gw.webullfintech.com/api/bgw/quote/realtime?ids=${tickerId}&includeSecu=1&delay=0&more=1`;
+            const quoteRes = await fetch(quoteUrl);
+            const quoteJson = await quoteRes.json();
+
+            if (quoteJson && quoteJson[0]) {
+                const data = quoteJson[0];
+                
+                // 逻辑：优先取 pPrice (盘前/盘后/夜盘)，如果无效则取 close
+                const closePrice = Number(data.close);
+                const extPrice = Number(data.pPrice);
+                
+                // 只有当 extPrice 存在且有效(>0)时才使用，否则用收盘价
+                const finalPrice = (extPrice && extPrice > 0) ? extPrice : closePrice;
+                
+                // 计算涨跌幅 (Webull 返回的 pChange 是小数，如 0.015 代表 1.5%)
+                let changePercent = 0;
+                if (data.pChange && extPrice > 0) {
+                    changePercent = Number(data.pChange) * 100; 
+                } else if (data.changeRatio) {
+                    changePercent = Number(data.changeRatio) * 100;
+                }
+
+                console.log(`[API Quotes] Webull success for ${symbol}: ${finalPrice} (Ext: ${extPrice})`);
+                return { 
+                    price: finalPrice, 
+                    change: changePercent, 
+                    time: new Date().toISOString() 
+                };
+            }
+        } catch (e: any) {
+            console.warn(`[API Quotes] Webull failed for ${symbol}: ${e.message}`);
+        }
+        return null;
+    };
+
+    // --- Main Fetch Logic ---
     const fetchQuote = async (symbol: string): Promise<QuoteResult | null> => {
-        // 1. CN Stocks (EastMoney push2): sh000001, sz000001, bj839725
+        // 1. CN Stocks (EastMoney): sh, sz, bj
         if (/^(sh|sz|bj)\d{6}$/i.test(symbol)) {
             try {
                 const prefix = symbol.slice(0, 2).toLowerCase();
@@ -119,7 +193,17 @@ export default async function handler(request: any, response: any) {
             return null;
         }
 
-        // 3. International (Yahoo Finance)
+        // 3. US/International Stocks - Webull Strategy (Priority)
+        // 如果是纯字母代码 (如 TQQQ, AAPL)，优先尝试 Webull 获取夜盘数据
+        if (/^[A-Z]+$/.test(symbol)) {
+            const webullResult = await fetchWebullQuote(symbol);
+            if (webullResult) {
+                return webullResult;
+            }
+            // 如果 Webull 失败，继续往下走 Yahoo 的逻辑作为兜底
+        }
+
+        // 4. International (Yahoo Finance) - Fallback
         try {
             const quote = await yahooFinance.quote(symbol, { validateResult: false }) as any;
             const price = quote.regularMarketPrice || quote.ask || quote.bid;
