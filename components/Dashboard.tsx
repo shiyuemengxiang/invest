@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption } from '../types';
-import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, formatDate } from '../utils';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
+import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, CATEGORY_LABELS, InvestmentCategory } from '../types';
+import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, calculateDailyReturn } from '../utils';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from 'recharts';
 import { getAIAnalysis } from '../services/geminiService';
 
 interface Props {
@@ -10,7 +10,158 @@ interface Props {
   theme: ThemeOption;
 }
 
-const COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981'];
+// 扩展配色池
+const COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#f43f5e', '#06b6d4', '#84cc16', '#6366f1'];
+
+// ---------------------------
+// 内部组件: 可切换的指标卡片
+// ---------------------------
+interface MetricCardProps {
+    title: string;
+    mainValue: number;
+    subValue?: string; // e.g. yield or percentage
+    currency: Currency;
+    breakdownList: { label: string; value: number; color?: string }[]; // 列表视图数据 (明细求和)
+    categoryData: { name: string; value: number }[]; // 图表视图数据 (资产分类)
+    infoAction?: () => void;
+    themeConfig: any;
+    colorTheme: 'indigo' | 'blue' | 'orange' | 'amber' | 'purple'; // 卡片主色调
+}
+
+const MetricCard: React.FC<MetricCardProps> = ({ 
+    title, mainValue, subValue, currency, breakdownList, categoryData, infoAction, themeConfig, colorTheme 
+}) => {
+    const [mode, setMode] = useState<'list' | 'chart'>('list');
+    const [activeIndex, setActiveIndex] = useState(0); // For Pie Chart active sector
+
+    // 动态颜色映射
+    const themeColors = {
+        indigo: { bg: 'bg-indigo-50', text: 'text-indigo-600', icon: 'text-indigo-500', ring: 'ring-indigo-100' },
+        blue: { bg: 'bg-blue-50', text: 'text-blue-600', icon: 'text-blue-500', ring: 'ring-blue-100' },
+        orange: { bg: 'bg-orange-50', text: 'text-orange-600', icon: 'text-orange-500', ring: 'ring-orange-100' },
+        amber: { bg: 'bg-amber-50', text: 'text-amber-600', icon: 'text-amber-500', ring: 'ring-amber-100' },
+        purple: { bg: 'bg-purple-50', text: 'text-purple-600', icon: 'text-purple-500', ring: 'ring-purple-100' },
+    }[colorTheme];
+
+    const onPieEnter = (_: any, index: number) => {
+        setActiveIndex(index);
+    };
+
+    // 自定义 Active Shape (中间显示文字)
+    const renderActiveShape = (props: any) => {
+        const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, payload, value } = props;
+        return (
+            <g>
+                <text x={cx} y={cy - 10} dy={8} textAnchor="middle" fill="#1e293b" className="text-sm font-bold">
+                    {payload.name}
+                </text>
+                <text x={cx} y={cy + 10} dy={8} textAnchor="middle" fill={fill} className="text-xs font-mono">
+                    {formatCurrency(value, currency)}
+                </text>
+                <Sector
+                    cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 4}
+                    startAngle={startAngle} endAngle={endAngle} fill={fill}
+                />
+            </g>
+        );
+    };
+
+    return (
+        <div className={`bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition-all group relative overflow-hidden h-[240px] flex flex-col`}>
+            {/* Header */}
+            <div className="flex justify-between items-start mb-2 shrink-0 relative z-10">
+                <div className={`p-2.5 ${themeColors.bg} rounded-xl ${themeColors.text} cursor-pointer hover:scale-105 transition-transform`} onClick={infoAction}>
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+                
+                {/* Toggle Button */}
+                <div className="flex bg-slate-100 p-1 rounded-lg">
+                    <button 
+                        onClick={() => setMode('list')}
+                        className={`p-1.5 rounded-md transition-all ${mode === 'list' ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+                        title="数值明细"
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+                    </button>
+                    <button 
+                        onClick={() => setMode('chart')}
+                        className={`p-1.5 rounded-md transition-all ${mode === 'chart' ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+                        title="资产分布"
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>
+                    </button>
+                </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="flex-1 flex flex-col justify-between relative z-10">
+                {mode === 'list' ? (
+                    <div className="animate-fade-in flex flex-col h-full justify-between">
+                        <div>
+                            <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1 opacity-80">{title}</p>
+                            <div className="flex items-baseline gap-2">
+                                <span className={`text-2xl font-bold ${themeColors.text} font-mono tracking-tight`}>
+                                    {formatCurrency(mainValue, currency)}
+                                </span>
+                                {subValue && <span className="text-xs font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{subValue}</span>}
+                            </div>
+                        </div>
+                        
+                        {/* List Breakdown */}
+                        <div className="mt-3 pt-3 border-t border-slate-50 space-y-2">
+                            {breakdownList.map((item, idx) => (
+                                <div key={idx} className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-400 flex items-center gap-1.5">
+                                        <div className={`w-1.5 h-1.5 rounded-full ${item.color || 'bg-slate-300'}`}></div>
+                                        {item.label}
+                                    </span>
+                                    <span className="font-mono font-medium text-slate-600">{item.value > 0 ? '+' : ''}{formatCurrency(item.value, currency)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="animate-fade-in h-full flex flex-col items-center justify-center relative">
+                        {categoryData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        activeIndex={activeIndex}
+                                        activeShape={renderActiveShape}
+                                        data={categoryData}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={45}
+                                        outerRadius={65}
+                                        paddingAngle={4}
+                                        dataKey="value"
+                                        onMouseEnter={onPieEnter}
+                                        stroke="none"
+                                    >
+                                        {categoryData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        ))}
+                                    </Pie>
+                                </PieChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="text-slate-300 text-xs flex flex-col items-center gap-1">
+                                <svg className="w-8 h-8 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                暂无分类数据
+                            </div>
+                        )}
+                        <p className="absolute bottom-0 text-[10px] text-slate-300 font-bold uppercase tracking-widest pointer-events-none">By Asset Type</p>
+                    </div>
+                )}
+            </div>
+            
+            {/* Background Decoration */}
+            <div className={`absolute -bottom-4 -right-4 w-24 h-24 rounded-full ${themeColors.bg} opacity-50 blur-2xl pointer-events-none`}></div>
+        </div>
+    );
+};
+
+
 const TIME_FILTERS: { label: string, value: TimeFilter }[] = [
     { label: '全部', value: 'all' },
     { label: '今年至今', value: 'ytd' },
@@ -23,12 +174,12 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   const [selectedCurrency, setSelectedCurrency] = useState<Currency>('CNY');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   
-  // Custom Date Filter State
   const [showCustomDate, setShowCustomDate] = useState(false);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   
-  // Modal States
+  const [distributionMode, setDistributionMode] = useState<'status' | 'allocation'>('status');
+  
   const [rebateModalType, setRebateModalType] = useState<'received' | 'pending' | null>(null);
   const [infoModal, setInfoModal] = useState<{ title: string; content: React.ReactNode } | null>(null);
   
@@ -50,6 +201,111 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       }
   }, [currencyItems, timeFilter, customStart, customEnd]);
 
+  // --- Breakdown Data Calculation ---
+
+  // 1. Total Projected Profit Breakdown & Category Data
+  const { totalBreakdownList, totalCategoryData } = useMemo(() => {
+      // List: Floating+Accrued, Realized, Rebate
+      const list = [
+          { label: '持仓浮盈/利息', value: stats.projectedTotalProfit - stats.realizedInterest - stats.totalRebate, color: 'bg-blue-400' },
+          { label: '已结盈亏', value: stats.realizedInterest, color: 'bg-emerald-400' },
+          { label: '总返利', value: stats.totalRebate, color: 'bg-amber-400' }
+      ];
+
+      // Chart: Sum(metrics.profit) by Category
+      const catMap: Record<string, number> = {};
+      currencyItems.forEach(item => {
+          const m = calculateItemMetrics(item);
+          // Projected total profit for this item
+          let p = 0;
+          if (!m.isCompleted && !m.isPending && item.type === 'Fixed') p = m.accruedReturn + item.rebate + item.totalRealizedProfit;
+          else p = m.profit; // Floating or Completed
+          
+          // Adjust for Fee subtraction if needed, but let's keep it simple for distribution
+          
+          if (Math.abs(p) > 0.01) {
+              const name = CATEGORY_LABELS[item.category];
+              catMap[name] = (catMap[name] || 0) + p;
+          }
+      });
+      const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) })); // Pie chart needs positive, logic handles text
+
+      return { totalBreakdownList: list, totalCategoryData: chart };
+  }, [stats, currencyItems]);
+
+  // 2. Today Profit Breakdown & Category Data
+  const { todayBreakdownList, todayCategoryData } = useMemo(() => {
+      let fixedDaily = 0;
+      let floatingDaily = 0;
+      
+      const catMap: Record<string, number> = {};
+
+      currencyItems.forEach(item => {
+          const daily = calculateDailyReturn(item);
+          if (item.type === 'Fixed') fixedDaily += daily;
+          else floatingDaily += daily;
+
+          if (Math.abs(daily) > 0.001) {
+              const name = CATEGORY_LABELS[item.category];
+              catMap[name] = (catMap[name] || 0) + daily;
+          }
+      });
+
+      const list = [
+          { label: '固收日息', value: fixedDaily, color: 'bg-blue-400' },
+          { label: '市值波动', value: floatingDaily, color: 'bg-orange-400' }
+      ];
+      const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
+
+      return { todayBreakdownList: list, todayCategoryData: chart };
+  }, [currencyItems]);
+
+  // 3. Realized Profit Breakdown & Category Data
+  const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
+      // List: Trading/Interest, Received Rebate
+      // Note: stats.realizedInterest does NOT include rebate in the current util logic, it's separated.
+      // But user wants "Total Realized" context. 
+      // Current Card shows `stats.realizedInterest`. To make the list sum up to it, we must split `stats.realizedInterest` itself.
+      // `stats.realizedInterest` = (Completed Item Net) + (Active Item Transaction Realized).
+      
+      let completedNet = 0;
+      let txRealized = 0;
+      
+      const catMap: Record<string, number> = {};
+
+      currencyItems.forEach(item => {
+          const m = calculateItemMetrics(item);
+          let itemRealized = 0;
+          
+          if (m.isCompleted) {
+              itemRealized = m.baseInterest; // Base interest of completed items
+              completedNet += itemRealized;
+          } else {
+              itemRealized = item.totalRealizedProfit; // Dividends/Partial Sells
+              txRealized += itemRealized;
+          }
+          
+          if (Math.abs(itemRealized) > 0.01) {
+              const name = CATEGORY_LABELS[item.category];
+              catMap[name] = (catMap[name] || 0) + itemRealized;
+          }
+      });
+
+      const list = [
+          { label: '已完结项目净利', value: completedNet, color: 'bg-slate-400' },
+          { label: '持仓中派息/减仓', value: txRealized, color: 'bg-emerald-400' },
+          // Optional: Add Received Rebate visually but maybe not in sum if main value doesn't include it
+          { label: '已到账返利(额外)', value: stats.receivedRebate, color: 'bg-amber-400' }
+      ];
+      
+      const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
+
+      return { realizedBreakdownList: list, realizedCategoryData: chart };
+  }, [currencyItems, stats]);
+
+
+  // --- Existing Logic ---
+  
   const handleAIAnalysis = async () => {
     setLoadingAi(true);
     const result = await getAIAnalysis(currencyItems); 
@@ -57,10 +313,24 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
     setLoadingAi(false);
   };
 
-  const pieData = [
+  // Pie Data for Bottom Card
+  const pieDataStatus = [
     { name: '在途本金', value: stats.activePrincipal },
     { name: '已完结本金', value: stats.completedPrincipal },
   ].filter(d => d.value > 0);
+
+  const pieDataAllocation = useMemo(() => {
+      const map: Record<string, number> = {};
+      currencyItems.forEach(item => {
+          if (!item.withdrawalDate && item.currentPrincipal > 0) {
+              const catName = CATEGORY_LABELS[item.category] || item.category;
+              map[catName] = (map[catName] || 0) + item.currentPrincipal;
+          }
+      });
+      return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [currencyItems]);
+
+  const activePieData = distributionMode === 'status' ? pieDataStatus : pieDataAllocation;
 
   const upcoming = currencyItems
     .filter(i => {
@@ -73,94 +343,19 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
     .slice(0, 5)
     .map(i => {
         const m = calculateItemMetrics(i);
-        return {
-            ...i,
-            daysRemaining: m.daysRemaining
-        };
+        return { ...i, daysRemaining: m.daysRemaining };
     });
     
   const handleTimeFilterClick = (filter: TimeFilter) => {
       setTimeFilter(filter);
-      if (filter === 'custom') {
-          setShowCustomDate(true);
-      } else {
-          setShowCustomDate(false);
-          setCustomStart('');
-          setCustomEnd('');
-      }
+      if (filter === 'custom') setShowCustomDate(true);
+      else { setShowCustomDate(false); setCustomStart(''); setCustomEnd(''); }
   };
 
-  // Get items for rebate modal
-  const rebateItems = useMemo(() => {
-      if (!rebateModalType) return [];
-      return currencyItems.filter(i => 
-          i.rebate > 0 && (rebateModalType === 'received' ? i.isRebateReceived : !i.isRebateReceived)
-      ).sort((a, b) => b.rebate - a.rebate);
-  }, [currencyItems, rebateModalType]);
-
-  // Info Content Definitions
-  const showTotalProfitInfo = () => {
-      setInfoModal({
-          title: "总预估收益 (含在途)",
-          content: (
-              <div className="space-y-3 text-sm text-slate-600">
-                  <p>当前所有资产的<strong>历史总回报</strong>，包含账面浮盈和已落袋资金。</p>
-                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                      <p className="font-mono text-xs text-slate-500 mb-1">计算公式：</p>
-                      <p className="font-bold text-indigo-600">账面未结盈亏 + 累计已结盈亏 + 潜在利息 + 返利 - 费用</p>
-                  </div>
-                  <ul className="list-disc pl-4 space-y-1 text-xs">
-                      <li><strong>固收类：</strong>截止今日的应计利息 + 返利 + 历史派息</li>
-                      <li><strong>浮动类：</strong>(当前市值 - 投入本金) + 历史分红 + 波段操作盈利</li>
-                      <li><strong>扣减项：</strong>所有已发生的交易费用和税费</li>
-                  </ul>
-              </div>
-          )
-      });
-  };
-
-  const showTodayProfitInfo = () => {
-      setInfoModal({
-          title: "今日/昨日预估收益",
-          content: (
-              <div className="space-y-3 text-sm text-slate-600">
-                  <p>仅计算<strong>今天这一天</strong>产生的资产价值变化。</p>
-                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                      <p className="font-mono text-xs text-slate-500 mb-1">计算逻辑：</p>
-                      <ul className="space-y-1">
-                          <li><span className="font-bold text-blue-600">固收类：</span>本金 × (年化利率% / 365)</li>
-                          <li><span className="font-bold text-emerald-600">浮动类：</span>(当前本金 + 累计盈亏) × 今日涨跌幅%</li>
-                      </ul>
-                  </div>
-                  <p className="text-xs text-orange-500">* 如果今日有费用支出，会直接从今日收益中扣除。</p>
-              </div>
-          )
-      });
-  };
-
-  const showRealizedProfitInfo = () => {
-      setInfoModal({
-          title: "已落袋收益",
-          content: (
-              <div className="space-y-3 text-sm text-slate-600">
-                  <p>真正<strong>“落袋为安”</strong>的现金流收益，不包含账面浮盈。</p>
-                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                      <p className="font-mono text-xs text-slate-500 mb-1">包含内容：</p>
-                      <ul className="space-y-1 font-medium text-slate-700">
-                          <li>1. 已完结项目的最终净利润</li>
-                          <li>2. 持仓中项目产生的现金流：
-                              <ul className="list-disc pl-4 mt-1 text-xs font-normal text-slate-500">
-                                  <li>已派发的利息/分红</li>
-                                  <li>已确认到账的返利</li>
-                                  <li>减仓操作产生的盈利</li>
-                              </ul>
-                          </li>
-                      </ul>
-                  </div>
-              </div>
-          )
-      });
-  };
+  // Info Modals Content
+  const showTotalProfitInfo = () => setInfoModal({ title: "总预估收益 (含在途)", content: <div className="text-sm text-slate-600 space-y-2"><p>历史总回报，包含账面浮盈和已落袋资金。</p><p className="font-bold text-indigo-600">公式：浮盈 + 已结 + 返利 - 费用</p></div> });
+  const showTodayProfitInfo = () => setInfoModal({ title: "今日/昨日预估收益", content: <div className="text-sm text-slate-600 space-y-2"><p>仅计算今天产生的价值变化。</p><p className="font-bold text-orange-600">公式：固收日息 + 浮动资产今日涨跌</p></div> });
+  const showRealizedProfitInfo = () => setInfoModal({ title: "已落袋收益", content: <div className="text-sm text-slate-600 space-y-2"><p>真正“落袋为安”的收益。</p><p className="font-bold text-amber-600">包含：完结项目净利 + 派息 + 减仓盈利</p></div> });
 
   return (
     <div className="space-y-6 animate-fade-in pb-12 relative">
@@ -171,51 +366,23 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                  <span className="text-sm font-bold text-slate-400 uppercase tracking-wider hidden md:inline">Currency</span>
                  <div className="flex gap-1 p-1.5 bg-slate-100 rounded-xl w-full md:w-auto">
                     {(['CNY', 'USD', 'HKD'] as Currency[]).map(c => (
-                        <button
-                            key={c}
-                            onClick={() => setSelectedCurrency(c)}
-                            className={`flex-1 md:flex-none px-4 py-1.5 text-sm font-bold rounded-lg transition-all shadow-sm ${selectedCurrency === c ? 'bg-white text-slate-800 ring-1 ring-black/5' : 'bg-transparent text-slate-400 hover:text-slate-600 shadow-none'}`}
-                        >
-                            {c}
-                        </button>
+                        <button key={c} onClick={() => setSelectedCurrency(c)} className={`flex-1 md:flex-none px-4 py-1.5 text-sm font-bold rounded-lg transition-all shadow-sm ${selectedCurrency === c ? 'bg-white text-slate-800 ring-1 ring-black/5' : 'bg-transparent text-slate-400 hover:text-slate-600 shadow-none'}`}>{c}</button>
                     ))}
                  </div>
              </div>
              <div className="flex flex-wrap gap-2 justify-center md:justify-end w-full md:w-auto">
                 {TIME_FILTERS.map(f => (
-                    <button
-                        key={f.value}
-                        onClick={() => handleTimeFilterClick(f.value)}
-                        className={`px-4 py-1.5 text-xs font-bold rounded-full border transition-all ${timeFilter === f.value ? themeConfig.button + ' text-white border-transparent' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                    >
-                        {f.label}
-                    </button>
+                    <button key={f.value} onClick={() => handleTimeFilterClick(f.value)} className={`px-4 py-1.5 text-xs font-bold rounded-full border transition-all ${timeFilter === f.value ? themeConfig.button + ' text-white border-transparent' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}>{f.label}</button>
                 ))}
-                <button
-                    onClick={() => handleTimeFilterClick('custom')}
-                    className={`px-4 py-1.5 text-xs font-bold rounded-full border transition-all ${timeFilter === 'custom' ? themeConfig.button + ' text-white border-transparent' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                >
-                    自定义
-                </button>
+                <button onClick={() => handleTimeFilterClick('custom')} className={`px-4 py-1.5 text-xs font-bold rounded-full border transition-all ${timeFilter === 'custom' ? themeConfig.button + ' text-white border-transparent' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}>自定义</button>
              </div>
          </div>
-         
          {showCustomDate && (
               <div className="flex flex-col sm:flex-row items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-fade-in">
                   <span className="text-xs font-bold text-slate-400 uppercase">Range:</span>
-                  <input 
-                    type="date" 
-                    value={customStart} 
-                    onChange={e => setCustomStart(e.target.value)}
-                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-400 outline-none"
-                  />
+                  <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-400 outline-none" />
                   <span className="text-slate-300">-</span>
-                  <input 
-                    type="date" 
-                    value={customEnd} 
-                    onChange={e => setCustomEnd(e.target.value)}
-                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-400 outline-none"
-                  />
+                  <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-400 outline-none" />
               </div>
           )}
       </div>
@@ -224,114 +391,90 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       <div className={`bg-gradient-to-br ${themeConfig.accent} p-6 md:p-8 rounded-[2rem] shadow-xl text-white relative overflow-hidden transform-gpu`}>
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
-        
         <div className="relative z-10 flex flex-col md:flex-row justify-between items-center md:items-end gap-6 text-center md:text-left w-full">
             <div className="flex flex-col items-center md:items-start w-full">
                 <p className="text-white/70 font-medium mb-1 flex items-center gap-2 justify-center md:justify-start">
                     <svg className="w-5 h-5 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                     全货币持仓估值 (Global Net Worth)
                 </p>
-                <h2 className="text-4xl md:text-5xl font-bold tracking-tight text-white mb-2 tabular-nums break-all">
-                    {formatCurrency(globalValuation, selectedCurrency)}
-                </h2>
-                <p className="text-xs md:text-sm text-white/60">
-                    包含所有 CNY, USD, HKD 资产及预估收益折算为 {selectedCurrency}
-                </p>
+                <h2 className="text-4xl md:text-5xl font-bold tracking-tight text-white mb-2 tabular-nums break-all">{formatCurrency(globalValuation, selectedCurrency)}</h2>
+                <p className="text-xs md:text-sm text-white/60">包含所有 CNY, USD, HKD 资产及预估收益折算为 {selectedCurrency}</p>
             </div>
             <div className="bg-white/10 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/10 w-full md:w-auto flex flex-col items-center md:items-end">
                 <p className="text-xs text-white/60 uppercase tracking-wider mb-1">当前设定汇率</p>
                 <div className="flex gap-4 text-sm font-mono text-white/90">
-                    <span>USD ≈ {rates.USD}</span>
-                    <span className="opacity-50">|</span>
-                    <span>HKD ≈ {rates.HKD}</span>
+                    <span>USD ≈ {rates.USD}</span><span className="opacity-50">|</span><span>HKD ≈ {rates.HKD}</span>
                 </div>
             </div>
         </div>
       </div>
 
-      {/* Detailed Stats Grid */}
+      {/* NEW: Metric Cards with Flip Functionality */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
         
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-blue-50">
+        {/* 1. Principal Card (Keep Simple) */}
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-blue-50 h-[240px] flex flex-col">
           <div className="flex justify-between items-start mb-4">
-            <div className="p-3 bg-blue-50 rounded-2xl text-blue-600">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-            </div>
+            <div className="p-3 bg-blue-50 rounded-2xl text-blue-600"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg></div>
             <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
           </div>
-          <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '在途本金' : '期间平均持仓'}</p>
-          <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.activePrincipal, selectedCurrency)}</p>
-          {timeFilter === 'all' && (
+          <div className="flex-1">
+              <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '在途本金' : '期间平均持仓'}</p>
+              <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.activePrincipal, selectedCurrency)}</p>
               <div className="w-full bg-slate-100 h-1.5 mt-4 rounded-full overflow-hidden">
                  <div className="bg-blue-500 h-full rounded-full transition-all duration-1000" style={{ width: `${stats.totalInvested ? (stats.activePrincipal / stats.totalInvested) * 100 : 0}%` }}></div>
               </div>
-          )}
+          </div>
         </div>
 
-        {/* 2. 总预估收益 (带说明 Tips) */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-indigo-50 relative cursor-pointer" onClick={showTotalProfitInfo}>
-          <div className="flex justify-between items-start mb-4">
-             <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-            </div>
-             <span className="text-xs font-bold bg-indigo-50 text-indigo-500 px-2 py-1 rounded-lg">{timeFilter === 'all' ? 'All Time' : 'Period'}</span>
-          </div>
-          <div className="flex items-center gap-1 group/title">
-              <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '总预估收益 (含在途)' : '本期产生收益'}</p>
-              <svg className="w-4 h-4 text-slate-300 group-hover/title:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          </div>
-          <p className="text-xl font-bold text-indigo-600 mt-1 tabular-nums flex flex-col gap-1">
-              {formatCurrency(stats.projectedTotalProfit, selectedCurrency)}
-              {timeFilter === 'all' && (
-                  <span className="text-xs font-medium text-indigo-400 bg-indigo-50 px-1.5 rounded-md w-fit" title="Total Projected Yield">
-                     {formatPercent(stats.projectedTotalYield)}
-                  </span>
-              )}
-          </p>
-        </div>
+        {/* 2. Total Profit Card (Interactive) */}
+        <MetricCard 
+            title={timeFilter === 'all' ? '总预估收益 (含在途)' : '本期产生收益'}
+            mainValue={stats.projectedTotalProfit}
+            subValue={timeFilter === 'all' ? formatPercent(stats.projectedTotalYield) : undefined}
+            currency={selectedCurrency}
+            colorTheme="indigo"
+            breakdownList={totalBreakdownList}
+            categoryData={totalCategoryData}
+            infoAction={showTotalProfitInfo}
+            themeConfig={themeConfig}
+        />
 
-        {/* 3. 今日收益 (带说明 Tips) */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-orange-50 cursor-pointer" onClick={showTodayProfitInfo}>
-          <div className="flex justify-between items-start mb-4">
-             <div className="p-3 bg-orange-50 rounded-2xl text-orange-600">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-            </div>
-             <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Today/Est</span>
-          </div>
-          <div className="flex items-center gap-1 group/title">
-              <p className="text-slate-500 text-sm font-medium">今日/昨日预估收益</p>
-              <svg className="w-4 h-4 text-slate-300 group-hover/title:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          </div>
-          <p className={`text-2xl font-bold mt-1 tabular-nums ${stats.todayEstProfit >= 0 ? 'text-orange-500' : 'text-emerald-500'}`}>
-              {stats.todayEstProfit > 0 ? '+' : ''}{formatCurrency(stats.todayEstProfit, selectedCurrency)}
-          </p>
-          <p className="text-[10px] text-slate-400 mt-1">含基金/股票今日估值及固收日息</p>
-        </div>
+        {/* 3. Today Profit Card (Interactive) */}
+        <MetricCard 
+            title="今日/昨日预估收益"
+            mainValue={stats.todayEstProfit}
+            currency={selectedCurrency}
+            colorTheme="orange"
+            breakdownList={todayBreakdownList}
+            categoryData={todayCategoryData}
+            infoAction={showTodayProfitInfo}
+            themeConfig={themeConfig}
+        />
 
-        {/* 4. 已落袋收益 (带说明 Tips) */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-amber-50 cursor-pointer" onClick={showRealizedProfitInfo}>
-          <div className="flex justify-between items-start mb-4">
-             <div className="p-3 bg-amber-50 rounded-2xl text-amber-600">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            </div>
-             <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
-          </div>
-          <div className="flex items-center gap-1 group/title">
-              <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '已落袋收益' : '本期已落袋'}</p>
-              <svg className="w-4 h-4 text-slate-300 group-hover/title:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          </div>
-          <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.realizedInterest, selectedCurrency)}</p>
-        </div>
+        {/* 4. Realized Profit Card (Interactive) */}
+        <MetricCard 
+            title={timeFilter === 'all' ? '已落袋收益' : '本期已落袋'}
+            mainValue={stats.realizedInterest}
+            currency={selectedCurrency}
+            colorTheme="amber"
+            breakdownList={realizedBreakdownList}
+            categoryData={realizedCategoryData}
+            infoAction={showRealizedProfitInfo}
+            themeConfig={themeConfig}
+        />
 
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-purple-50">
+        {/* 5. Weighted Yield (Keep Simple) */}
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-purple-50 h-[240px] flex flex-col">
           <div className="flex justify-between items-start mb-4">
-             <div className="p-3 bg-purple-50 rounded-2xl text-purple-600">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            </div>
+             <div className="p-3 bg-purple-50 rounded-2xl text-purple-600"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></div>
              <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Weighted</span>
           </div>
-          <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '综合年化收益率' : '本期年化收益率'}</p>
-          <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatPercent(stats.comprehensiveYield)}</p>
+          <div className="flex-1">
+              <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '综合年化收益率' : '本期年化收益率'}</p>
+              <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatPercent(stats.comprehensiveYield)}</p>
+              <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">基于资金占用时间加权计算的真实回报率 (IRR近似值)</p>
+          </div>
         </div>
       </div>
 
@@ -348,12 +491,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                     <span className="font-bold text-xl text-slate-800 font-mono tabular-nums">{formatCurrency(stats.totalRebate, selectedCurrency)}</span>
                  </div>
                  <div className="h-px bg-slate-100 w-full"></div>
-                 
-                 {/* Clickable Row: Received */}
-                 <div 
-                    onClick={() => setRebateModalType('received')}
-                    className="flex justify-between items-center group cursor-pointer p-2 -mx-2 rounded-xl hover:bg-emerald-50 transition-colors"
-                 >
+                 <div onClick={() => setRebateModalType('received')} className="flex justify-between items-center group cursor-pointer p-2 -mx-2 rounded-xl hover:bg-emerald-50 transition-colors">
                     <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-emerald-400 ring-4 ring-emerald-50 group-hover:ring-emerald-200 transition-all"></div>
                         <span className="text-slate-600 text-sm font-medium">已到账</span>
@@ -361,12 +499,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                     </div>
                     <span className="font-semibold text-emerald-600 font-mono tabular-nums">{formatCurrency(stats.receivedRebate, selectedCurrency)}</span>
                  </div>
-
-                 {/* Clickable Row: Pending */}
-                 <div 
-                    onClick={() => setRebateModalType('pending')}
-                    className="flex justify-between items-center group cursor-pointer p-2 -mx-2 rounded-xl hover:bg-amber-50 transition-colors"
-                 >
+                 <div onClick={() => setRebateModalType('pending')} className="flex justify-between items-center group cursor-pointer p-2 -mx-2 rounded-xl hover:bg-amber-50 transition-colors">
                     <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-amber-400 ring-4 ring-amber-50 group-hover:ring-amber-200 transition-all"></div>
                         <span className="text-slate-600 text-sm font-medium">待返利</span>
@@ -377,171 +510,82 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             </div>
          </div>
          
-         {/* Asset Distribution & Upcoming */}
+         {/* Asset Distribution */}
          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8 overflow-hidden">
             <div className="w-full">
-                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                    <span className="w-1.5 h-6 bg-blue-500 rounded-full"></span>
-                    资金状态分布
-                </h3>
-                <div className="h-[250px] w-full relative overflow-hidden" style={{ transform: 'translate3d(0,0,0)' }}>
-                    {pieData.length > 0 ? (
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                        <span className={`w-1.5 h-6 rounded-full ${distributionMode === 'status' ? 'bg-blue-500' : 'bg-purple-500'}`}></span>
+                        {distributionMode === 'status' ? '资金状态分布' : '在途资产分布'}
+                    </h3>
+                    <div className="flex bg-slate-100 p-1 rounded-lg">
+                        <button onClick={() => setDistributionMode('status')} className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${distributionMode === 'status' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>状态</button>
+                        <button onClick={() => setDistributionMode('allocation')} className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${distributionMode === 'allocation' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>分布</button>
+                    </div>
+                </div>
+                <div className="h-[250px] w-full relative">
+                    {activePieData.length > 0 ? (
                         <ResponsiveContainer width="99%" height="100%">
                             <PieChart>
-                                <Pie
-                                    data={pieData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={80}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                    cornerRadius={8}
-                                    stroke="none"
-                                >
-                                    {pieData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
+                                <Pie data={activePieData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" cornerRadius={8} stroke="none">
+                                    {activePieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                                 </Pie>
-                                <Tooltip 
-                                    formatter={(val: number) => formatCurrency(val, selectedCurrency)} 
-                                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', padding: '12px 16px', zIndex: 100 }}
-                                    itemStyle={{ fontWeight: 600, color: '#1e293b' }}
-                                />
+                                <Tooltip formatter={(val: number) => formatCurrency(val, selectedCurrency)} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', padding: '12px 16px', zIndex: 100 }} itemStyle={{ fontWeight: 600, color: '#1e293b' }} />
                             </PieChart>
                         </ResponsiveContainer>
-                    ) : (
-                        <div className="absolute inset-0 flex items-center justify-center text-slate-300">暂无数据</div>
-                    )}
+                    ) : <div className="absolute inset-0 flex items-center justify-center text-slate-300">暂无数据</div>}
                 </div>
             </div>
-            
             <div className="w-full relative md:border-l md:border-slate-100 md:pl-8">
-                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                    <span className="w-1.5 h-6 bg-emerald-500 rounded-full"></span>
-                    近期到期 ({selectedCurrency})
-                </h3>
+                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><span className="w-1.5 h-6 bg-emerald-500 rounded-full"></span>近期到期 ({selectedCurrency})</h3>
                 <div className="space-y-3 overflow-y-auto max-h-[250px] pr-2 custom-scrollbar">
-                    {upcoming.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-40 text-slate-300 border-2 border-dashed border-slate-100 rounded-2xl">
-                            <p className="text-sm">无近期到期项目</p>
+                    {upcoming.length === 0 ? <div className="flex flex-col items-center justify-center h-40 text-slate-300 border-2 border-dashed border-slate-100 rounded-2xl"><p className="text-sm">无近期到期项目</p></div> : upcoming.map(item => (
+                        <div key={item.id} className="flex justify-between items-center p-3.5 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md hover:border-emerald-100 transition-all group">
+                            <div className="min-w-0"><p className="font-bold text-slate-700 text-sm truncate">{item.name}</p><p className="text-xs text-slate-400 mt-0.5">{item.maturityDate}</p></div>
+                            <div className="text-right whitespace-nowrap pl-4"><p className="font-bold text-slate-700 text-sm font-mono tabular-nums">{formatCurrency(item.currentPrincipal, selectedCurrency)}</p><p className={`text-xs font-bold mt-0.5 ${item.daysRemaining < 0 ? 'text-red-500' : item.daysRemaining <= 7 ? 'text-orange-500' : 'text-emerald-600'}`}>{item.daysRemaining < 0 ? `逾期 ${Math.abs(item.daysRemaining)} 天` : item.daysRemaining === 0 ? '今天到期' : `${item.daysRemaining} 天后`}</p></div>
                         </div>
-                    ) : (
-                        upcoming.map(item => (
-                            <div key={item.id} className="flex justify-between items-center p-3.5 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md hover:border-emerald-100 transition-all group">
-                                <div className="min-w-0">
-                                    <p className="font-bold text-slate-700 text-sm truncate">{item.name}</p>
-                                    <p className="text-xs text-slate-400 mt-0.5">{item.maturityDate}</p>
-                                </div>
-                                <div className="text-right whitespace-nowrap pl-4">
-                                     <p className="font-bold text-slate-700 text-sm font-mono tabular-nums">{formatCurrency(item.currentPrincipal, selectedCurrency)}</p>
-                                     <p className={`text-xs font-bold mt-0.5 ${item.daysRemaining < 0 ? 'text-red-500' : item.daysRemaining <= 7 ? 'text-orange-500' : 'text-emerald-600'}`}>
-                                        {item.daysRemaining < 0 ? `逾期 ${Math.abs(item.daysRemaining)} 天` : 
-                                         item.daysRemaining === 0 ? '今天到期' : 
-                                         `${item.daysRemaining} 天后`}
-                                     </p>
-                                </div>
-                            </div>
-                        ))
-                    )}
+                    ))}
                 </div>
             </div>
          </div>
       </div>
 
-      {/* AI Advisor Section */}
+      {/* AI & Modals (Rebate, Info) Logic Included Below (Standard) */}
       <div className={`relative group rounded-3xl p-[1px] bg-gradient-to-r ${themeConfig.accent} shadow-xl opacity-90 hover:opacity-100 transition`}>
         <div className="bg-white rounded-[23px] p-8 relative overflow-hidden">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 relative z-10 gap-4">
                 <div className="flex items-center gap-4">
-                    <div className={`p-3 bg-gradient-to-br ${themeConfig.accent} rounded-xl text-white shadow-lg`}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                    </div>
-                    <div>
-                        <h3 className="text-xl font-bold text-slate-800">AI 智能理财顾问</h3>
-                        <p className="text-sm text-slate-500">基于 Gemini 的个性化资产分析</p>
-                    </div>
+                    <div className={`p-3 bg-gradient-to-br ${themeConfig.accent} rounded-xl text-white shadow-lg`}><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg></div>
+                    <div><h3 className="text-xl font-bold text-slate-800">AI 智能理财顾问</h3><p className="text-sm text-slate-500">基于 Gemini 的个性化资产分析</p></div>
                 </div>
-                <button 
-                    onClick={handleAIAnalysis}
-                    disabled={loadingAi}
-                    className={`px-6 py-3 ${themeConfig.button} text-white text-sm font-bold rounded-xl shadow-lg transition-all disabled:opacity-70 flex items-center gap-2 active:scale-95`}
-                >
-                    {loadingAi ? '分析中...' : '生成分析报告'}
-                </button>
+                <button onClick={handleAIAnalysis} disabled={loadingAi} className={`px-6 py-3 ${themeConfig.button} text-white text-sm font-bold rounded-xl shadow-lg transition-all disabled:opacity-70 flex items-center gap-2 active:scale-95`}>{loadingAi ? '分析中...' : '生成分析报告'}</button>
             </div>
-            
-            {aiInsight && (
-                <div className="prose prose-sm prose-slate max-w-none bg-slate-50 p-6 rounded-2xl border border-slate-100 animate-fade-in">
-                    <div dangerouslySetInnerHTML={{ __html: aiInsight.replace(/\n/g, '<br/>').replace(/\*\*(.*?)\*\*/g, '<strong class="text-indigo-800">$1</strong>') }} />
-                </div>
-            )}
+            {aiInsight && <div className="prose prose-sm prose-slate max-w-none bg-slate-50 p-6 rounded-2xl border border-slate-100 animate-fade-in"><div dangerouslySetInnerHTML={{ __html: aiInsight.replace(/\n/g, '<br/>').replace(/\*\*(.*?)\*\*/g, '<strong class="text-indigo-800">$1</strong>') }} /></div>}
         </div>
       </div>
 
-      {/* Rebate Details Modal */}
       {rebateModalType && (
           <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setRebateModalType(null)}>
               <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in-up" onClick={e => e.stopPropagation()}>
                   <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                      <div>
-                          <h3 className="text-lg font-bold text-slate-800">
-                              {rebateModalType === 'received' ? '已到账返利明细' : '待返利资产明细'}
-                          </h3>
-                          <p className="text-xs text-slate-400 mt-0.5">Rebate Details</p>
-                      </div>
-                      <button onClick={() => setRebateModalType(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                      </button>
+                      <div><h3 className="text-lg font-bold text-slate-800">{rebateModalType === 'received' ? '已到账返利明细' : '待返利资产明细'}</h3><p className="text-xs text-slate-400 mt-0.5">Rebate Details</p></div>
+                      <button onClick={() => setRebateModalType(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                   </div>
                   <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-3">
-                      {rebateItems.length === 0 ? (
-                          <div className="py-10 text-center text-slate-400 text-sm flex flex-col items-center gap-2">
-                              <svg className="w-10 h-10 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>
-                              暂无相关记录
-                          </div>
-                      ) : (
-                          rebateItems.map(item => (
-                              <div key={item.id} className="flex justify-between items-center p-3 rounded-2xl bg-slate-50 border border-slate-100">
-                                  <div className="min-w-0">
-                                      <p className="font-bold text-slate-700 text-sm truncate">{item.name}</p>
-                                      <p className="text-xs text-slate-400 mt-0.5">{formatDate(item.depositDate)}</p>
-                                  </div>
-                                  <div className="text-right">
-                                      <p className={`font-bold font-mono text-sm ${rebateModalType === 'received' ? 'text-emerald-600' : 'text-amber-500'}`}>
-                                          +{formatCurrency(item.rebate, item.currency)}
-                                      </p>
-                                      <span className="text-[10px] text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100 shadow-sm">
-                                          {item.type === 'Fixed' ? '固收' : '浮动'}
-                                      </span>
-                                  </div>
-                              </div>
-                          ))
-                      )}
+                      {rebateItems.length === 0 ? <div className="py-10 text-center text-slate-400 text-sm flex flex-col items-center gap-2"><svg className="w-10 h-10 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>暂无相关记录</div> : rebateItems.map(item => (
+                          <div key={item.id} className="flex justify-between items-center p-3 rounded-2xl bg-slate-50 border border-slate-100"><div className="min-w-0"><p className="font-bold text-slate-700 text-sm truncate">{item.name}</p><p className="text-xs text-slate-400 mt-0.5">{formatDate(item.depositDate)}</p></div><div className="text-right"><p className={`font-bold font-mono text-sm ${rebateModalType === 'received' ? 'text-emerald-600' : 'text-amber-500'}`}>+{formatCurrency(item.rebate, item.currency)}</p><span className="text-[10px] text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100 shadow-sm">{item.type === 'Fixed' ? '固收' : '浮动'}</span></div></div>
+                      ))}
                   </div>
               </div>
           </div>
       )}
 
-      {/* Info Modal */}
       {infoModal && (
           <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setInfoModal(null)}>
               <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in-up relative" onClick={e => e.stopPropagation()}>
                   <div className="p-6">
-                      <div className="flex justify-between items-start mb-4">
-                          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                              <svg className="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                              {infoModal.title}
-                          </h3>
-                          <button onClick={() => setInfoModal(null)} className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-400 transition-colors">
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                          </button>
-                      </div>
-                      <div className="bg-white">
-                          {infoModal.content}
-                      </div>
+                      <div className="flex justify-between items-start mb-4"><h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><svg className="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{infoModal.title}</h3><button onClick={() => setInfoModal(null)} className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button></div>
+                      <div className="bg-white">{infoModal.content}</div>
                   </div>
               </div>
           </div>
