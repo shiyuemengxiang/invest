@@ -15,20 +15,25 @@ interface Props {
     onNotify: (msg: string, type: ToastType) => void;
 }
 
-// 丰富头像风格库
+// ✨ 全新精选：可爱、多彩、高颜值风格库
 const AVATAR_STYLES = [
-    { id: 'adventurer', name: '冒险家 (Adventurer)' },
-    { id: 'notionists', name: 'Notion 风格' },
-    { id: 'miniavs', name: '极简小人 (Mini)' },
-    { id: 'avataaars', name: '经典 (Avataaars)' },
-    { id: 'bottts', name: '机器人 (Bottts)' },
-    { id: 'lorelei', name: '二次元 (Lorelei)' },
-    { id: 'pixel-art', name: '像素风 (8-Bit)' },
-    { id: 'big-ears', name: '大耳朵 (Funny)' },
-    { id: 'open-peeps', name: '手绘 (Peeps)' },
-    { id: 'personas', name: '现代 (Personas)' },
-    { id: 'micah', name: '简约 (Micah)' },
-    { id: 'dylan', name: 'Dylan' },
+    { id: 'fun-emoji', name: '开心表情 (Emoji)' },     // 超级可爱，色彩丰富
+    { id: 'big-smile', name: '灿烂大笑 (Smile)' },     // 夸张表情，很有感染力
+    { id: 'avataaars', name: '经典多彩 (Avatar)' },    // 最经典的彩色扁平风
+    { id: 'bottts', name: '多彩机器人 (Bot)' },        // 颜色非常跳跃
+    { id: 'lorelei', name: '二次元 (Lorelei)' },       // 唯美可爱风
+    { id: 'adventurer', name: '冒险家 (Adventurer)' }, // 之前的默认，也不错
+    { id: 'notionists', name: 'Notion 插画风' },       // 有质感的插画
+    { id: 'croodles', name: '涂鸦 (Croodles)' },       // 艺术感涂鸦
+    { id: 'thumbs', name: '拇指小人 (Thumbs)' },       // 呆萌风格
+    { id: 'micah', name: 'Micah (简约)' },             // 虽然简约但线条很舒服
+    { id: 'personas', name: 'Personas (现代)' },       // 现代扁平
+    { id: 'pixel-art', name: '像素风 (8-Bit)' },       // 复古可爱
+];
+
+// 马卡龙色系背景池 (避免头像背景是透明或单调的灰色)
+const BG_COLORS = [
+    'b6e3f4', 'c0aede', 'd1d4f9', 'ffd5dc', 'ffdfbf', 'fdcfaf', 'e6e6e6', 'd4e0ff', 'ffdfd3'
 ];
 
 const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSaveTheme, onSaveProfile, onLogout, onNotify }) => {
@@ -79,37 +84,43 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
         onNotify('汇率设置已保存', 'success');
     };
 
-    // 获取当前 URL 中的 seed (种子) 和 style (风格)
+    // 随机获取一个好看的背景色
+    const getRandomColor = () => BG_COLORS[Math.floor(Math.random() * BG_COLORS.length)];
+
+    // 获取当前头像信息 (兼容旧版 URL)
     const getAvatarInfo = () => {
-        if (!avatar) return { style: 'adventurer', seed: Math.random().toString(36).substring(7) };
+        const defaultStyle = 'fun-emoji'; // 默认改成最可爱的
+        if (!avatar) return { style: defaultStyle, seed: Math.random().toString(36).substring(7) };
         try {
-            // URL 格式通常为: https://api.dicebear.com/9.x/{style}/svg?seed={seed}
+            // URL: https://api.dicebear.com/9.x/{style}/svg?seed={seed}&backgroundColor={color}
             const urlObj = new URL(avatar);
             const pathParts = urlObj.pathname.split('/');
-            // pathParts 类似 ['', '9.x', 'adventurer', 'svg']
-            const style = pathParts[2] || 'adventurer';
+            const style = pathParts[2] || defaultStyle;
             const seed = urlObj.searchParams.get('seed') || Math.random().toString(36).substring(7);
             return { style, seed };
         } catch (e) {
-            return { style: 'adventurer', seed: Math.random().toString(36).substring(7) };
+            return { style: defaultStyle, seed: Math.random().toString(36).substring(7) };
         }
     };
 
-    // 1. 随机生成 (保持当前风格，只换种子)
+    // 1. 随机生成 (保持当前风格，换种子 + 换背景色)
     const handleRandomSeed = (e?: React.MouseEvent) => {
-        e?.stopPropagation(); // 防止触发打开选择器
+        e?.stopPropagation(); 
         const { style } = getAvatarInfo();
         const newSeed = Math.random().toString(36).substring(7);
-        const newAvatarUrl = `https://api.dicebear.com/9.x/${style}/svg?seed=${newSeed}`;
+        const bg = getRandomColor();
+        // 关键点：追加 backgroundColor 参数
+        const newAvatarUrl = `https://api.dicebear.com/9.x/${style}/svg?seed=${newSeed}&backgroundColor=${bg}`;
         setAvatar(newAvatarUrl);
     };
 
-    // 2. 切换风格 (保持当前种子，只换风格)
+    // 2. 切换风格 (保持当前种子，换风格 + 换背景色)
     const handleStyleSelect = (styleId: string) => {
         const { seed } = getAvatarInfo();
-        const newAvatarUrl = `https://api.dicebear.com/9.x/${styleId}/svg?seed=${seed}`;
+        const bg = getRandomColor();
+        const newAvatarUrl = `https://api.dicebear.com/9.x/${styleId}/svg?seed=${seed}&backgroundColor=${bg}`;
         setAvatar(newAvatarUrl);
-        setShowAvatarSelector(false); // 选择后关闭弹窗
+        setShowAvatarSelector(false); 
     };
 
     const handleSaveUserProfile = () => {
@@ -120,7 +131,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     return (
         <div className="max-w-3xl mx-auto space-y-8 animate-fade-in relative">
             
-            {/* User Card & Profile Settings */}
+            {/* User Card */}
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 relative z-10">
                 <div className="flex flex-col md:flex-row gap-8 items-start">
                     {/* Left: Avatar & Info */}
@@ -137,12 +148,13 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                                     <span>{user ? (nickname?.[0] || user.email[0]).toUpperCase() : 'G'}</span>
                                 )}
                             </div>
-                            {/* Hover 提示遮罩 */}
+                            
+                            {/* Hover 提示 */}
                             <div className="absolute inset-0 rounded-full bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                <span className="text-xs font-bold text-white">切换风格</span>
+                                <span className="text-xs font-bold text-white">换个风格</span>
                             </div>
 
-                            {/* 随机按钮 (独立点击事件) */}
+                            {/* 随机按钮 */}
                             <button 
                                 onClick={handleRandomSeed}
                                 className="absolute bottom-0 right-0 p-1.5 bg-white rounded-full shadow-md text-slate-500 hover:text-indigo-600 border border-slate-200 transition transform hover:scale-110 z-20"
@@ -175,7 +187,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                                     type="text" 
                                     value={nickname}
                                     onChange={(e) => setNickname(e.target.value)}
-                                    placeholder="设置一个好听的昵称"
+                                    placeholder="给自己起个好听的名字"
                                     className="flex-1 p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-200 outline-none transition"
                                 />
                                 <button 
@@ -190,29 +202,32 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                 </div>
             </div>
 
-            {/* Avatar Selector Modal (Popover) */}
+            {/* Avatar Selector Modal */}
             {showAvatarSelector && (
                 <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-100 animate-fade-in-up relative z-20">
                     <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-bold text-slate-800">选择头像风格</h3>
+                        <h3 className="font-bold text-slate-800">选择你喜欢的风格</h3>
                         <button onClick={() => setShowAvatarSelector(false)} className="text-slate-400 hover:text-slate-600">
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
                     </div>
                     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
                         {AVATAR_STYLES.map(style => {
-                            // 预览图使用当前的 seed
+                            // 预览图使用当前种子 + 随机背景色
                             const { seed } = getAvatarInfo();
-                            const previewUrl = `https://api.dicebear.com/9.x/${style.id}/svg?seed=${seed}`;
+                            // 这里预览图为了好看，我们固定用一个比较通用的颜色，或者随机
+                            const previewUrl = `https://api.dicebear.com/9.x/${style.id}/svg?seed=${seed}&backgroundColor=ffd5dc`;
                             const isSelected = avatar.includes(`/${style.id}/`);
 
                             return (
                                 <button
                                     key={style.id}
                                     onClick={() => handleStyleSelect(style.id)}
-                                    className={`flex flex-col items-center gap-2 p-2 rounded-xl transition-all border-2 ${isSelected ? 'border-indigo-500 bg-indigo-50' : 'border-transparent hover:bg-slate-50 hover:border-slate-200'}`}
+                                    className={`flex flex-col items-center gap-2 p-2 rounded-xl transition-all border-2 group ${isSelected ? 'border-indigo-500 bg-indigo-50' : 'border-transparent hover:bg-slate-50 hover:border-slate-200'}`}
                                 >
-                                    <img src={previewUrl} alt={style.name} className="w-10 h-10 rounded-full bg-white shadow-sm" />
+                                    <div className="w-12 h-12 rounded-full overflow-hidden shadow-sm bg-white group-hover:scale-110 transition-transform">
+                                        <img src={previewUrl} alt={style.name} className="w-full h-full object-cover" />
+                                    </div>
                                     <span className={`text-[10px] font-bold truncate w-full text-center ${isSelected ? 'text-indigo-600' : 'text-slate-500'}`}>{style.name}</span>
                                 </button>
                             );
