@@ -249,7 +249,106 @@ export const getTimeFilterRange = (filter: TimeFilter, customStart?: string, cus
 };
 
 // ----------------------------------------------------------------
-// [修复] Period Stats Logic (Fixing history calculation for closed items)
+// [逻辑修复] 全局统计函数 (All Time)
+// ----------------------------------------------------------------
+export const calculatePortfolioStats = (items: Investment[]) => {
+  let totalInvested = 0;
+  let activePrincipal = 0;
+  let completedPrincipal = 0;
+  let totalRebate = 0;
+  let pendingRebate = 0;
+  let receivedRebate = 0;
+  let realizedInterest = 0;
+  let projectedTotalProfit = 0;
+  let todayEstProfit = 0;
+  
+  let weightedYieldSum = 0;
+  let totalWeight = 0;
+  
+  const todayISO = new Date().toISOString().split('T')[0];
+
+  items.forEach(item => {
+    const metrics = calculateItemMetrics(item);
+    
+    totalInvested += item.totalCost; 
+    totalRebate += item.rebate;
+    
+    // Projected Total Profit (Includes EVERYTHING: Unrealized + Realized + Rebate)
+    if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
+        projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
+    } else if (!metrics.isCompleted && item.type === 'Floating') {
+        projectedTotalProfit += metrics.profit;
+    } else {
+        projectedTotalProfit += metrics.profit;
+    }
+    
+    // Fee deduction for projection
+    if (!metrics.isCompleted && item.transactions) {
+        item.transactions.forEach(tx => {
+            const txDate = tx.date.split('T')[0];
+            if (txDate > todayISO && (tx.type === 'Fee' || tx.type === 'Tax')) {
+                projectedTotalProfit -= tx.amount;
+            }
+        });
+    }
+    
+    if (!metrics.isCompleted) {
+        todayEstProfit += calculateDailyReturn(item);
+    }
+
+    if (item.isRebateReceived) {
+      receivedRebate += item.rebate;
+    } else {
+      pendingRebate += item.rebate;
+    }
+
+    if (metrics.isCompleted) {
+      completedPrincipal += item.totalCost;
+      realizedInterest += metrics.baseInterest;
+    } else {
+      activePrincipal += item.currentPrincipal;
+      realizedInterest += item.totalRealizedProfit;
+    }
+
+    // Weighted Yield
+    if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0)) { 
+        const weight = (metrics.isCompleted || item.type === 'Floating') ? item.totalCost : item.currentPrincipal;
+        if (weight > 0) {
+            weightedYieldSum += metrics.comprehensiveYield * weight;
+            totalWeight += weight;
+        }
+    }
+  });
+  
+  // -------------------------------------------------------------
+  // 🔥 核心修复点：将 "已到账返利" 累加到 "总已落袋收益" 中
+  // -------------------------------------------------------------
+  realizedInterest += receivedRebate;
+
+  let portfolioYield = 0;
+  if (totalWeight > 0) {
+      portfolioYield = weightedYieldSum / totalWeight;
+  }
+  
+  const projectedTotalYield = totalInvested > 0 ? (projectedTotalProfit / totalInvested) * 100 : 0;
+
+  return {
+    totalInvested,
+    activePrincipal,
+    completedPrincipal,
+    totalRebate,
+    pendingRebate,
+    receivedRebate,
+    realizedInterest, // 现在的 realizedInterest 已经包含返利了
+    projectedTotalProfit,
+    projectedTotalYield,
+    todayEstProfit,
+    comprehensiveYield: portfolioYield
+  };
+};
+
+// ----------------------------------------------------------------
+// Period Stats Logic (Fixed: use totalCost for closed items)
 // ----------------------------------------------------------------
 export const calculatePeriodStats = (items: Investment[], start: Date, end: Date) => {
     let totalInvested = 0; 
@@ -272,13 +371,11 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         const depositDate = new Date(item.depositDate);
         const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
         
-        // Skip if completely out of range
         if (depositDate > end) return;
         if (withdrawalDate && withdrawalDate < start) return;
 
         const overlapStart = depositDate > start ? depositDate : start;
         const itemEnd = withdrawalDate || item.maturityDate ? new Date(item.maturityDate) : null || end;
-        // If withdrawalDate exists, it caps the active period
         const effectiveEnd = withdrawalDate ? (withdrawalDate < end ? withdrawalDate : end) : end;
         const overlapEnd = effectiveEnd < end ? effectiveEnd : end;
         
@@ -288,9 +385,6 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         }
         
         let itemPeriodProfit = 0;
-
-        // FIX: For Fixed assets, use totalCost if currentPrincipal is 0 (completed item)
-        // This ensures historical periods show earnings even if item is now closed
         const calculationPrincipal = item.currentPrincipal > 0.01 ? item.currentPrincipal : item.totalCost;
 
         if (item.type === 'Fixed' && item.expectedRate && calculationPrincipal > 0) {
@@ -324,8 +418,6 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         }
         
         periodProfit += itemPeriodProfit;
-        
-        // FIX: Use calculationPrincipal for weight as well
         const weight = calculationPrincipal;
         totalInvested += weight;
         
@@ -519,95 +611,6 @@ export const calculateItemMetrics = (item: Investment) => {
     daysRemaining: item.maturityDate ? getDaysRemaining(item.maturityDate) : 0,
     unitCost,
     currentPrice
-  };
-};
-
-export const calculatePortfolioStats = (items: Investment[]) => {
-  let totalInvested = 0;
-  let activePrincipal = 0;
-  let completedPrincipal = 0;
-  let totalRebate = 0;
-  let pendingRebate = 0;
-  let receivedRebate = 0;
-  let realizedInterest = 0;
-  let projectedTotalProfit = 0;
-  let todayEstProfit = 0;
-  
-  let weightedYieldSum = 0;
-  let totalWeight = 0;
-  
-  const todayISO = new Date().toISOString().split('T')[0];
-
-  items.forEach(item => {
-    const metrics = calculateItemMetrics(item);
-    
-    totalInvested += item.totalCost; 
-    totalRebate += item.rebate;
-    
-    if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
-        projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
-    } else if (!metrics.isCompleted && item.type === 'Floating') {
-        projectedTotalProfit += metrics.profit;
-    } else {
-        projectedTotalProfit += metrics.profit;
-    }
-    
-    if (!metrics.isCompleted && item.transactions) {
-        item.transactions.forEach(tx => {
-            const txDate = tx.date.split('T')[0];
-            if (txDate > todayISO && (tx.type === 'Fee' || tx.type === 'Tax')) {
-                projectedTotalProfit -= tx.amount;
-            }
-        });
-    }
-    
-    if (!metrics.isCompleted) {
-        todayEstProfit += calculateDailyReturn(item);
-    }
-
-    if (item.isRebateReceived) {
-      receivedRebate += item.rebate;
-    } else {
-      pendingRebate += item.rebate;
-    }
-
-    if (metrics.isCompleted) {
-      completedPrincipal += item.totalCost;
-      realizedInterest += metrics.baseInterest;
-    } else {
-      activePrincipal += item.currentPrincipal;
-      realizedInterest += item.totalRealizedProfit;
-    }
-
-    if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0)) { 
-        const weight = (metrics.isCompleted || item.type === 'Floating') ? item.totalCost : item.currentPrincipal;
-        
-        if (weight > 0) {
-            weightedYieldSum += metrics.comprehensiveYield * weight;
-            totalWeight += weight;
-        }
-    }
-  });
-  
-  let portfolioYield = 0;
-  if (totalWeight > 0) {
-      portfolioYield = weightedYieldSum / totalWeight;
-  }
-  
-  const projectedTotalYield = totalInvested > 0 ? (projectedTotalProfit / totalInvested) * 100 : 0;
-
-  return {
-    totalInvested,
-    activePrincipal,
-    completedPrincipal,
-    totalRebate,
-    pendingRebate,
-    receivedRebate,
-    realizedInterest,
-    projectedTotalProfit,
-    projectedTotalYield,
-    todayEstProfit,
-    comprehensiveYield: portfolioYield
   };
 };
 
