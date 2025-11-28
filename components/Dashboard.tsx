@@ -96,8 +96,8 @@ const MetricCard: React.FC<MetricCardProps> = ({
                             </div>
                         </div>
                         
-                        {/* 修复点: 使用 mt-auto 将列表推到底部，并增加 pb-1 防止贴边 */}
-                        <div className="mt-auto pt-3 border-t border-slate-50 space-y-2.5 pb-1">
+                        {/* 修复：增加底部 padding (pb-3) 防止文字贴边 */}
+                        <div className="mt-auto pt-3 border-t border-slate-50 space-y-2.5 pb-3">
                             {breakdownList.map((item, idx) => (
                                 <div key={idx} className="flex justify-between items-center text-xs">
                                     <span className="text-slate-400 flex items-center gap-1.5">
@@ -110,7 +110,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
                         </div>
                     </div>
                 ) : (
-                    <div className="animate-fade-in h-full flex flex-col items-center justify-center relative">
+                    <div className="animate-fade-in h-full flex flex-col items-center justify-center relative pb-2">
                         {categoryData.length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
@@ -318,6 +318,14 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       else { setShowCustomDate(false); setCustomStart(''); setCustomEnd(''); }
   };
 
+  // Safe Date Formatting for Rebate Modal
+  const safeFormatDate = (dateStr: string) => {
+      if (!dateStr) return '-';
+      const d = new Date(dateStr);
+      // 核心修复：检查日期是否合法，防止 Invalid Date 导致 crash
+      return !isNaN(d.getTime()) ? formatDate(dateStr) : '-';
+  };
+
   const showTotalProfitInfo = () => setInfoModal({ title: "总预估收益 (含在途)", content: <div className="text-sm text-slate-600 space-y-2"><p>历史总回报，包含账面浮盈和已落袋资金。</p><p className="font-bold text-indigo-600">公式：浮盈 + 已结 + 返利 - 费用</p></div> });
   const showTodayProfitInfo = () => setInfoModal({ title: "今日/昨日预估收益", content: <div className="text-sm text-slate-600 space-y-2"><p>仅计算今天产生的价值变化。</p><p className="font-bold text-orange-600">公式：固收日息 + 浮动资产今日涨跌</p></div> });
   const showRealizedProfitInfo = () => setInfoModal({ title: "已落袋收益", content: <div className="text-sm text-slate-600 space-y-2"><p>真正“落袋为安”的收益。</p><p className="font-bold text-amber-600">包含：完结项目净利 + 派息 + 减仓盈利</p></div> });
@@ -374,7 +382,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         </div>
       </div>
 
-      {/* NEW: Metric Cards */}
+      {/* Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
         
         {/* 1. Principal Card */}
@@ -525,7 +533,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                   </div>
                   <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-3">
                       {rebateItems.length === 0 ? <div className="py-10 text-center text-slate-400 text-sm flex flex-col items-center gap-2"><svg className="w-10 h-10 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>暂无相关记录</div> : rebateItems.map(item => (
-                          <div key={item.id} className="flex justify-between items-center p-3 rounded-2xl bg-slate-50 border border-slate-100"><div className="min-w-0"><p className="font-bold text-slate-700 text-sm truncate">{item.name}</p><p className="text-xs text-slate-400 mt-0.5">{new Date(item.depositDate).toString() !== 'Invalid Date' ? formatDate(item.depositDate) : '-'}</p></div><div className="text-right"><p className={`font-bold font-mono text-sm ${rebateModalType === 'received' ? 'text-emerald-600' : 'text-amber-500'}`}>+{formatCurrency(item.rebate, item.currency)}</p><span className="text-[10px] text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100 shadow-sm">{item.type === 'Fixed' ? '固收' : '浮动'}</span></div></div>
+                          <div key={item.id} className="flex justify-between items-center p-3 rounded-2xl bg-slate-50 border border-slate-100"><div className="min-w-0"><p className="font-bold text-slate-700 text-sm truncate">{item.name}</p><p className="text-xs text-slate-400 mt-0.5">{safeFormatDate(item.depositDate)}</p></div><div className="text-right"><p className={`font-bold font-mono text-sm ${rebateModalType === 'received' ? 'text-emerald-600' : 'text-amber-500'}`}>+{formatCurrency(item.rebate, item.currency)}</p><span className="text-[10px] text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100 shadow-sm">{item.type === 'Fixed' ? '固收' : '浮动'}</span></div></div>
                       ))}
                   </div>
               </div>
