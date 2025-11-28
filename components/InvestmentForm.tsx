@@ -396,9 +396,7 @@ const InvestmentForm: React.FC<Props> = ({ onSave, onCancel, initialData, onNoti
     let finalSymbol = formData.symbol;
     if (formData.category === 'Stock' && formData.currency === 'CNY' && stockCode) {
         finalSymbol = `${stockMarket}${stockCode}`;
-    } else if ((formData.category === 'Fund' || formData.category === 'Stock') && stockCode) {
-        finalSymbol = stockCode;
-    }
+    } 
 
     const inputPrincipal = Number(formData.principal);
     const inputQuantity = formData.quantity && formData.quantity > 0 ? Number(formData.quantity) : undefined;
