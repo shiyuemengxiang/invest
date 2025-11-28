@@ -6,11 +6,11 @@ interface QuoteResult {
     time?: string;
 }
 
-// 简单的内存缓存，避免频繁搜索同一个股票的 ID
-// 在 Vercel Serverless 的热启动期间可以复用，减少接口请求
+// 内存缓存：存储 Symbol 到 Webull TickerID 的映射
+// 修正策略：只预留最核心的几个，其他让程序自动搜索 (Auto-Discovery) 以免ID变动
 const WEBULL_ID_CACHE: Record<string, string> = {
-    'TQQQ': '913243251',
-    'SQQQ': '913243252',
+    'TQQQ': '913732468', // TQQQ
+    'SQQQ': '913244407', // SQQQ
     'TSLA': '913255598',
     'AAPL': '913256135',
     'NVDA': '913257561',
@@ -19,6 +19,33 @@ const WEBULL_ID_CACHE: Record<string, string> = {
     'AMZN': '913256290',
     'GOOG': '913256299',
     'META': '913256337'
+};
+
+// 辅助函数：判断当前是否为美股常规交易时段 (美东时间 Mon-Fri 09:30 - 16:00)
+const isRegularUSMarketOpen = (): boolean => {
+    try {
+        const now = new Date();
+        // 转换为美东时间 (处理夏令时/冬令时)
+        const etTimeStr = now.toLocaleString("en-US", {timeZone: "America/New_York"});
+        const etTime = new Date(etTimeStr);
+        
+        const day = etTime.getDay(); // 0=Sun, 6=Sat
+        const hour = etTime.getHours();
+        const minute = etTime.getMinutes();
+
+        // 1. 周末休市
+        if (day === 0 || day === 6) return false;
+
+        // 2. 时间判断 (09:30 - 16:00)
+        const currentMinutes = hour * 60 + minute;
+        const startMinutes = 9 * 60 + 30; // 09:30
+        const endMinutes = 16 * 60;       // 16:00
+
+        return currentMinutes >= startMinutes && currentMinutes < endMinutes;
+    } catch (e) {
+        // 如果环境不支持时区转换，默认返回 false (偏向于使用 Webull，因为夜盘数据覆盖面更广)
+        return false;
+    }
 };
 
 export default async function handler(request: any, response: any) {
@@ -33,7 +60,6 @@ export default async function handler(request: any, response: any) {
     }
     
     const { symbols } = body;
-    console.log(`[API Quotes] Received request for symbols: ${JSON.stringify(symbols)}`);
     
     if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
         return response.status(400).json({ error: 'Missing symbols array' });
@@ -43,44 +69,43 @@ export default async function handler(request: any, response: any) {
     const result: Record<string, QuoteResult> = {};
 
     // --- Helper: Webull Fetcher Logic ---
-    // 专门用于获取美股夜盘/盘前数据的函数
     const fetchWebullQuote = async (symbol: string): Promise<QuoteResult | null> => {
         try {
             let tickerId = WEBULL_ID_CACHE[symbol];
 
-            // 1. 如果没有缓存 ID，先去 Webull 搜索接口查 ID
+            // 1. 如果缓存里没有 ID，先去 Webull 搜索
             if (!tickerId) {
                 const searchUrl = `https://quotes-gw.webullfintech.com/api/search/pc/tickers?keyword=${symbol}&regionId=6&pageIndex=1&pageSize=1`;
                 const searchRes = await fetch(searchUrl);
                 const searchJson = await searchRes.json();
                 
                 if (searchJson.data && searchJson.data.length > 0) {
+                    const match = searchJson.data[0];
                     // 简单校验：确保搜索结果的 symbol 和请求的一致
-                    if (searchJson.data[0].symbol === symbol) {
-                        tickerId = String(searchJson.data[0].tickerId);
-                        WEBULL_ID_CACHE[symbol] = tickerId; // 存入缓存
+                    if (match.symbol === symbol || match.disSymbol === symbol) {
+                        tickerId = String(match.tickerId);
+                        WEBULL_ID_CACHE[symbol] = tickerId; 
+                        console.log(`[API Quotes] Found ID for ${symbol}: ${tickerId}`);
                     }
                 }
             }
 
             if (!tickerId) return null;
 
-            // 2. 用 ID 获取实时报价 (含夜盘 pPrice)
+            // 2. 用 ID 获取实时报价
             const quoteUrl = `https://quotes-gw.webullfintech.com/api/bgw/quote/realtime?ids=${tickerId}&includeSecu=1&delay=0&more=1`;
             const quoteRes = await fetch(quoteUrl);
             const quoteJson = await quoteRes.json();
 
             if (quoteJson && quoteJson[0]) {
                 const data = quoteJson[0];
-                
-                // 逻辑：优先取 pPrice (盘前/盘后/夜盘)，如果无效则取 close
                 const closePrice = Number(data.close);
                 const extPrice = Number(data.pPrice);
                 
-                // 只有当 extPrice 存在且有效(>0)时才使用，否则用收盘价
+                // 优先取扩展时段价格 (pPrice)，如果无效则取收盘价 (close)
                 const finalPrice = (extPrice && extPrice > 0) ? extPrice : closePrice;
                 
-                // 计算涨跌幅 (Webull 返回的 pChange 是小数，如 0.015 代表 1.5%)
+                // 计算涨跌幅
                 let changePercent = 0;
                 if (data.pChange && extPrice > 0) {
                     changePercent = Number(data.pChange) * 100; 
@@ -88,12 +113,8 @@ export default async function handler(request: any, response: any) {
                     changePercent = Number(data.changeRatio) * 100;
                 }
 
-                console.log(`[API Quotes] Webull success for ${symbol}: ${finalPrice} (Ext: ${extPrice})`);
-                return { 
-                    price: finalPrice, 
-                    change: changePercent, 
-                    time: new Date().toISOString() 
-                };
+                console.log(`[API Quotes] Webull (${symbol}): ${finalPrice}`);
+                return { price: finalPrice, change: changePercent, time: new Date().toISOString() };
             }
         } catch (e: any) {
             console.warn(`[API Quotes] Webull failed for ${symbol}: ${e.message}`);
@@ -101,119 +122,18 @@ export default async function handler(request: any, response: any) {
         return null;
     };
 
-    // --- Main Fetch Logic ---
-    const fetchQuote = async (symbol: string): Promise<QuoteResult | null> => {
-        // 1. CN Stocks (EastMoney): sh, sz, bj
-        if (/^(sh|sz|bj)\d{6}$/i.test(symbol)) {
-            try {
-                const prefix = symbol.slice(0, 2).toLowerCase();
-                const code = symbol.slice(2);
-                
-                // Map prefix to secid market code: SH=1, SZ=0, BJ=0
-                let market = '0';
-                if (prefix === 'sh') market = '1';
-                else if (prefix === 'sz') market = '0';
-                else if (prefix === 'bj') market = '0'; 
-                
-                const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${code}&fields=f43,f170`;
-                
-                const res = await fetch(url, {
-                    headers: { 'Referer': 'https://eastmoney.com/' }
-                });
-                
-                const json = await res.json();
-                // f43: Price (fen), f170: Change (basis points, 100 = 1%)
-                if (json && json.data && json.data.f43) {
-                    const price = json.data.f43 / 100;
-                    const change = json.data.f170 ? json.data.f170 / 100 : 0;
-                    console.log(`[API Quotes] EastMoney Stock success for ${symbol}: ${price} (${change}%)`);
-                    return { price, change, time: new Date().toISOString() };
-                }
-            } catch (e: any) {
-                console.warn(`[API Quotes] EastMoney Stock failed for ${symbol}: ${e.message}`);
-            }
-            return null;
-        }
-
-        // 2. CN Funds (EastMoney): 6 digits (e.g. 320007)
-        if (/^\d{6}$/.test(symbol)) {
-            try {
-                // Strategy A: fundgz (Real-time Estimate + Basic NAV info)
-                const url = `https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`;
-                const res = await fetch(url, {
-                    headers: { 'Referer': 'https://fund.eastmoney.com/' }
-                });
-                const text = await res.text();
-                // Format: jsonpgz({"fundcode":"320007",..."dwjz":"1.7680","gsz":"1.7692","gszzl":"0.07",...});
-                
-                const match = text.match(/jsonpgz\((.*?)\)/);
-                if (match && match[1]) {
-                    const data = JSON.parse(match[1]);
-                    
-                    // CRITICAL: Use 'dwjz' (Confirmed NAV) for Price.
-                    if (data.dwjz && parseFloat(data.dwjz) > 0) {
-                        const price = parseFloat(data.dwjz);
-                        
-                        // Parse 'gszzl' (Est Change %). If empty or invalid, set to undefined.
-                        let change: number | undefined = undefined;
-                        if (data.gszzl && data.gszzl !== "") {
-                            const parsedChange = parseFloat(data.gszzl);
-                            if (!isNaN(parsedChange)) {
-                                change = parsedChange;
-                            }
-                        }
-
-                        console.log(`[API Quotes] EastMoney Fund (NAV) success for ${symbol}: ${price} (Est Change: ${change}%)`);
-                        return { price, change, time: data.gztime || new Date().toISOString() };
-                    }
-                }
-            } catch (e: any) {
-                console.warn(`[API Quotes] EastMoney Fund (fundgz) failed for ${symbol}: ${e.message}`);
-            }
-
-            // Strategy B: F10DataApi (Confirmed NAV Table) - Fallback if fundgz dwjz is missing
-            try {
-                const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${symbol}&page=1`;
-                const res = await fetch(url);
-                const text = await res.text();
-                // var apidata={ content:"... <tr><td>2023-01-01</td><td class='tor bold'>1.2345</td>..." }
-                
-                // Extract First Row NAV - loosen regex for attributes
-                const navMatch = text.match(/<td>(\d{4}-\d{2}-\d{2})<\/td>\s*<td[^>]*>([\d\.]+)<\/td>/);
-                if (navMatch && navMatch[2]) {
-                    const price = parseFloat(navMatch[2]);
-                    console.log(`[API Quotes] EastMoney Fund (F10) success for ${symbol}: ${price}`);
-                    // Historical table does not have intraday valuation change, so change is undefined
-                    return { price, change: undefined, time: navMatch[1] }; 
-                }
-            } catch (e: any) {
-                console.warn(`[API Quotes] EastMoney Fund (F10) failed for ${symbol}: ${e.message}`);
-            }
-
-            return null;
-        }
-
-        // 3. US/International Stocks - Webull Strategy (Priority)
-        // 如果是纯字母代码 (如 TQQQ, AAPL)，优先尝试 Webull 获取夜盘数据
-        if (/^[A-Z]+$/.test(symbol)) {
-            const webullResult = await fetchWebullQuote(symbol);
-            if (webullResult) {
-                return webullResult;
-            }
-            // 如果 Webull 失败，继续往下走 Yahoo 的逻辑作为兜底
-        }
-
-        // 4. International (Yahoo Finance) - Fallback
+    // --- Helper: Yahoo Fetcher Logic ---
+    const fetchYahooQuote = async (symbol: string): Promise<QuoteResult | null> => {
         try {
             const quote = await yahooFinance.quote(symbol, { validateResult: false }) as any;
             const price = quote.regularMarketPrice || quote.ask || quote.bid;
             const change = quote.regularMarketChangePercent || 0;
-            console.log(`[API Quotes] YahooLib success for ${symbol}: ${price}`);
+            console.log(`[API Quotes] Yahoo (${symbol}): ${price}`);
             return { price, change, time: new Date().toISOString() };
-        } catch (libError: any) {
-            console.warn(`[API Quotes] YahooLib failed for ${symbol}: ${libError.message}`);
+        } catch (e: any) {
+            // console.warn(`[API Quotes] YahooLib failed for ${symbol}`);
             
-            // HTTP Fallback for Yahoo
+            // HTTP Fallback logic for Yahoo
             try {
                 const fetchUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
                 const res = await fetch(fetchUrl, {
@@ -226,25 +146,93 @@ export default async function handler(request: any, response: any) {
                     const data = await res.json();
                     const meta = data?.chart?.result?.[0]?.meta;
                     if (meta && meta.regularMarketPrice) {
-                        console.log(`[API Quotes] HTTP Fallback success for ${symbol}: ${meta.regularMarketPrice}`);
-                        
                         let percentChange = 0;
                         const prevClose = meta.chartPreviousClose || meta.previousClose;
                         if (prevClose && prevClose > 0) {
                             percentChange = ((meta.regularMarketPrice - prevClose) / prevClose) * 100;
                         }
-
-                        return { 
-                            price: meta.regularMarketPrice,
-                            change: percentChange
-                        };
+                        return { price: meta.regularMarketPrice, change: percentChange };
                     }
                 }
             } catch (fallbackError) {
-                console.error(`[API Quotes] HTTP Fallback error for ${symbol}`, fallbackError);
+                // console.error(`[API Quotes] Yahoo HTTP Fallback error for ${symbol}`);
             }
+        }
+        return null;
+    };
+
+    // --- Main Fetch Strategy ---
+    const fetchQuote = async (symbol: string): Promise<QuoteResult | null> => {
+        // 1. CN Stocks (EastMoney) - A股
+        if (/^(sh|sz|bj)\d{6}$/i.test(symbol)) {
+            try {
+                const prefix = symbol.slice(0, 2).toLowerCase();
+                const code = symbol.slice(2);
+                let market = '0';
+                if (prefix === 'sh') market = '1';
+                else if (prefix === 'sz') market = '0';
+                else if (prefix === 'bj') market = '0'; 
+                
+                const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${code}&fields=f43,f170`;
+                const res = await fetch(url, { headers: { 'Referer': 'https://eastmoney.com/' } });
+                const json = await res.json();
+                if (json && json.data && json.data.f43) {
+                    return { price: json.data.f43 / 100, change: json.data.f170 ? json.data.f170 / 100 : 0, time: new Date().toISOString() };
+                }
+            } catch (e) {}
             return null;
         }
+
+        // 2. CN Funds (EastMoney) - 基金
+        if (/^\d{6}$/.test(symbol)) {
+            try {
+                // Strategy A: fundgz
+                const url = `https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`;
+                const res = await fetch(url, { headers: { 'Referer': 'https://fund.eastmoney.com/' } });
+                const text = await res.text();
+                const match = text.match(/jsonpgz\((.*?)\)/);
+                if (match && match[1]) {
+                    const data = JSON.parse(match[1]);
+                    if (data.dwjz && parseFloat(data.dwjz) > 0) {
+                        let change: number | undefined = undefined;
+                        if (data.gszzl) change = parseFloat(data.gszzl);
+                        return { price: parseFloat(data.dwjz), change, time: data.gztime };
+                    }
+                }
+            } catch (e) {}
+            
+            // Strategy B: F10 Table
+            try {
+                const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${symbol}&page=1`;
+                const res = await fetch(url);
+                const text = await res.text();
+                const navMatch = text.match(/<td>(\d{4}-\d{2}-\d{2})<\/td>\s*<td[^>]*>([\d\.]+)<\/td>/);
+                if (navMatch && navMatch[2]) {
+                    return { price: parseFloat(navMatch[2]), change: undefined, time: navMatch[1] }; 
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        // 3. US/International Stocks (Dynamic Strategy)
+        if (/^[A-Z]+$/.test(symbol)) {
+            const isRegularHours = isRegularUSMarketOpen();
+            
+            if (isRegularHours) {
+                // ☀️ 盘中 (Regular): 优先 Yahoo -> 失败则 Webull
+                const yahooData = await fetchYahooQuote(symbol);
+                if (yahooData) return yahooData;
+                return await fetchWebullQuote(symbol);
+            } else {
+                // 🌙 盘后/夜盘 (Overnight): 优先 Webull -> 失败则 Yahoo
+                const webullData = await fetchWebullQuote(symbol);
+                if (webullData) return webullData;
+                return await fetchYahooQuote(symbol);
+            }
+        }
+
+        // 4. Default Fallback
+        return await fetchYahooQuote(symbol);
     };
 
     const promises = uniqueSymbols.map(async (symbol) => {
