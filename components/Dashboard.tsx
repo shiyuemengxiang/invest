@@ -225,6 +225,8 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
               const m = calculateItemMetrics(item);
               if (!m.isCompleted && !m.isPending && item.type === 'Fixed') {
                   p = m.accruedReturn + item.rebate + item.totalRealizedProfit;
+              } else if (!m.isCompleted && item.type === 'Floating') {
+                  p = m.profit;
               } else {
                   p = m.profit;
               }
@@ -241,7 +243,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
               }
 
           } else {
-              // Period Logic (Copied EXACTLY from calculatePeriodStats in utils.ts to ensure consistency)
+              // PERIOD LOGIC: Mirroring calculatePeriodStats in utils.ts to ensure consistency
               const depositDate = new Date(item.depositDate);
               const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
               
@@ -249,7 +251,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
               if (withdrawalDate && withdrawalDate < start) return;
 
               const overlapStart = depositDate > start ? depositDate : start;
-              const itemEnd = withdrawalDate || item.maturityDate ? new Date(item.maturityDate) : null || end;
               const effectiveEnd = withdrawalDate ? (withdrawalDate < end ? withdrawalDate : end) : end;
               const overlapEnd = effectiveEnd < end ? effectiveEnd : end;
               
@@ -259,19 +260,54 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
               }
               
               const calculationPrincipal = item.currentPrincipal > 0.01 ? item.currentPrincipal : item.totalCost;
+              let fixedInterestProjection = 0;
 
+              // 1. Fixed Interest Projection (for Projected Profit)
               if (item.type === 'Fixed' && item.expectedRate && calculationPrincipal > 0) {
                   const basis = Number(item.interestBasis || 365);
-                  p += calculationPrincipal * (item.expectedRate / 100) * (overlapDays / basis);
+                  fixedInterestProjection = calculationPrincipal * (item.expectedRate / 100) * (overlapDays / basis);
+                  p += fixedInterestProjection;
               }
               
+              // 2. Realized Completion Net Profit (Copied from calculatePeriodStats)
+              const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
+              
+              if (isCompletedInPeriod) {
+                  const metrics = calculateItemMetrics(item);
+                  let netCompletionGain = metrics.baseInterest; 
+                  let realizedPnlTxBeforePeriod = 0;
+
+                  if (item.transactions) {
+                      item.transactions.forEach(tx => {
+                          const d = new Date(tx.date);
+                          if (d < start) {
+                              if (tx.type === 'Dividend' || tx.type === 'Interest') realizedPnlTxBeforePeriod += tx.amount;
+                              else if (tx.type === 'Fee' || tx.type === 'Tax') realizedPnlTxBeforePeriod -= tx.amount;
+                          }
+                      });
+                  }
+                  if (item.isRebateReceived && new Date(item.depositDate) < start) {
+                      realizedPnlTxBeforePeriod += item.rebate;
+                  }
+                  
+                  const completionNetProfit = netCompletionGain - realizedPnlTxBeforePeriod;
+                  
+                  if (item.type === 'Fixed') {
+                      p = p - fixedInterestProjection + completionNetProfit;
+                  } else {
+                      p += completionNetProfit;
+                  }
+              }
+              
+              // 3. Rebate in Period
               if (isBetween(item.depositDate)) {
                   p += item.rebate;
               }
 
+              // 4. P&L Transactions (Div/Int/Fee/Tax)
               if (item.transactions) {
                   item.transactions.forEach(tx => {
-                      if (isBetween(tx.date)) {
+                      if (!isCompletedInPeriod && isBetween(tx.date)) {
                           if (tx.type === 'Dividend' || tx.type === 'Interest') {
                               p += tx.amount;
                           } else if (tx.type === 'Fee' || tx.type === 'Tax') {
@@ -321,11 +357,11 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       return { todayBreakdownList: list, todayCategoryData: chart };
   }, [currencyItems]);
 
-  // 3. Realized Profit Breakdown (Corrected for Time Filter)
+  // --- 3. Realized Profit Breakdown (Fixing chart data and breakdown list consistency) ---
   const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
-      let completedNet = 0;
-      let txRealized = 0;
-      const catMap: Record<string, number> = {};
+      let completedNetPeriod = 0; // Net Completion Gain in Period (The '已完结项目净利' component)
+      let txRealizedInPeriod = 0; // P&L Txs in Period (The '持仓中派息/减仓' component)
+      let realizedItemTotalMap: Record<string, number> = {}; // Data for chart
       
       const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
       const isBetween = (dateStr: string) => {
@@ -334,70 +370,97 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       };
 
       currencyItems.forEach(item => {
-          let itemRealized = 0;
+          let itemRealized = 0; // Total Realized P&L for this item in the period
           
           if (timeFilter === 'all') {
               const m = calculateItemMetrics(item);
+              itemRealized = m.baseInterest + item.rebate + item.totalRealizedProfit;
               
-              // Base interest (realized return) from completed fixed items
-              if (m.isCompleted) {
-                  completedNet += m.baseInterest;
-              } else {
-                  // Realized profit from active item transactions (dividends, sell profit)
-                  txRealized += item.totalRealizedProfit;
-              }
-              
-              // Total realized P&L from transactions (Buy/Sell P&L, Div/Int, Fee/Tax)
-              itemRealized = item.totalRealizedProfit + (m.isCompleted ? m.baseInterest : 0) + (item.isRebateReceived ? item.rebate : 0);
+              // Decompose for breakdown list
+              if (m.isCompleted) completedNetPeriod += m.baseInterest;
+              txRealizedInPeriod += item.totalRealizedProfit;
 
           } else {
-              // Period Logic (Mirroring calculatePeriodStats in utils.ts realizedInPeriod calculation)
-              const depositDate = new Date(item.depositDate);
-              const isRebateInPeriod = depositDate >= start && depositDate <= end;
+              // PERIOD LOGIC: Mirroring utils.ts realizedInPeriod calculation
+              const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
+              const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
+              
+              // 1. Completion Net Profit
+              if (isCompletedInPeriod) {
+                  const metrics = calculateItemMetrics(item);
+                  let netCompletionGain = metrics.baseInterest; 
+                  let realizedPnlTxBeforePeriod = 0;
 
-              // 1. Transactions in period (only P&L txs count as realized)
-              if (item.transactions) {
+                  if (item.transactions) {
+                      item.transactions.forEach(tx => {
+                          const d = new Date(tx.date);
+                          if (d < start) {
+                              if (tx.type === 'Dividend' || tx.type === 'Interest') realizedPnlTxBeforePeriod += tx.amount;
+                              else if (tx.type === 'Fee' || tx.type === 'Tax') realizedPnlTxBeforePeriod -= tx.amount;
+                          }
+                      });
+                  }
+                  if (item.isRebateReceived && new Date(item.depositDate) < start) {
+                      realizedPnlTxBeforePeriod += item.rebate;
+                  }
+                  
+                  const completionNetProfit = netCompletionGain - realizedPnlTxBeforePeriod;
+                  itemRealized += completionNetProfit;
+                  completedNetPeriod += completionNetProfit;
+              }
+
+              // 2. Rebate Received in Period
+              if (isBetween(item.depositDate) && item.isRebateReceived) {
+                  itemRealized += item.rebate;
+              }
+              
+              // 3. P&L Transactions (Div/Int/Fee/Tax) - only those *in* the period
+              // And only if NOT completed in period (to avoid double count from Completion Net Profit)
+              if (!isCompletedInPeriod && item.transactions) { 
                   item.transactions.forEach(tx => {
-                      const d = new Date(tx.date);
-                      if (d >= start && d <= end) {
+                      if (isBetween(tx.date)) {
                           if (tx.type === 'Dividend' || tx.type === 'Interest') {
                               itemRealized += tx.amount;
-                              txRealized += tx.amount;
+                              txRealizedInPeriod += tx.amount; // Accumulate for breakdown list
                           } else if (tx.type === 'Fee' || tx.type === 'Tax') {
                               itemRealized -= tx.amount;
-                              txRealized -= tx.amount;
-                          } 
+                              txRealizedInPeriod -= tx.amount; // Accumulate for breakdown list
+                          }
                       }
                   });
-              }
-              // 2. Received Rebate in period
-              if (isRebateInPeriod && item.isRebateReceived) {
-                  itemRealized += item.rebate;
               }
           }
           
           if (Math.abs(itemRealized) > 0.01) {
               const name = CATEGORY_LABELS[item.category];
-              catMap[name] = (catMap[name] || 0) + itemRealized;
+              realizedItemTotalMap[name] = (realizedItemTotalMap[name] || 0) + itemRealized;
           }
       });
-
-      // Breakdown List Logic (Aligned with the three components of realizedInterest from utils.ts)
+      
+      // Breakdown List Logic (uses the decomposed values calculated above)
       const list = [
           { 
-              label: timeFilter === 'all' ? '已完结项目净利' : '期间净利 (不含 Tx/返利)', 
-              value: timeFilter === 'all' ? completedNet : stats.realizedInterest - stats.receivedRebate - txRealized, 
+              label: '已完结项目净利', 
+              value: completedNetPeriod, 
               color: 'bg-slate-400' 
           },
-          { label: '持仓中派息/减仓', value: txRealized, color: 'bg-emerald-400' },
-          { label: '已到账返利(额外)', value: stats.receivedRebate, color: 'bg-amber-400' }
+          { 
+              label: '持仓中派息/减仓', 
+              value: txRealizedInPeriod, 
+              color: 'bg-emerald-400' 
+          },
+          { 
+              label: '已到账返利(额外)', 
+              value: stats.receivedRebate, // This is already period-filtered by stats calculation
+              color: 'bg-amber-400' 
+          }
       ];
       
       // Final chart data
-      const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
+      const chart = Object.entries(realizedItemTotalMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
 
       return { realizedBreakdownList: list, realizedCategoryData: chart };
-  }, [items, stats, currencyItems, timeFilter, customStart, customEnd]);
+  }, [currencyItems, stats, timeFilter, customStart, customEnd]);
 
   const handleAIAnalysis = async () => {
     setLoadingAi(true);
@@ -535,7 +598,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-blue-50 h-[260px] flex flex-col">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-blue-50 rounded-2xl text-blue-600"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg></div>
-            <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
+            <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only}</span>
           </div>
           <div className="flex-1">
               <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '在途本金' : '期间平均持仓'}</p>
