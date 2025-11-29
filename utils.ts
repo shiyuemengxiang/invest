@@ -324,9 +324,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0)) { 
         const weight = (metrics.isCompleted || item.type === 'Floating') ? item.totalCost : item.currentPrincipal;
         if (weight > 0) {
-            // This is the old weighted yield logic, which is now replaced by MWR
-            // We keep it here to track overall portfolio profit/weight, but MWR is calculated later
-            // We can safely remove this old weighted yield summation as it's redundant/inaccurate.
+            // We safely remove the old TWR summation which is now replaced by MWR logic.
         }
     }
   });
