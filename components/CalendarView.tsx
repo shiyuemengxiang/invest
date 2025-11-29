@@ -12,7 +12,7 @@ type ViewMode = 'name' | 'profit' | 'yield';
 interface CalendarEvent {
     id: string;
     date: string; // YYYY-MM-DD
-    type: 'deposit' | 'payout' | 'expense' | 'settlement' | 'rebate'; // 新增 rebate 类型
+    type: 'deposit' | 'payout' | 'expense' | 'settlement' | 'rebate';
     name: string;
     amount: number; 
     currency: Currency;
@@ -61,16 +61,18 @@ const CalendarView: React.FC<Props> = ({ items }) => {
           }
 
           // B. Rebate Event (新增：返利事件)
-          // 默认显示在存入日，如果已到账则显示，未到账也显示（作为预期）
-          if (item.rebate > 0) {
+          // 修改：根据用户需求，返利显示在到期日/结算日，而不是存入日
+          const rebateDate = item.withdrawalDate || item.maturityDate;
+
+          if (item.rebate > 0 && rebateDate) {
               events.push({
                   id: `${item.id}-rebate`,
-                  date: item.depositDate, // 返利通常绑定在存入日
+                  date: rebateDate, 
                   type: 'rebate',
                   name: item.name,
                   amount: item.rebate,
                   currency: item.currency,
-                  isReceived: item.isRebateReceived, // 传递状态
+                  isReceived: item.isRebateReceived,
                   item
               });
           }
