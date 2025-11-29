@@ -386,12 +386,56 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         
         let itemPeriodProfit = 0;
         const calculationPrincipal = item.currentPrincipal > 0.01 ? item.currentPrincipal : item.totalCost;
+        let fixedInterestProjection = 0;
 
+        // 1. Fixed Interest Projection (for Projected Profit)
         if (item.type === 'Fixed' && item.expectedRate && calculationPrincipal > 0) {
             const basis = Number(item.interestBasis || 365);
-            itemPeriodProfit += calculationPrincipal * (item.expectedRate / 100) * (overlapDays / basis);
+            fixedInterestProjection = calculationPrincipal * (item.expectedRate / 100) * (overlapDays / basis);
+            itemPeriodProfit += fixedInterestProjection;
+        }
+
+        // 2. Realized Completion Net Profit (The core fix for '已完结项目净利')
+        const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
+        
+        if (isCompletedInPeriod) {
+            const metrics = calculateItemMetrics(item);
+            
+            // metrics.baseInterest: Total fixed interest (for Fixed) OR total realized return (for Floating)
+            let netCompletionGain = metrics.baseInterest; 
+            
+            // Subtract P&L Transactions (Div/Int/Fee/Tax) AND Rebates that were realized BEFORE the period start.
+            let realizedPnlTxBeforePeriod = 0;
+            if (item.transactions) {
+                item.transactions.forEach(tx => {
+                    const d = new Date(tx.date);
+                    if (d < start) {
+                        if (tx.type === 'Dividend' || tx.type === 'Interest') realizedPnlTxBeforePeriod += tx.amount;
+                        else if (tx.type === 'Fee' || tx.type === 'Tax') realizedPnlTxBeforePeriod -= tx.amount;
+                    }
+                });
+            }
+            // 考虑提前收到的返利
+            if (item.isRebateReceived && new Date(item.depositDate) < start) {
+                realizedPnlTxBeforePeriod += item.rebate;
+            }
+            
+            // Completion Net Profit = Total Lifetime Net Gain - Portion realized BEFORE the period
+            const completionNetProfit = netCompletionGain - realizedPnlTxBeforePeriod;
+            
+            // Add to the period's total realized amount (Fixes the main card issue)
+            realizedInPeriod += completionNetProfit;
+
+            // Adjust projected profit (Fixes consistency with the breakdown chart):
+            if (item.type === 'Fixed') {
+                // For Fixed, the completion net profit replaces the original interest projection.
+                itemPeriodProfit = itemPeriodProfit - fixedInterestProjection + completionNetProfit;
+            } else {
+                itemPeriodProfit += completionNetProfit;
+            }
         }
         
+        // 3. Rebate 
         if (isBetween(item.depositDate)) {
             totalRebate += item.rebate;
             itemPeriodProfit += item.rebate;
@@ -403,16 +447,21 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
             }
         }
 
+        // 4. P&L Transactions (Div/Int/Fee/Tax) - only those *in* the period
         if (item.transactions) {
             item.transactions.forEach(tx => {
-                if (isBetween(tx.date)) {
-                    if (tx.type === 'Dividend' || tx.type === 'Interest') {
-                        itemPeriodProfit += tx.amount;
-                        realizedInPeriod += tx.amount;
-                    } else if (tx.type === 'Fee' || tx.type === 'Tax') {
-                        itemPeriodProfit -= tx.amount;
-                        realizedInPeriod -= tx.amount;
-                    } 
+                // Only count P&L transactions if the item was NOT completed in the period,
+                // OR if the transaction date is AFTER the withdrawal date (unlikely but safe).
+                if (!isCompletedInPeriod) {
+                    if (isBetween(tx.date)) {
+                        if (tx.type === 'Dividend' || tx.type === 'Interest') {
+                            itemPeriodProfit += tx.amount;
+                            realizedInPeriod += tx.amount;
+                        } else if (tx.type === 'Fee' || tx.type === 'Tax') {
+                            itemPeriodProfit -= tx.amount;
+                            realizedInPeriod -= tx.amount;
+                        } 
+                    }
                 }
             });
         }
@@ -487,10 +536,16 @@ export const calculateItemMetrics = (item: Investment) => {
       if (item.type === 'Fixed' && item.expectedRate) {
            annualizedYield = item.expectedRate;
       }
-  } else if (isCompleted && item.realizedReturn !== undefined) {
-      baseInterest = item.realizedReturn + item.totalRealizedProfit; 
+  } else if (isCompleted) {
+      // 修正 baseInterest 的计算：Total P&L + Fixed Interest
+      const fixedInterest = item.type === 'Fixed' && item.expectedRate && item.totalCost > 0 && realDurationDays > 0 ? 
+          item.totalCost * (item.expectedRate / 100) * (realDurationDays / interestBasis) : 0;
+      
+      // baseInterest = 总收益 (固定利息 + 交易P&L) - 交易P&L (已在 totalRealizedProfit 中)
+      baseInterest = fixedInterest + item.totalRealizedProfit; 
+      
       const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
-      if (calcBase > 0) {
+      if (calcBase > 0 && baseInterest !== 0) {
         holdingYield = (baseInterest / calcBase) * 100;
         if (realDurationDays > 0) {
             annualizedYield = (holdingYield / (realDurationDays / 365));
@@ -507,23 +562,43 @@ export const calculateItemMetrics = (item: Investment) => {
       const calculateSegmentedInterest = (endDate: Date) => {
           let totalInterest = 0;
           let currentBalance = 0;
+          let activeTxIndex = 0;
+
+          // Find start balance before deposit date
+          for (let i = 0; i < sortedTxs.length; i++) {
+              if (new Date(sortedTxs[i].date) <= deposit) activeTxIndex = i;
+          }
+          currentBalance = item.totalCost; // Simplified assumption: initial balance is totalCost
+
+          let lastDate = deposit; // Start calculation from deposit date
+
           for (let i = 0; i < sortedTxs.length; i++) {
               const tx = sortedTxs[i];
               const txDate = new Date(tx.date);
-              const nextTx = sortedTxs[i+1];
-              const nextDate = nextTx ? new Date(nextTx.date) : endDate;
-              if (tx.type === 'Buy') currentBalance += tx.amount;
-              else if (tx.type === 'Sell') currentBalance -= tx.amount;
               
-              const segmentEnd = nextDate < endDate ? nextDate : endDate;
-              if (segmentEnd > txDate) {
-                  const days = (segmentEnd.getTime() - txDate.getTime()) / MS_PER_DAY;
-                  if (days > 0 && currentBalance > 0) {
-                      totalInterest += currentBalance * (rate / 100) * (days / interestBasis);
+              if (txDate > deposit) {
+                  // Calculate interest for the segment before this transaction
+                  const segmentDays = (txDate.getTime() - lastDate.getTime()) / MS_PER_DAY;
+                  if (segmentDays > 0 && currentBalance > 0) {
+                      totalInterest += currentBalance * (rate / 100) * (segmentDays / interestBasis);
                   }
+                  
+                  // Update balance
+                  if (tx.type === 'Buy') currentBalance += tx.amount;
+                  else if (tx.type === 'Sell') currentBalance -= tx.amount;
+                  
+                  lastDate = txDate;
               }
-              if (new Date(nextTx?.date || '') > endDate) break;
+
+              if (txDate > endDate) break;
           }
+          
+          // Calculate interest for the final segment (up to endDate)
+          const finalDays = (endDate.getTime() - lastDate.getTime()) / MS_PER_DAY;
+          if (finalDays > 0 && currentBalance > 0) {
+             totalInterest += currentBalance * (rate / 100) * (finalDays / interestBasis);
+          }
+          
           return totalInterest;
       };
 
@@ -568,7 +643,7 @@ export const calculateItemMetrics = (item: Investment) => {
       hasYieldInfo = false;
   }
   
-  const totalReturn = baseInterest + item.rebate + (!isCompleted && item.type === 'Floating' ? item.totalRealizedProfit : 0);
+  const totalReturn = baseInterest + item.rebate + item.totalRealizedProfit; 
   
   let comprehensiveYield = 0;
   const yieldBase = isCompleted || item.type === 'Floating' ? item.totalCost : activePrincipal;
@@ -590,8 +665,8 @@ export const calculateItemMetrics = (item: Investment) => {
   let unitCost = 0;
   let currentPrice = 0;
   if (currentQuantity && currentQuantity > 0) {
-      unitCost = activePrincipal / currentQuantity;
-      const currentTotalValue = activePrincipal + (isCompleted ? baseInterest : (item.currentReturn || accruedReturn));
+      unitCost = item.totalCost / item.currentQuantity; // Cost should be total cost divided by current shares for floating 
+      const currentTotalValue = activePrincipal + (isCompleted ? baseInterest : (item.currentReturn || accruedReturn)) + (item.type === 'Floating' ? item.totalRealizedProfit : 0);
       currentPrice = currentTotalValue / currentQuantity;
   }
 
@@ -629,10 +704,14 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
             if (item.type === 'Fixed') {
                  value += metrics.accruedReturn;
             } else {
-                 if (item.currentReturn) {
+                 if (item.currentReturn !== undefined) {
                      value += item.currentReturn;
+                 } else {
+                    // If currentReturn is not set, use accrued interest or keep currentPrincipal as proxy
+                    value += metrics.accruedReturn;
                  }
             }
+            value += item.totalRealizedProfit; // Add realized profit back for valuation
         }
         totalValuation += convertCurrency(value, item.currency, targetCurrency, rates);
     });
