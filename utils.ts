@@ -169,9 +169,7 @@ export const formatDateTime = (dateStr: string | null): string => {
 export const getDaysDiff = (start: string, end: string): number => {
   const d1 = new Date(start).setHours(0,0,0,0);
   const d2 = new Date(end).setHours(0,0,0,0);
-  // Ensure the difference is inclusive of the start day if the days are different.
-  // Standard calculation is inclusive start, exclusive end. +1 is needed for duration display.
-  // We use this for calculation days, which should be Maturity Date - Deposit Date (inclusive of 1st day, exclusive of last day)
+  // This calculates days between two dates (inclusive start, exclusive end)
   return Math.round((d2 - d1) / MS_PER_DAY);
 };
 
@@ -525,11 +523,11 @@ export const calculateItemMetrics = (item: Investment) => {
       }
   }
   occupiedDurationMs = Math.max(0, occupiedDurationMs);
-  const realDurationDays = Math.round((occupiedDurationMs / MS_PER_DAY)); // 修正：Duration计算
-
-  // 确保 Duration 至少为 1 天，除非是 Pending 状态
-  // Note: getDaysDiff(start, end) calculates day difference (inclusive start, exclusive end). Duration should be start to end inclusive.
-  const durationForCalculation = isCompleted ? getDaysDiff(item.depositDate, item.withdrawalDate) : realDurationDays;
+  const realDurationDays = Math.round((occupiedDurationMs / MS_PER_DAY)); 
+  
+  // 核心天数计算：计息天数 (Accrual Days) 和 持有天数 (Holding Days)
+  const durationForAccrual = item.type === 'Fixed' && maturity ? getDaysDiff(item.depositDate, item.maturityDate) : 0;
+  const durationForAnnualization = isCompleted ? getDaysDiff(item.depositDate, item.withdrawalDate) : realDurationDays;
   
   let baseInterest = 0;
   let annualizedYield = 0;
@@ -543,19 +541,20 @@ export const calculateItemMetrics = (item: Investment) => {
            annualizedYield = item.expectedRate;
       }
   } else if (isCompleted) {
-      // 修正 baseInterest 的计算：Total P&L + Fixed Interest
-      const fixedInterest = item.type === 'Fixed' && item.expectedRate && item.totalCost > 0 && durationForCalculation > 0 ? 
-          item.totalCost * (item.expectedRate / 100) * (durationForCalculation / interestBasis) : 0;
+      // 修正 baseInterest 的计算：使用到期日天数计算总利息
+      const fixedInterest = item.type === 'Fixed' && item.expectedRate && item.totalCost > 0 && durationForAccrual > 0
+          ? item.totalCost * (item.expectedRate / 100) * (durationForAccrual / interestBasis) 
+          : 0;
       
-      // baseInterest = Total realized profit on closure (fixed interest or floating gain)
+      // baseInterest = 总利息/浮动获利 + 已实现的交易P&L
       baseInterest = fixedInterest + item.totalRealizedProfit; 
       
       const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
       if (calcBase > 0 && baseInterest !== 0) {
         holdingYield = (baseInterest / calcBase) * 100;
-        // 修正 实测年化 公式: 使用 item.interestBasis 作为年化基准
-        if (durationForCalculation > 0) {
-            annualizedYield = (holdingYield / (durationForCalculation / interestBasis));
+        // 修正 实测年化 公式: 使用 item.interestBasis 作为年化基准， durationForAnnualization (取出时间-存入时间) 作为持有时间
+        if (durationForAnnualization > 0) {
+            annualizedYield = (holdingYield / (durationForAnnualization / interestBasis));
         }
       }
 
@@ -564,22 +563,17 @@ export const calculateItemMetrics = (item: Investment) => {
       const rate = item.expectedRate;
       const daysInYear = Number(item.interestBasis || 365);
       
-      // 1. Total Days (Deposit to Maturity) - Full Expected Profit Days
-      const fullTermDays = maturity ? getDaysDiff(item.depositDate, item.maturityDate) : 0; 
+      // 1. Total Expected Profit (Full Term) - 用于 '截止到期预估收益'
+      baseInterest = durationForAccrual > 0 ? (activePrincipal * (rate / 100) * (durationForAccrual / daysInYear)) : 0;
       
-      // 2. Accrual Days (Deposit to Today) - Accrued Profit Days (Today - Deposit)
+      // 2. Accrued Profit (Up to Today) - 用于 '截止今日预估'
       const accrualDays = getDaysDiff(item.depositDate, now.toISOString().split('T')[0]);
-
-      // A. Total Expected Profit (Full Term) - Used for '截止到期预估收益'
-      baseInterest = fullTermDays > 0 ? (activePrincipal * (rate / 100) * (fullTermDays / daysInYear)) : 0;
-      
-      // B. Accrued Profit (Up to Today) - Used for '截止今日预估'
       accruedReturn = accrualDays > 0 ? (activePrincipal * (rate / 100) * (accrualDays / daysInYear)) : 0;
 
       // Yield calculation uses the total expected rate/return for comparison
       if (activePrincipal > 0) {
           holdingYield = (baseInterest / activePrincipal) * 100;
-          if (fullTermDays > 0) {
+          if (durationForAccrual > 0) {
              annualizedYield = rate;
           }
       } else {
@@ -627,20 +621,19 @@ export const calculateItemMetrics = (item: Investment) => {
   let comprehensiveYield = 0;
   const yieldBase = isCompleted || item.type === 'Floating' ? item.totalCost : activePrincipal;
   const finalGain = baseInterest + (item.isRebateReceived ? item.rebate : 0); // Total Net Profit + Received Rebate (For COMPLETED calculation)
-  const durationYield = isCompleted ? durationForCalculation : realDurationDays;
 
 
-  if (!isPending && (hasYieldInfo || item.rebate > 0) && durationYield > 0 && yieldBase > 0) {
+  if (!isPending && (hasYieldInfo || item.rebate > 0) && durationForAnnualization > 0 && yieldBase > 0) {
       if (item.type === 'Fixed' && !isCompleted && item.expectedRate) {
           const rebateYield = (item.rebate / yieldBase) * 100 / (realDurationDays / 365);
           comprehensiveYield = item.expectedRate + rebateYield;
       } else if (isCompleted) {
-          // 修正 实测年化 公式: 使用 item.interestBasis 作为年化基准
+          // 修正 实测年化 公式: 使用 item.interestBasis 作为年化基准， durationForAnnualization (取出时间-存入时间) 作为持有时间
           const holdingYield = (finalGain / yieldBase) * 100;
-          comprehensiveYield = holdingYield * (interestBasis / durationYield);
+          comprehensiveYield = holdingYield * (interestBasis / durationForAnnualization);
       } else {
           const yieldVal = (totalReturn / yieldBase) * 100;
-          comprehensiveYield = yieldVal * (interestBasis / durationYield);
+          comprehensiveYield = yieldVal * (interestBasis / durationForAnnualization);
       }
   } else if (isPending && item.type === 'Fixed' && item.expectedRate) {
       comprehensiveYield = item.expectedRate; 

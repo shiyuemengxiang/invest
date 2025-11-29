@@ -497,14 +497,14 @@ const InvestmentList: React.FC<Props> = ({
                                             {/* 3rd Column: EST. PROFIT / REALIZED PROFIT (Refined Logic) */}
                                             <div className="space-y-1">
                                                 <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
-                                                    {metrics.isCompleted ? '结算收益' : '产品预期收益'}
+                                                    {metrics.isCompleted ? '结算收益' : (item.type === 'Floating' ? '持仓收益' : '产品预期收益')}
                                                 </p>
                                                 <div className="flex flex-col gap-0.5">
                                                     
                                                     {metrics.isCompleted ? (
-                                                        // --- UI for FINISHED item (Image 3) ---
+                                                        // --- UI for FINISHED item ---
                                                         <>
-                                                            {/* 到期收益 */}
+                                                            {/* 到期收益 (metrics.baseInterest is the final profit realized) */}
                                                             <span className="block font-bold text-sm text-slate-700">
                                                                 到期收益 {formatCurrency(metrics.baseInterest, item.currency)}
                                                             </span>
@@ -515,8 +515,8 @@ const InvestmentList: React.FC<Props> = ({
                                                                 </span>
                                                             )}
                                                         </>
-                                                    ) : (
-                                                        // --- UI for ACTIVE item (Image 2) ---
+                                                    ) : item.type === 'Fixed' ? (
+                                                        // --- UI for ACTIVE FIXED item ---
                                                         <>
                                                             {/* Line 1: Full Expected Profit (baseInterest) up to Maturity/Target */}
                                                             <span className={`font-bold text-sm ${metrics.baseInterest >= 0 ? 'text-orange-500' : 'text-red-500'}`}>
@@ -536,6 +536,22 @@ const InvestmentList: React.FC<Props> = ({
                                                                 </div>
                                                             )}
 
+                                                            {/* Rebate Status */}
+                                                            {item.rebate > 0 && (
+                                                                <span className={`text-xs mt-1 ${item.isRebateReceived ? 'text-emerald-600' : 'text-amber-500'}`}>
+                                                                    返利 {rebateAmount} ({rebateStatus})
+                                                                </span>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        // --- UI for ACTIVE FLOATING item (Consolidated) ---
+                                                        <>
+                                                            <span className={`font-bold text-sm ${metrics.profit >= 0 ? 'text-orange-500' : 'text-red-500'}`}>
+                                                                {metrics.profit !== 0 ? (metrics.profit > 0 ? '+' : '') + formatCurrency(metrics.profit, item.currency) : '-'}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-semibold mt-1">
+                                                                当前总盈亏
+                                                            </span>
                                                             {/* Rebate Status */}
                                                             {item.rebate > 0 && (
                                                                 <span className={`text-xs mt-1 ${item.isRebateReceived ? 'text-emerald-600' : 'text-amber-500'}`}>
@@ -565,7 +581,7 @@ const InvestmentList: React.FC<Props> = ({
                                                         {metrics.isCompleted ? '实测年化' : displayYieldLabel}
                                                     </span>
                                                     
-                                                    {/* Tooltip for COMPLETED Yield explanation (Image 3) */}
+                                                    {/* Tooltip for COMPLETED Yield explanation */}
                                                     {metrics.isCompleted && (
                                                          <div className="absolute left-0 bottom-full mb-2 w-max max-w-xs p-2 bg-slate-800 text-white text-[10px] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-20">
                                                             实测年化 = (到期收益 + 已到账返利) / 本金 * ({Number(item.interestBasis) || 365} / {metrics.realDurationDays} 天)
