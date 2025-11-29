@@ -169,7 +169,6 @@ export const formatDateTime = (dateStr: string | null): string => {
 export const getDaysDiff = (start: string, end: string): number => {
   const d1 = new Date(start).setHours(0,0,0,0);
   const d2 = new Date(end).setHours(0,0,0,0);
-  // This calculates days between two dates (inclusive start, exclusive end)
   return Math.round((d2 - d1) / MS_PER_DAY);
 };
 
@@ -560,7 +559,7 @@ export const calculateItemMetrics = (item: Investment) => {
           : 0;
       
       // 2. Determine final net product P&L (baseInterest)
-      // FIX: Prefer item.currentReturn (where manual final P&L is stored from form) if set for Floating. 
+      // FIX: Prefer item.currentReturn (manual final P&L) if set for Floating. 
       if (item.currentReturn !== undefined && item.type === 'Floating') {
           // Use manual final profit/loss (which is -814.64 in the user example)
           baseInterest = item.currentReturn + item.totalRealizedProfit;
