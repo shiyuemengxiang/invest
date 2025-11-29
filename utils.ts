@@ -169,6 +169,9 @@ export const formatDateTime = (dateStr: string | null): string => {
 export const getDaysDiff = (start: string, end: string): number => {
   const d1 = new Date(start).setHours(0,0,0,0);
   const d2 = new Date(end).setHours(0,0,0,0);
+  // Ensure the difference is inclusive of the start day if the days are different.
+  // Standard calculation is inclusive start, exclusive end. +1 is needed for duration display.
+  // We use this for calculation days, which should be Maturity Date - Deposit Date (inclusive of 1st day, exclusive of last day)
   return Math.round((d2 - d1) / MS_PER_DAY);
 };
 
@@ -522,7 +525,11 @@ export const calculateItemMetrics = (item: Investment) => {
       }
   }
   occupiedDurationMs = Math.max(0, occupiedDurationMs);
-  const realDurationDays = Math.round(occupiedDurationMs / MS_PER_DAY);
+  const realDurationDays = Math.round((occupiedDurationMs / MS_PER_DAY)); // 修正：Duration计算
+
+  // 确保 Duration 至少为 1 天，除非是 Pending 状态
+  // Note: getDaysDiff(start, end) calculates day difference (inclusive start, exclusive end). Duration should be start to end inclusive.
+  const durationForCalculation = isCompleted ? getDaysDiff(item.depositDate, item.withdrawalDate) : realDurationDays;
   
   let baseInterest = 0;
   let annualizedYield = 0;
@@ -537,67 +544,47 @@ export const calculateItemMetrics = (item: Investment) => {
       }
   } else if (isCompleted) {
       // 修正 baseInterest 的计算：Total P&L + Fixed Interest
-      const fixedInterest = item.type === 'Fixed' && item.expectedRate && item.totalCost > 0 && realDurationDays > 0 ? 
-          item.totalCost * (item.expectedRate / 100) * (realDurationDays / interestBasis) : 0;
+      const fixedInterest = item.type === 'Fixed' && item.expectedRate && item.totalCost > 0 && durationForCalculation > 0 ? 
+          item.totalCost * (item.expectedRate / 100) * (durationForCalculation / interestBasis) : 0;
       
       // baseInterest = Total realized profit on closure (fixed interest or floating gain)
-      // For completed items, baseInterest should be the total net profit realized on closure.
       baseInterest = fixedInterest + item.totalRealizedProfit; 
       
       const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
       if (calcBase > 0 && baseInterest !== 0) {
         holdingYield = (baseInterest / calcBase) * 100;
-        if (realDurationDays > 0) {
-            annualizedYield = (holdingYield / (realDurationDays / 365));
+        // 修正 实测年化 公式: 使用 item.interestBasis 作为年化基准
+        if (durationForCalculation > 0) {
+            annualizedYield = (holdingYield / (durationForCalculation / interestBasis));
         }
       }
 
   } else if (item.type === 'Fixed' && item.expectedRate) {
+      // --- REVISED FIXED ACTIVE ACCRUAL LOGIC ---
       const rate = item.expectedRate;
-      annualizedYield = rate;
+      const daysInYear = Number(item.interestBasis || 365);
       
-      const relevantTxs = (item.transactions || []).filter(t => t.type === 'Buy' || t.type === 'Sell');
-      const sortedTxs = [...relevantTxs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      // 1. Total Days (Deposit to Maturity) - Full Expected Profit Days
+      const fullTermDays = maturity ? getDaysDiff(item.depositDate, item.maturityDate) : 0; 
       
-      const calculateSegmentedInterest = (endDate: Date) => {
-          let totalInterest = 0;
-          let currentBalance = 0;
-          let lastDate = deposit; // Start calculation from deposit date
+      // 2. Accrual Days (Deposit to Today) - Accrued Profit Days (Today - Deposit)
+      const accrualDays = getDaysDiff(item.depositDate, now.toISOString().split('T')[0]);
 
-          // Reconstruct balance changes and calculate interest segment-by-segment
-          for (let i = 0; i < sortedTxs.length; i++) {
-              const tx = sortedTxs[i];
-              const txDate = new Date(tx.date);
-              
-              if (txDate > deposit) {
-                  // Calculate interest for the segment before this transaction
-                  const segmentDays = (txDate.getTime() - lastDate.getTime()) / MS_PER_DAY;
-                  if (segmentDays > 0 && currentBalance > 0) {
-                      totalInterest += currentBalance * (rate / 100) * (segmentDays / interestBasis);
-                  }
-                  
-                  // Update balance
-                  if (tx.type === 'Buy') currentBalance += tx.amount;
-                  else if (tx.type === 'Sell') currentBalance -= tx.amount;
-                  
-                  lastDate = txDate;
-              }
+      // A. Total Expected Profit (Full Term) - Used for '截止到期预估收益'
+      baseInterest = fullTermDays > 0 ? (activePrincipal * (rate / 100) * (fullTermDays / daysInYear)) : 0;
+      
+      // B. Accrued Profit (Up to Today) - Used for '截止今日预估'
+      accruedReturn = accrualDays > 0 ? (activePrincipal * (rate / 100) * (accrualDays / daysInYear)) : 0;
 
-              if (txDate > endDate) break;
+      // Yield calculation uses the total expected rate/return for comparison
+      if (activePrincipal > 0) {
+          holdingYield = (baseInterest / activePrincipal) * 100;
+          if (fullTermDays > 0) {
+             annualizedYield = rate;
           }
-          
-          // Calculate interest for the final segment (up to endDate)
-          const finalDays = (endDate.getTime() - lastDate.getTime()) / MS_PER_DAY;
-          if (finalDays > 0 && currentBalance > 0) {
-             totalInterest += currentBalance * (rate / 100) * (finalDays / interestBasis);
-          }
-          
-          return totalInterest;
-      };
-
-      accruedReturn = calculateSegmentedInterest(now);
-      if (maturity) baseInterest = calculateSegmentedInterest(maturity);
-      if (activePrincipal > 0 && maturity) holdingYield = (baseInterest / activePrincipal) * 100;
+      } else {
+          hasYieldInfo = false;
+      }
 
   } else if (item.type === 'Floating') {
       
@@ -639,14 +626,21 @@ export const calculateItemMetrics = (item: Investment) => {
   
   let comprehensiveYield = 0;
   const yieldBase = isCompleted || item.type === 'Floating' ? item.totalCost : activePrincipal;
+  const finalGain = baseInterest + (item.isRebateReceived ? item.rebate : 0); // Total Net Profit + Received Rebate (For COMPLETED calculation)
+  const durationYield = isCompleted ? durationForCalculation : realDurationDays;
 
-  if (!isPending && (hasYieldInfo || item.rebate > 0) && realDurationDays > 0 && yieldBase > 0) {
+
+  if (!isPending && (hasYieldInfo || item.rebate > 0) && durationYield > 0 && yieldBase > 0) {
       if (item.type === 'Fixed' && !isCompleted && item.expectedRate) {
           const rebateYield = (item.rebate / yieldBase) * 100 / (realDurationDays / 365);
           comprehensiveYield = item.expectedRate + rebateYield;
+      } else if (isCompleted) {
+          // 修正 实测年化 公式: 使用 item.interestBasis 作为年化基准
+          const holdingYield = (finalGain / yieldBase) * 100;
+          comprehensiveYield = holdingYield * (interestBasis / durationYield);
       } else {
           const yieldVal = (totalReturn / yieldBase) * 100;
-          comprehensiveYield = yieldVal / (realDurationDays / 365);
+          comprehensiveYield = yieldVal * (interestBasis / durationYield);
       }
   } else if (isPending && item.type === 'Fixed' && item.expectedRate) {
       comprehensiveYield = item.expectedRate; 
@@ -696,8 +690,8 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
             if (item.type === 'Fixed') {
                  value += metrics.accruedReturn;
             } else {
-                 if (item.currentReturn !== undefined) {
-                     value += item.currentReturn;
+                 if (metrics.currentReturn !== undefined) {
+                     value += metrics.currentReturn;
                  } else {
                     // If currentReturn is not set, use accrued interest or keep currentPrincipal as proxy
                     value += metrics.accruedReturn;

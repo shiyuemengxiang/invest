@@ -274,7 +274,7 @@ const InvestmentList: React.FC<Props> = ({
                              {/* 2. 昨日/今日收益 */}
                              <div className="text-left">
                                  <p className="text-[10px] text-slate-500 font-semibold">昨日/今日收益</p>
-                                 <p className={`font-mono font-bold text-lg ${s.dailyReturn >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                                 <p className={`font-mono text-lg ${s.dailyReturn >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
                                      {s.dailyReturn >= 0 ? '+' : ''}{formatCurrency(s.dailyReturn, c)}
                                  </p>
                              </div>
@@ -282,7 +282,7 @@ const InvestmentList: React.FC<Props> = ({
                              {/* 3. 未到账返利总额 - NEW FIELD */}
                              <div className="text-left">
                                  <p className="text-[10px] text-slate-500 font-semibold">未到账返利</p>
-                                 <p className={`font-mono font-bold text-lg ${s.pendingRebate > 0 ? 'text-amber-500' : 'text-slate-400'}`}>
+                                 <p className={`font-mono text-lg ${s.pendingRebate > 0 ? 'text-amber-500' : 'text-slate-400'}`}>
                                      {s.pendingRebate > 0 ? '+' : ''}{formatCurrency(s.pendingRebate, c)}
                                  </p>
                              </div>
@@ -574,8 +574,7 @@ const InvestmentList: React.FC<Props> = ({
                                             </div>
                                             </div>
                                         
-                                            {/* Original 5th Column (Market Data) - moved position */}
-                                            {/* This section contains the remaining two columns that were consolidated into 5 in the layout */}
+                                            {/* Original 5th Column (Market Data) - consolidated */}
                                             {(item.quantity || 0) > 0 && (
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
