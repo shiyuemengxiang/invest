@@ -284,7 +284,8 @@ const InvestmentList: React.FC<Props> = ({
                      </div>
                  );
              })}
-             {currencyFilter === 'all' && Object.values(stats).every((s) => s.totalProfit === 0 && s.dailyReturn === 0 && s.pendingRebate === 0) && (
+             {/* FIX: Corrected variable name from 'stats' to 'summaryStats' */}
+             {currencyFilter === 'all' && Object.values(summaryStats).every((s) => s.totalProfit === 0 && s.dailyReturn === 0 && s.pendingRebate === 0) && (
                  <span className="text-xs text-slate-400">暂无收益数据</span>
              )}
           </div>
