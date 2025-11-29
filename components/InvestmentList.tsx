@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useState } from 'react';
 import { Investment, CATEGORY_LABELS, Currency, InvestmentCategory, FilterType, ProductTypeFilter, CurrencyFilter, CategoryFilter, SortType } from '../types';
 import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn } from '../utils';
@@ -37,6 +36,12 @@ const StrictModeDroppable = ({ children, ...props }: DroppableProps) => {
   return <Droppable {...props}>{children}</Droppable>;
 };
 
+interface SummaryStats {
+    totalProfit: number;
+    dailyReturn: number;
+    pendingRebate: number;
+}
+
 const InvestmentList: React.FC<Props> = ({ 
     items, onDelete, onEdit, onReorder, onRefreshMarket,
     filter, setFilter,
@@ -54,7 +59,7 @@ const InvestmentList: React.FC<Props> = ({
   const filteredItems = useMemo(() => {
     let result = items.filter(item => {
       if (filter === 'active' && item.withdrawalDate) return false;
-      if (filter === 'completed' && !item.withdrawalDate) return false;
+      if (filter === 'completed' && item.withdrawalDate === null) return false;
       
       if (productFilter !== 'all' && item.type !== productFilter) return false;
       if (currencyFilter !== 'all' && item.currency !== currencyFilter) return false;
@@ -76,27 +81,33 @@ const InvestmentList: React.FC<Props> = ({
     return result;
   }, [items, filter, productFilter, currencyFilter, categoryFilter, showCustomDate, customStart, customEnd, sortType]);
 
-  const summaryStats = useMemo((): Record<Currency, { totalProfit: number; dailyReturn: number }> => {
-      const stats: Record<Currency, { totalProfit: number; dailyReturn: number }> = {
-          CNY: { totalProfit: 0, dailyReturn: 0 },
-          USD: { totalProfit: 0, dailyReturn: 0 },
-          HKD: { totalProfit: 0, dailyReturn: 0 }
+  const summaryStats = useMemo((): Record<Currency, SummaryStats> => {
+      const stats: Record<Currency, SummaryStats> = {
+          CNY: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0 },
+          USD: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0 },
+          HKD: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0 }
       };
 
       filteredItems.forEach(item => {
           const metrics = calculateItemMetrics(item);
           const daily = calculateDailyReturn(item);
 
-          let profit = 0;
-          if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
-              profit = metrics.accruedReturn + item.rebate;
-          } else {
-              profit = metrics.profit;
-          }
+          // metrics.profit = baseInterest + item.rebate + item.totalRealizedProfit (Total Lifetime P&L including ALL rebate)
+          
+          // 1. Calculate Base P&L (Excluding ALL Rebate)
+          const baseProfit = metrics.profit - item.rebate; 
+          
+          // 2. Add back only RECEIVED rebate (Total Estimated Profit = Base P&L + RECEIVED Rebate)
+          const receivedRebate = item.isRebateReceived ? item.rebate : 0;
+          let profit = baseProfit + receivedRebate;
+          
+          // 3. Calculate Pending Rebate amount
+          const pendingRebate = item.isRebateReceived ? 0 : item.rebate;
 
           if (stats[item.currency]) {
               stats[item.currency].totalProfit += profit;
               stats[item.currency].dailyReturn += daily;
+              stats[item.currency].pendingRebate += pendingRebate; 
           }
       });
 
@@ -228,33 +239,52 @@ const InvestmentList: React.FC<Props> = ({
                 </button>
           </div>
 
-          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-wrap gap-8 items-center justify-around">
+          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-col gap-4">
              {(['CNY', 'USD', 'HKD'] as Currency[]).filter(c => currencyFilter === 'all' || currencyFilter === c).map(c => {
                  const s = summaryStats[c];
-                 if (!s || (s.totalProfit === 0 && s.dailyReturn === 0 && currencyFilter !== 'all')) return null;
-                 if (currencyFilter === 'all' && s.totalProfit === 0 && s.dailyReturn === 0) return null;
+                 const shouldDisplay = s && (s.totalProfit !== 0 || s.dailyReturn !== 0 || s.pendingRebate !== 0);
+                 if (!shouldDisplay && currencyFilter !== 'all' && c !== 'CNY') return null;
+                 if (currencyFilter === 'all' && !shouldDisplay && c !== 'CNY') return null;
 
                  return (
-                     <div key={c} className="flex flex-col items-center min-w-[100px]">
-                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{c} Summary</span>
-                         <div className="flex gap-6">
-                             <div className="text-center">
-                                 <p className="text-[10px] text-slate-500">累计收益 (预估)</p>
-                                 <p className={`font-mono font-bold text-sm ${s.totalProfit >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                     <div key={c} className="flex flex-col gap-2 p-2 rounded-xl border border-slate-100 bg-white/50">
+                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">{c} Summary</span>
+                         <div className="grid grid-cols-2 md:grid-cols-3 gap-6 w-full">
+                             {/* 1. 累计收益 (预估) - UPDATED TIP */}
+                             <div className="text-left relative group">
+                                 <div className="flex items-center gap-1">
+                                     <p className="text-[10px] text-slate-500 font-semibold">累计收益 (预估)</p>
+                                     <svg className="w-3 h-3 text-slate-300 transition-colors group-hover:text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                 </div>
+                                 {/* Tooltip */}
+                                 <div className="absolute left-0 bottom-full mb-2 w-max max-w-xs p-2 bg-slate-800 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-20">
+                                     包含已到账返利、已落袋交易盈亏、以及所有产品至今日的预估收益（固收利息/浮动浮盈）。
+                                 </div>
+                                 <p className={`font-mono font-bold text-lg ${s.totalProfit >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
                                      {formatCurrency(s.totalProfit, c)}
                                  </p>
                              </div>
-                             <div className="text-center">
-                                 <p className="text-[10px] text-slate-500">昨日/今日收益</p>
-                                 <p className={`font-mono font-bold text-sm ${s.dailyReturn >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                             
+                             {/* 2. 昨日/今日收益 */}
+                             <div className="text-left">
+                                 <p className="text-[10px] text-slate-500 font-semibold">昨日/今日收益</p>
+                                 <p className={`font-mono font-bold text-lg ${s.dailyReturn >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
                                      {s.dailyReturn >= 0 ? '+' : ''}{formatCurrency(s.dailyReturn, c)}
+                                 </p>
+                             </div>
+                             
+                             {/* 3. 未到账返利总额 - NEW FIELD */}
+                             <div className="text-left">
+                                 <p className="text-[10px] text-slate-500 font-semibold">未到账返利</p>
+                                 <p className={`font-mono font-bold text-lg ${s.pendingRebate > 0 ? 'text-amber-500' : 'text-slate-400'}`}>
+                                     {s.pendingRebate > 0 ? '+' : ''}{formatCurrency(s.pendingRebate, c)}
                                  </p>
                              </div>
                          </div>
                      </div>
                  );
              })}
-             {currencyFilter === 'all' && Object.values(summaryStats).every((s: { totalProfit: number; dailyReturn: number }) => s.totalProfit === 0 && s.dailyReturn === 0) && (
+             {currencyFilter === 'all' && Object.values(stats).every((s) => s.totalProfit === 0 && s.dailyReturn === 0 && s.pendingRebate === 0) && (
                  <span className="text-xs text-slate-400">暂无收益数据</span>
              )}
           </div>
@@ -540,7 +570,7 @@ const InvestmentList: React.FC<Props> = ({
                                         
                                         {item.notes && (
                                             <div className="mt-4 text-xs text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-100 flex gap-2 items-start">
-                                                <svg className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
+                                                <svg className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" fill="none" viewBox="0 0 0 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
                                                 {item.notes}
                                             </div>
                                         )}

@@ -383,7 +383,7 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         if (overlapEnd > overlapStart) {
             overlapDays = (overlapEnd.getTime() - overlapStart.getTime()) / MS_PER_DAY;
         }
-        
+
         let itemPeriodProfit = 0;
         const calculationPrincipal = item.currentPrincipal > 0.01 ? item.currentPrincipal : item.totalCost;
         let fixedInterestProjection = 0;
@@ -450,8 +450,7 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         // 4. P&L Transactions (Div/Int/Fee/Tax) - only those *in* the period
         if (item.transactions) {
             item.transactions.forEach(tx => {
-                // Only count P&L transactions if the item was NOT completed in the period,
-                // OR if the transaction date is AFTER the withdrawal date (unlikely but safe).
+                // Only count transactions if the item was NOT completed in the period.
                 if (!isCompletedInPeriod) {
                     if (isBetween(tx.date)) {
                         if (tx.type === 'Dividend' || tx.type === 'Interest') {
@@ -512,7 +511,7 @@ export const calculateItemMetrics = (item: Investment) => {
   const activePrincipal = item.currentPrincipal; 
   const currentQuantity = item.currentQuantity || 0;
   
-  const interestBasis = Number(item.interestBasis || 365);
+  const interestBasis = Number(item.interestBasis || '365');
 
   let occupiedDurationMs = 0;
   if (!isPending) {
@@ -541,7 +540,8 @@ export const calculateItemMetrics = (item: Investment) => {
       const fixedInterest = item.type === 'Fixed' && item.expectedRate && item.totalCost > 0 && realDurationDays > 0 ? 
           item.totalCost * (item.expectedRate / 100) * (realDurationDays / interestBasis) : 0;
       
-      // baseInterest = 总收益 (固定利息 + 交易P&L) - 交易P&L (已在 totalRealizedProfit 中)
+      // baseInterest = Total realized profit on closure (fixed interest or floating gain)
+      // For completed items, baseInterest should be the total net profit realized on closure.
       baseInterest = fixedInterest + item.totalRealizedProfit; 
       
       const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
@@ -562,16 +562,9 @@ export const calculateItemMetrics = (item: Investment) => {
       const calculateSegmentedInterest = (endDate: Date) => {
           let totalInterest = 0;
           let currentBalance = 0;
-          let activeTxIndex = 0;
-
-          // Find start balance before deposit date
-          for (let i = 0; i < sortedTxs.length; i++) {
-              if (new Date(sortedTxs[i].date) <= deposit) activeTxIndex = i;
-          }
-          currentBalance = item.totalCost; // Simplified assumption: initial balance is totalCost
-
           let lastDate = deposit; // Start calculation from deposit date
 
+          // Reconstruct balance changes and calculate interest segment-by-segment
           for (let i = 0; i < sortedTxs.length; i++) {
               const tx = sortedTxs[i];
               const txDate = new Date(tx.date);
@@ -607,37 +600,36 @@ export const calculateItemMetrics = (item: Investment) => {
       if (activePrincipal > 0 && maturity) holdingYield = (baseInterest / activePrincipal) * 100;
 
   } else if (item.type === 'Floating') {
-      if (item.currentReturn !== undefined) {
-          baseInterest = item.currentReturn; 
-          const totalValueChange = item.currentReturn + item.totalRealizedProfit;
-          
+      
+      // FIX: Consolidate P&L calculation to run if total realized or unrealized profit exists.
+      const currentReturn = item.currentReturn !== undefined ? item.currentReturn : 0;
+      const totalPnl = currentReturn + item.totalRealizedProfit;
+
+      if (totalPnl !== 0 || item.expectedRate) { 
+          hasYieldInfo = true;
           const costBasis = item.totalCost > 0 ? item.totalCost : item.principal > 0 ? item.principal : activePrincipal;
           
-          if (costBasis > 0) {
-            holdingYield = (totalValueChange / costBasis) * 100;
-            if (realDurationDays > 0) {
-                annualizedYield = (holdingYield / (realDurationDays / 365));
-            }
-          }
-      } else if (item.expectedRate) {
-           const rate = item.expectedRate;
-           annualizedYield = rate;
-           baseInterest = activePrincipal * (rate / 100) * (realDurationDays / 365);
-           if (activePrincipal > 0) holdingYield = (baseInterest / activePrincipal) * 100;
-      } else {
-          if (item.totalRealizedProfit !== 0) {
-              baseInterest = item.totalRealizedProfit;
-              hasYieldInfo = true;
-              const costBasis = item.totalCost > 0 ? item.totalCost : item.principal > 0 ? item.principal : activePrincipal;
+          if (item.expectedRate) {
+              // Case 2 Logic: Use expected rate for projection
+              const rate = item.expectedRate;
+              annualizedYield = rate;
+              baseInterest = activePrincipal * (rate / 100) * (realDurationDays / 365);
+              if (activePrincipal > 0) holdingYield = (baseInterest / activePrincipal) * 100;
+
+          } else {
+              // Case 1 & 3 Logic: Use actual P&L to derive yield (FIXES THE USER SCENARIO)
+              baseInterest = totalPnl; 
+              
               if (costBasis > 0) {
                   holdingYield = (baseInterest / costBasis) * 100;
                   if (realDurationDays > 0) {
                       annualizedYield = (holdingYield / (realDurationDays / 365));
                   }
               }
-          } else {
-              hasYieldInfo = false;
           }
+          
+      } else {
+          hasYieldInfo = false;
       }
   } else {
       hasYieldInfo = false;
