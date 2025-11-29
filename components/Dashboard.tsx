@@ -181,12 +181,22 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   
   // Calculate main stats based on time filter
   const stats = useMemo(() => {
-      if (timeFilter === 'all') {
-          return calculatePortfolioStats(currencyItems);
-      } else {
-          const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
-          return calculatePeriodStats(currencyItems, start, end);
+      // 1. 始终计算 ALL TIME stats，以获取准确的 todayEstProfit
+      const allTimeStats = calculatePortfolioStats(currencyItems); //
+
+      let periodStats = allTimeStats; 
+
+      if (timeFilter !== 'all') {
+          // 2. 如果时间筛选激活，计算 PERIOD stats 以获取 period metrics
+          const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd); //
+          periodStats = calculatePeriodStats(currencyItems, start, end); //
       }
+      
+      // 3. 修正：合并数据。对于 period metrics 使用 periodStats 的结果，但强制 todayEstProfit 使用 unfiltered 的结果。
+      return {
+          ...periodStats, 
+          todayEstProfit: allTimeStats.todayEstProfit // 覆盖掉 periodStats 中可能为 0 的值
+      };
   }, [currencyItems, timeFilter, customStart, customEnd]);
 
   // --- Breakdown Data Calculation ---
