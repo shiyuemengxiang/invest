@@ -502,9 +502,9 @@ const InvestmentList: React.FC<Props> = ({
                                                 <div className="flex flex-col gap-0.5">
                                                     
                                                     {metrics.isCompleted ? (
-                                                        // --- UI for FINISHED item ---
+                                                        // --- UI for FINISHED item (Image 3) ---
                                                         <>
-                                                            {/* 到期收益 (metrics.baseInterest is the final profit realized) */}
+                                                            {/* 到期收益 */}
                                                             <span className="block font-bold text-sm text-slate-700">
                                                                 到期收益 {formatCurrency(metrics.baseInterest, item.currency)}
                                                             </span>

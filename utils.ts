@@ -526,7 +526,9 @@ export const calculateItemMetrics = (item: Investment) => {
   const realDurationDays = Math.round((occupiedDurationMs / MS_PER_DAY)); 
   
   // 核心天数计算：计息天数 (Accrual Days) 和 持有天数 (Holding Days)
+  // Fixed interest accrual period (Deposit -> Maturity)
   const durationForAccrual = item.type === 'Fixed' && maturity ? getDaysDiff(item.depositDate, item.maturityDate) : 0;
+  // Actual holding period for yield annualization (Deposit -> Withdrawal/Today)
   const durationForAnnualization = isCompleted ? getDaysDiff(item.depositDate, item.withdrawalDate) : realDurationDays;
   
   let baseInterest = 0;
@@ -541,18 +543,24 @@ export const calculateItemMetrics = (item: Investment) => {
            annualizedYield = item.expectedRate;
       }
   } else if (isCompleted) {
-      // 修正 baseInterest 的计算：使用到期日天数计算总利息
+      // 1. Fixed Interest Calculation (using Maturity days)
       const fixedInterest = item.type === 'Fixed' && item.expectedRate && item.totalCost > 0 && durationForAccrual > 0
           ? item.totalCost * (item.expectedRate / 100) * (durationForAccrual / interestBasis) 
           : 0;
       
-      // baseInterest = 总利息/浮动获利 + 已实现的交易P&L
-      baseInterest = fixedInterest + item.totalRealizedProfit; 
+      // 2. Determine final net product P&L (baseInterest)
+      // FIX: Prefer item.currentReturn (where manual final P&L is stored from form) if set for Floating. 
+      if (item.currentReturn !== undefined && item.type === 'Floating') {
+          baseInterest = item.currentReturn; 
+      } else {
+          // Fixed or Floating w/o manual final P&L: rely on fixed interest accrual + transaction sum
+          baseInterest = fixedInterest + item.totalRealizedProfit;
+      }
       
       const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
       if (calcBase > 0 && baseInterest !== 0) {
         holdingYield = (baseInterest / calcBase) * 100;
-        // 修正 实测年化 公式: 使用 item.interestBasis 作为年化基准， durationForAnnualization (取出时间-存入时间) 作为持有时间
+        // 修正 实测年化 公式: 使用 item.interestBasis 作为年化基准
         if (durationForAnnualization > 0) {
             annualizedYield = (holdingYield / (durationForAnnualization / interestBasis));
         }
