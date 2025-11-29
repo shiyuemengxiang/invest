@@ -66,6 +66,7 @@ export default async function handler(request: any, response: any) {
 
     const uniqueSymbols = Array.from(new Set(symbols as string[]));
     const result: Record<string, QuoteResult> = {};
+    const isMarketOpen = isRegularUSMarketOpen();
 
     // --- Helper: Webull Fetcher Logic ---
     const fetchWebullQuote = async (symbol: string): Promise<QuoteResult | null> => {
@@ -80,7 +81,6 @@ export default async function handler(request: any, response: any) {
                 
                 if (searchJson.data && searchJson.data.length > 0) {
                     const match = searchJson.data[0];
-                    // 简单校验：确保搜索结果的 symbol 和请求的一致 (忽略大小写)
                     if (match.symbol === symbol || match.disSymbol === symbol) {
                         tickerId = String(match.tickerId);
                         WEBULL_ID_CACHE[symbol] = tickerId; // 存入缓存
@@ -100,27 +100,38 @@ export default async function handler(request: any, response: any) {
                 const closePrice = Number(data.close); // 盘中最新价 或 盘后收盘价
                 const extPrice = Number(data.pPrice);  // 盘前/盘后/夜盘价
                 const preClose = Number(data.preClose); // 昨日收盘价
-
-                // 核心逻辑：确定显示价格和基准价格
+                
                 let finalPrice = closePrice;
                 let basePrice = preClose; 
-
-                // 如果有扩展时段价格，且不等于收盘价，说明处于非交易时段
-                if (extPrice && extPrice > 0 && extPrice !== closePrice) {
-                    finalPrice = extPrice;
-                    // 在扩展时段，为了显示"当前时段涨跌"，基准应改为最近一次收盘价
-                    // 否则显示的会是 "日盘涨跌 + 夜盘涨跌" 的总和，容易让人困惑
-                    if (closePrice > 0) basePrice = closePrice;
-                }
-
-                // 计算涨跌幅
                 let changePercent = 0;
-                if (basePrice > 0 && finalPrice > 0) {
-                    changePercent = ((finalPrice - basePrice) / basePrice) * 100;
-                } else if (data.changeRatio) {
-                    changePercent = Number(data.changeRatio) * 100;
+
+                // 核心修正逻辑：遵循长桥/富途，仅在盘中计算日变动，盘后/夜盘以收盘价为准
+                if (isMarketOpen) {
+                    // 盘中：使用 closePrice (最新价) 对比 preClose (昨日收盘)
+                    finalPrice = closePrice;
+                    basePrice = preClose;
+                } else {
+                    // 盘后/夜盘/休市：价格使用扩展价(实时估值)，但变动率必须使用收盘价为准。
+                    finalPrice = extPrice && extPrice > 0 ? extPrice : closePrice;
+                    // 变动率基准保持昨日收盘价，但涨跌幅应是 Reg. Close vs Pre Close。
+                    
+                    // 严格遵循：在非盘中时段，用于计算“当日盈亏”的变动率应是 Reg. Close vs Pre Close
+                    if (closePrice > 0 && preClose > 0) {
+                         changePercent = ((closePrice - preClose) / preClose) * 100;
+                    }
+
+                    // 如果 Webull 提供了 changeRatio (通常是相对于 preClose)，则使用它作为常规变动
+                    if (data.changeRatio && changePercent === 0) {
+                         changePercent = Number(data.changeRatio) * 100;
+                    }
+                    
+                    // Note: finalPrice remains the extended price for accurate valuation.
                 }
 
+                if (changePercent === 0 && finalPrice > 0 && basePrice > 0 && isMarketOpen) {
+                     changePercent = ((finalPrice - basePrice) / basePrice) * 100;
+                }
+                
                 console.log(`[API Quotes] Webull ${symbol}: Price=${finalPrice}, Base=${basePrice}, Change=${changePercent.toFixed(2)}%`);
                 return { 
                     price: finalPrice, 
@@ -137,53 +148,31 @@ export default async function handler(request: any, response: any) {
     // --- Helper: Yahoo Fetcher Logic ---
     const fetchYahooQuote = async (symbol: string): Promise<QuoteResult | null> => {
         try {
-            // 1. 库调用
             const quote = await yahooFinance.quote(symbol, { validateResult: false }) as any;
             
-            const regular = quote.regularMarketPrice || quote.ask || quote.bid;
-            const post = quote.postMarketPrice;
+            const regularClosePrice = quote.regularMarketPrice;
             const preClose = quote.regularMarketPreviousClose;
+            const postPrice = quote.postMarketPrice;
+            
+            let finalPrice = regularClosePrice;
+            let changePercent = quote.regularMarketChangePercent || 0; // Regular Market Change %
 
-            let finalPrice = regular;
-            let basePrice = preClose;
-
-            // 智能判断：如果有盘后价且不同，视为盘后模式
-            if (post && post > 0 && post !== regular) {
-                finalPrice = post;
-                if (regular > 0) basePrice = regular; // 基准改为收盘价
-            }
-
-            let changePercent = 0;
-            if (finalPrice > 0 && basePrice > 0) {
-                changePercent = ((finalPrice - basePrice) / basePrice) * 100;
+            if (!isMarketOpen) {
+                 // 盘后/夜盘逻辑：估值使用盘后价，但当日变动率使用常规收盘变动率
+                 finalPrice = postPrice && postPrice > 0 ? postPrice : regularClosePrice;
+                 changePercent = quote.regularMarketChangePercent || 0;
             } else {
+                // 盘中逻辑：价格使用实时价，变动率使用实时变动率
+                finalPrice = regularClosePrice;
                 changePercent = quote.regularMarketChangePercent || 0;
             }
-
-            console.log(`[API Quotes] Yahoo ${symbol}: Price=${finalPrice}, Base=${basePrice}, Change=${changePercent.toFixed(2)}%`);
+            
+            if (!finalPrice) finalPrice = preClose;
+            
+            console.log(`[API Quotes] Yahoo ${symbol}: Price=${finalPrice}, Change=${changePercent.toFixed(2)}% (Strict)`);
             return { price: finalPrice, change: changePercent, time: new Date().toISOString() };
         } catch (e: any) {
-            // 2. HTTP Fallback (Yahoo V8 API)
-            try {
-                const fetchUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
-                const res = await fetch(fetchUrl, {
-                    headers: { 'User-Agent': 'Mozilla/5.0' }
-                });
-                
-                if (res.ok) {
-                    const data = await res.json();
-                    const meta = data?.chart?.result?.[0]?.meta;
-                    if (meta && meta.regularMarketPrice) {
-                        const price = meta.regularMarketPrice;
-                        let change = 0;
-                        const prevClose = meta.chartPreviousClose || meta.previousClose;
-                        if (prevClose && prevClose > 0) {
-                            change = ((price - prevClose) / prevClose) * 100;
-                        }
-                        return { price, change, time: new Date().toISOString() };
-                    }
-                }
-            } catch (fallbackError) {}
+             console.warn(`[API Quotes] Yahoo failed for ${symbol}: ${e.message}`);
         }
         return null;
     };
@@ -192,6 +181,7 @@ export default async function handler(request: any, response: any) {
     const fetchQuote = async (symbol: string): Promise<QuoteResult | null> => {
         // 1. CN Stocks (EastMoney): sh/sz/bj + 6 digits
         if (/^(sh|sz|bj)\d{6}$/i.test(symbol)) {
+            // (A股/基金逻辑不变，因其市场时间简单)
             try {
                 const prefix = symbol.slice(0, 2).toLowerCase();
                 const code = symbol.slice(2);
@@ -240,26 +230,17 @@ export default async function handler(request: any, response: any) {
             return null;
         }
 
-        // 3. US/International Stocks (智能切换逻辑)
+        // 3. US/International Stocks (智能切换逻辑 - 严格遵循常规交易时段)
         if (/^[A-Z]+$/.test(symbol)) {
-            const isRegularHours = isRegularUSMarketOpen();
+            // 优先 Yahoo (获取准确的 regularMarketChangePercent)
+            const yahooData = await fetchYahooQuote(symbol);
+            if (yahooData) return yahooData;
             
-            if (isRegularHours) {
-                // ☀️ 盘中 (Regular): 优先 Yahoo -> 失败则 Webull
-                const yahooData = await fetchYahooQuote(symbol);
-                if (yahooData) return yahooData;
-                
-                return await fetchWebullQuote(symbol);
-            } else {
-                // 🌙 盘后/夜盘 (Overnight): 优先 Webull -> 失败则 Yahoo
-                const webullData = await fetchWebullQuote(symbol);
-                if (webullData) return webullData;
-                
-                return await fetchYahooQuote(symbol);
-            }
+            // 降级使用 Webull (作为实时价格和变动的补充)
+            return await fetchWebullQuote(symbol);
         }
 
-        // 4. Default Fallback (如期权代码)
+        // 4. Default Fallback
         return await fetchYahooQuote(symbol);
     };
 
