@@ -585,7 +585,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         <MetricCard 
             title={timeFilter === 'all' ? '待收回总资本' : '期间 WACC 本金'}
             mainValue={timeFilter === 'all' ? stats.activePrincipal + stats.pendingRebate : stats.totalInvested}
-            subValue={timeFilter === 'all' ? '含待到账返利' : '期间总投入本金'}
+            subValue={undefined} // Removed redundant UI element
             currency={selectedCurrency}
             colorTheme={timeFilter === 'all' ? 'red' : 'blue'}
             breakdownList={timeFilter === 'all' ? [
@@ -740,7 +740,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                       <div><h3 className="text-lg font-bold text-slate-800">{rebateModalType === 'received' ? '已到账返利明细' : '待返利资产明细'}</h3><p className="text-xs text-slate-400 mt-0.5">Rebate Details</p></div>
                       <button onClick={() => setRebateModalType(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                   </div>
-                  <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-3">
+                  <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
                       {rebateItems.length === 0 ? <div className="py-10 text-center text-slate-400 text-sm flex flex-col items-center gap-2"><svg className="w-10 h-10 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>暂无相关记录</div> : rebateItems.map(item => (
                           <div key={item.id} className="flex justify-between items-center p-3 rounded-2xl bg-slate-50 border border-slate-100"><div className="min-w-0"><p className="font-bold text-slate-700 text-sm truncate">{item.name}</p><p className="text-xs text-slate-400 mt-0.5">{safeFormatDate(item.depositDate)}</p></div><div className="text-right"><p className={`font-bold font-mono text-sm ${rebateModalType === 'received' ? 'text-emerald-600' : 'text-amber-500'}`}>+{formatCurrency(item.rebate, item.currency)}</p><span className="text-[10px] text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100 shadow-sm">{item.type === 'Fixed' ? '固收' : '浮动'}</span></div></div>
                       ))}
