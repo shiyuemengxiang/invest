@@ -40,6 +40,7 @@ interface SummaryStats {
     totalProfit: number;
     dailyReturn: number;
     pendingRebate: number;
+    receivedRebate: number; // 新增：用于在累计收益下方显示已到账金额
 }
 
 const InvestmentList: React.FC<Props> = ({ 
@@ -83,9 +84,9 @@ const InvestmentList: React.FC<Props> = ({
 
   const summaryStats = useMemo((): Record<Currency, SummaryStats> => {
       const stats: Record<Currency, SummaryStats> = {
-          CNY: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0 },
-          USD: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0 },
-          HKD: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0 }
+          CNY: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0, receivedRebate: 0 },
+          USD: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0, receivedRebate: 0 },
+          HKD: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0, receivedRebate: 0 }
       };
 
       filteredItems.forEach(item => {
@@ -94,20 +95,19 @@ const InvestmentList: React.FC<Props> = ({
 
           // metrics.profit = baseInterest + item.rebate + item.totalRealizedProfit (Total Lifetime P&L including ALL rebate)
           
-          // 1. Calculate Base P&L (Excluding ALL Rebate)
+          // 1. Calculate Base P&L (Excluding ALL Rebate: Accrued/Current P&L + Realized Tx P&L)
           const baseProfit = metrics.profit - item.rebate; 
           
-          // 2. Add back only RECEIVED rebate (Total Estimated Profit = Base P&L + RECEIVED Rebate)
+          // 2. Calculate Rebate components
           const receivedRebate = item.isRebateReceived ? item.rebate : 0;
-          let profit = baseProfit + receivedRebate;
-          
-          // 3. Calculate Pending Rebate amount
+          let profit = baseProfit + receivedRebate; // 最终总收益 = Base P&L + 已到账返利
           const pendingRebate = item.isRebateReceived ? 0 : item.rebate;
 
           if (stats[item.currency]) {
               stats[item.currency].totalProfit += profit;
               stats[item.currency].dailyReturn += daily;
               stats[item.currency].pendingRebate += pendingRebate; 
+              stats[item.currency].receivedRebate += receivedRebate; // 累加已到账返利
           }
       });
 
@@ -242,7 +242,7 @@ const InvestmentList: React.FC<Props> = ({
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-col gap-4">
              {(['CNY', 'USD', 'HKD'] as Currency[]).filter(c => currencyFilter === 'all' || currencyFilter === c).map(c => {
                  const s = summaryStats[c];
-                 const shouldDisplay = s && (s.totalProfit !== 0 || s.dailyReturn !== 0 || s.pendingRebate !== 0);
+                 const shouldDisplay = s && (s.totalProfit !== 0 || s.dailyReturn !== 0 || s.pendingRebate !== 0 || s.receivedRebate !== 0);
                  if (!shouldDisplay && currencyFilter !== 'all' && c !== 'CNY') return null;
                  if (currencyFilter === 'all' && !shouldDisplay && c !== 'CNY') return null;
 
@@ -250,7 +250,7 @@ const InvestmentList: React.FC<Props> = ({
                      <div key={c} className="flex flex-col gap-2 p-2 rounded-xl border border-slate-100 bg-white/50">
                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">{c} Summary</span>
                          <div className="grid grid-cols-2 md:grid-cols-3 gap-6 w-full">
-                             {/* 1. 累计收益 (预估) - UPDATED TIP */}
+                             {/* 1. 累计收益 (预估) - UPDATED TIP & SUB-LABEL */}
                              <div className="text-left relative group">
                                  <div className="flex items-center gap-1">
                                      <p className="text-[10px] text-slate-500 font-semibold">累计收益 (预估)</p>
@@ -263,6 +263,12 @@ const InvestmentList: React.FC<Props> = ({
                                  <p className={`font-mono font-bold text-lg ${s.totalProfit >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
                                      {formatCurrency(s.totalProfit, c)}
                                  </p>
+                                 {/* NEW SUB-LABEL: (含已到账返利xx元) */}
+                                 {s.receivedRebate > 0 && (
+                                     <span className="text-[10px] text-slate-500 block">
+                                         (含已到账返利 {formatCurrency(s.receivedRebate, c)})
+                                     </span>
+                                 )}
                              </div>
                              
                              {/* 2. 昨日/今日收益 */}
@@ -360,6 +366,20 @@ const InvestmentList: React.FC<Props> = ({
                         const estPrice = item.category === 'Fund' && item.estGrowth !== undefined 
                             ? metrics.currentPrice * (1 + item.estGrowth / 100)
                             : undefined;
+
+                        // --- Data for new EST. PROFIT layout ---
+                        const itemAccruedOrCurrentReturn = item.type === 'Fixed' && !metrics.isCompleted
+                            ? metrics.accruedReturn 
+                            : item.currentReturn !== undefined 
+                                ? item.currentReturn 
+                                : 0; 
+                        
+                        const displayEstProfit = formatCurrency(itemAccruedOrCurrentReturn, item.currency);
+                        const displayEstProfitColor = itemAccruedOrCurrentReturn >= 0 ? 'text-orange-500' : 'text-red-500';
+
+                        const rebateStatus = item.isRebateReceived ? '已到账' : '未到账';
+                        const rebateAmount = formatCurrency(item.rebate, item.currency);
+                        // ------------------------------------------
 
                         return (
                             <Draggable 
@@ -470,26 +490,30 @@ const InvestmentList: React.FC<Props> = ({
                                             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Duration</p>
                                             <p className="font-bold text-slate-700 text-sm">{metrics.realDurationDays} <span className="text-xs font-normal text-slate-400">Days</span></p>
                                             </div>
+                                            
+                                            {/* 3rd Column: EST. PROFIT (Modified based on Image 2) */}
                                             <div className="space-y-1">
-                                            <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
-                                                {metrics.isCompleted ? 'Realized Profit' : metrics.isPending ? 'Potential' : item.type === 'Floating' ? 'Current Profit' : 'Est. Profit'}
-                                            </p>
-                                            <div className="flex flex-col gap-0.5">
-                                                    <div className="flex items-baseline gap-1">
-                                                        <p className={`font-bold text-sm ${metrics.isPending ? 'text-slate-400' : metrics.totalReturn > 0 ? 'text-orange-500' : metrics.totalReturn < 0 ? 'text-slate-500' : 'text-slate-300'}`}>
-                                                            {metrics.totalReturn !== 0 ? (metrics.totalReturn > 0 ? '+' : '') + formatCurrency(metrics.totalReturn, item.currency) : '-'}
-                                                        </p>
-                                                    </div>
-                                                    {!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed' && metrics.accruedReturn > 0.01 && (
-                                                        <div className="flex items-center gap-1">
-                                                            <span className="text-[10px] text-slate-400">截止今日:</span>
-                                                            <span className="text-[10px] font-bold text-slate-600">
-                                                                {formatCurrency(metrics.accruedReturn, item.currency)}
-                                                            </span>
-                                                        </div>
+                                                <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">产品预期收益</p>
+                                                <div className="flex flex-col gap-0.5">
+                                                    
+                                                    {/* Top Value: Value of Accrued Interest or Current Return */}
+                                                    <span className={`font-bold text-sm ${displayEstProfitColor}`}>
+                                                        {itemAccruedOrCurrentReturn > 0 ? '+' : ''}{displayEstProfit}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400 font-semibold">
+                                                        截止今日预估收益
+                                                    </span>
+                                                    
+                                                    {/* Rebate Status */}
+                                                    {item.rebate > 0 && (
+                                                        <span className={`text-xs mt-1 ${item.isRebateReceived ? 'text-emerald-600' : 'text-amber-500'}`}>
+                                                            返利 {rebateAmount} ({rebateStatus})
+                                                        </span>
                                                     )}
+                                                </div>
                                             </div>
-                                            </div>
+
+                                            {/* Original 4th Column (YIELD) - moved position */}
                                             <div className="space-y-1">
                                             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Yield</p>
                                             <div className="flex flex-col">
@@ -508,6 +532,39 @@ const InvestmentList: React.FC<Props> = ({
                                                     </span>
                                             </div>
                                             </div>
+                                        
+                                            {/* Original 5th Column (Market Data) - moved position */}
+                                            {/* Note: The old 5th column logic has been partially removed/consolidated here, retaining the last one */}
+                                            {(item.quantity || 0) > 0 && (
+                                                <div className="space-y-0.5">
+                                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                                                        {item.category === 'Fund' ? '实时估值 (Est)' : 'Today\'s Change'}
+                                                    </p>
+                                                    
+                                                    {item.estGrowth !== undefined ? (
+                                                        <div className="flex flex-col gap-1">
+                                                            {estPrice && (
+                                                                <span className={`font-mono text-xs font-bold ${item.estGrowth >= 0 ? 'text-orange-400' : 'text-emerald-400'}`}>
+                                                                    {formatCurrency(estPrice, item.currency)}
+                                                                </span>
+                                                            )}
+                                                            
+                                                            <div className={`flex items-center gap-1 w-fit px-1.5 py-0.5 rounded ${item.estGrowth >= 0 ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                                                <span className="text-[9px] opacity-75 font-bold scale-90">估</span>
+                                                                <span className="text-[10px] font-bold font-mono">{item.estGrowth >= 0 ? '+' : ''}{item.estGrowth.toFixed(2)}%</span>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        item.isAutoQuote ? (
+                                                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 border border-slate-200">
+                                                                暂无估值
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[10px] text-slate-300">-</span>
+                                                        )
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                         
                                         {(item.quantity || 0) > 0 && (
