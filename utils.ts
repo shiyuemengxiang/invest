@@ -170,7 +170,7 @@ export const getDaysDiff = (start: string, end: string): number => {
   const d1 = new Date(start).setHours(0,0,0,0);
   const d2 = new Date(end).setHours(0,0,0,0);
   // This calculates days between two dates (inclusive start, exclusive end)
-  return Math.round((d2 - d1) / MS_PER_DAY);
+  return Math.round((d2 - d1) / MS_PER DAY);
 };
 
 export const getDaysRemaining = (targetDate: string): number => {
@@ -263,8 +263,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   let projectedTotalProfit = 0;
   let todayEstProfit = 0;
   
-  let weightedYieldSum = 0;
-  let totalWeight = 0;
+  let totalCapitalWACC = 0; // NEW: Sum of (Capital * Days Held) for MWR
   
   const todayISO = new Date().toISOString().split('T')[0];
 
@@ -273,6 +272,16 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     
     totalInvested += item.totalCost; 
     totalRebate += item.rebate;
+    
+    // WACC Calculation (Total Days from Deposit to Withdrawal/Today)
+    const holdingDays = metrics.isCompleted 
+        ? getDaysDiff(item.depositDate, item.withdrawalDate) 
+        : getDaysDiff(item.depositDate, new Date().toISOString().split('T')[0]);
+        
+    const capitalBase = item.totalCost; // Use initial investment cost as the capital base
+    if (holdingDays > 0 && capitalBase > 0) {
+        totalCapitalWACC += capitalBase * holdingDays;
+    }
     
     // Projected Total Profit (Includes EVERYTHING: Unrealized + Realized + Rebate)
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
@@ -315,8 +324,9 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0)) { 
         const weight = (metrics.isCompleted || item.type === 'Floating') ? item.totalCost : item.currentPrincipal;
         if (weight > 0) {
-            weightedYieldSum += metrics.comprehensiveYield * weight;
-            totalWeight += weight;
+            // This is the old weighted yield logic, which is now replaced by MWR
+            // We keep it here to track overall portfolio profit/weight, but MWR is calculated later
+            // We can safely remove this old weighted yield summation as it's redundant/inaccurate.
         }
     }
   });
@@ -327,8 +337,9 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   realizedInterest += receivedRebate;
 
   let portfolioYield = 0;
-  if (totalWeight > 0) {
-      portfolioYield = weightedYieldSum / totalWeight;
+  if (totalCapitalWACC > 0) {
+      // MWR / WACC Annualized Yield = (Total Profit / Total Capital WACC) * 365 * 100%
+      portfolioYield = (projectedTotalProfit / totalCapitalWACC) * 365 * 100;
   }
   
   const projectedTotalYield = totalInvested > 0 ? (projectedTotalProfit / totalInvested) * 100 : 0;
@@ -344,7 +355,8 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     projectedTotalProfit,
     projectedTotalYield,
     todayEstProfit,
-    comprehensiveYield: portfolioYield
+    comprehensiveYield: portfolioYield,
+    totalCapitalWACC // NEW RETURN FIELD
   };
 };
 
@@ -356,8 +368,7 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
     let periodProfit = 0;
     let realizedInPeriod = 0;
     
-    let weightedYieldSum = 0;
-    let totalWeight = 0;
+    let totalCapitalWACC = 0; // NEW: Sum of (Capital * Days Held) for MWR
     
     let totalRebate = 0;
     let pendingRebate = 0;
@@ -384,6 +395,14 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         if (overlapEnd > overlapStart) {
             overlapDays = (overlapEnd.getTime() - overlapStart.getTime()) / MS_PER_DAY;
         }
+
+        // WACC Calculation (Period WACC)
+        const capitalBase = item.totalCost; // Use total investment cost as the capital base
+        if (overlapDays > 0 && capitalBase > 0) {
+             // WACC should only count holding days *within* the filter period
+             totalCapitalWACC += capitalBase * overlapDays;
+        }
+
 
         let itemPeriodProfit = 0;
         const calculationPrincipal = item.currentPrincipal > 0.01 ? item.currentPrincipal : item.totalCost;
@@ -467,27 +486,19 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         }
         
         periodProfit += itemPeriodProfit;
-        const weight = calculationPrincipal;
-        totalInvested += weight;
-        
-        if (weight > 0 && overlapDays > 0) {
-            const periodYield = (itemPeriodProfit / weight) * (365 / overlapDays) * 100;
-            if (isFinite(periodYield)) {
-                weightedYieldSum += periodYield * weight;
-                totalWeight += weight;
-            }
-        }
-    });
+        totalInvested += capitalBase; // Total invested capital in the period (for UI consistency)
+
 
     let portfolioYield = 0;
-    if (totalWeight > 0) {
-        portfolioYield = weightedYieldSum / totalWeight;
+    if (totalCapitalWACC > 0) {
+        // MWR / WACC Annualized Yield = (Period Profit / Total Capital WACC) * 365 * 100%
+        portfolioYield = (periodProfit / totalCapitalWACC) * 365 * 100;
     }
 
     return {
         projectedTotalProfit: periodProfit,
         realizedInterest: realizedInPeriod,
-        activePrincipal: totalInvested,
+        activePrincipal: totalInvested, // Total invested capital in the period (for UI consistency)
         comprehensiveYield: portfolioYield,
         totalInvested: totalInvested,
         completedPrincipal: 0,
@@ -495,7 +506,8 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         pendingRebate: pendingRebate, 
         receivedRebate: receivedRebate,
         projectedTotalYield: 0,
-        todayEstProfit: 0
+        todayEstProfit: 0,
+        totalCapitalWACC: totalCapitalWACC // NEW RETURN FIELD
     };
 };
 
@@ -543,6 +555,7 @@ export const calculateItemMetrics = (item: Investment) => {
            annualizedYield = item.expectedRate;
       }
   } else if (isCompleted) {
+      
       // 1. Fixed Interest Calculation (using Maturity days)
       const fixedInterest = item.type === 'Fixed' && item.expectedRate && item.totalCost > 0 && durationForAccrual > 0
           ? item.totalCost * (item.expectedRate / 100) * (durationForAccrual / interestBasis) 
@@ -551,7 +564,8 @@ export const calculateItemMetrics = (item: Investment) => {
       // 2. Determine final net product P&L (baseInterest)
       // FIX: Prefer item.currentReturn (where manual final P&L is stored from form) if set for Floating. 
       if (item.currentReturn !== undefined && item.type === 'Floating') {
-          baseInterest = item.currentReturn; 
+          // Use manual final profit/loss (which is -814.64 in the user example)
+          baseInterest = item.currentReturn + item.totalRealizedProfit;
       } else {
           // Fixed or Floating w/o manual final P&L: rely on fixed interest accrual + transaction sum
           baseInterest = fixedInterest + item.totalRealizedProfit;

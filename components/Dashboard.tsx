@@ -22,10 +22,12 @@ interface MetricCardProps {
     infoAction?: () => void;
     themeConfig: any;
     colorTheme: 'indigo' | 'blue' | 'orange' | 'amber' | 'purple';
+    // 新增：用于显示 WACC 成本信息
+    waccValue?: number;
 }
 
 const MetricCard: React.FC<MetricCardProps> = ({ 
-    title, mainValue, subValue, currency, breakdownList, categoryData, infoAction, colorTheme 
+    title, mainValue, subValue, currency, breakdownList, categoryData, infoAction, colorTheme, waccValue
 }) => {
     const [mode, setMode] = useState<'list' | 'chart'>('list');
     const [activeIndex, setActiveIndex] = useState(0);
@@ -94,6 +96,10 @@ const MetricCard: React.FC<MetricCardProps> = ({
                                 </span>
                                 {subValue && <span className="text-xs font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{subValue}</span>}
                             </div>
+                            {/* Display WACC info only for the PURPLE/YIELD card */}
+                            {waccValue !== undefined && waccValue > 0 && (
+                                <p className="text-[10px] text-slate-400 mt-1">加权资金成本: {formatCurrency(waccValue, currency)} days</p>
+                            )}
                         </div>
                         
                         <div className="mt-auto pt-3 border-t border-slate-50 space-y-2.5 pb-3">
@@ -182,14 +188,14 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   // Calculate main stats based on time filter
   const stats = useMemo(() => {
       // 1. 始终计算 ALL TIME stats，以获取准确的 todayEstProfit
-      const allTimeStats = calculatePortfolioStats(currencyItems); //
+      const allTimeStats = calculatePortfolioStats(currencyItems); 
 
       let periodStats = allTimeStats; 
 
       if (timeFilter !== 'all') {
           // 2. 如果时间筛选激活，计算 PERIOD stats 以获取 period metrics
-          const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd); //
-          periodStats = calculatePeriodStats(currencyItems, start, end); //
+          const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd); 
+          periodStats = calculatePeriodStats(currencyItems, start, end); 
       }
       
       // 3. 修正：合并数据。对于 period metrics 使用 periodStats 的结果，但强制 todayEstProfit 使用 unfiltered 的结果。
@@ -357,7 +363,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       return { todayBreakdownList: list, todayCategoryData: chart };
   }, [currencyItems]);
 
-  // --- 3. Realized Profit Breakdown (Fixing chart data and breakdown list consistency) ---
+  // 3. Realized Profit Breakdown (Corrected for Time Filter)
   const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
       let completedNetPeriod = 0; // Net Completion Gain in Period (The '已完结项目净利' component)
       let txRealizedInPeriod = 0; // P&L Txs in Period (The '持仓中派息/减仓' component)
@@ -646,18 +652,28 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             themeConfig={themeConfig}
         />
 
-        {/* 5. Weighted Yield */}
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-purple-50 h-[260px] flex flex-col">
-          <div className="flex justify-between items-start mb-4">
-             <div className="p-3 bg-purple-50 rounded-2xl text-purple-600"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></div>
-             <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Weighted</span>
-          </div>
-          <div className="flex-1">
-              <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '综合年化收益率' : '本期年化收益率'}</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatPercent(stats.comprehensiveYield)}</p>
-              <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">基于资金占用时间加权计算的真实回报率 (IRR近似值)</p>
-          </div>
-        </div>
+        {/* 5. Weighted Yield (MWR) */}
+        <MetricCard 
+            title={timeFilter === 'all' ? '综合年化收益率' : '本期年化收益率'}
+            mainValue={stats.comprehensiveYield}
+            currency={selectedCurrency}
+            colorTheme="purple"
+            breakdownList={[
+                { label: '周期净收益', value: stats.projectedTotalProfit, color: 'bg-indigo-400' },
+                { label: 'WACC', value: stats.totalCapitalWACC, color: 'bg-purple-400' },
+            ]}
+            categoryData={[]} // Not useful here
+            waccValue={stats.totalCapitalWACC / (365)}
+            infoAction={() => setInfoModal({ 
+                title: "资金加权回报率 (MWR)", 
+                content: <div className="text-sm text-slate-600 space-y-2">
+                    <p>MWR是衡量特定周期内资金效率的专业指标。</p>
+                    <p className="font-bold text-purple-600">公式: (周期净收益 / WACC) * 365</p>
+                    <p className="text-xs text-slate-400">WACC (加权资金成本) = ∑(投入本金 × 投入天数)</p>
+                </div> 
+            })}
+            themeConfig={themeConfig}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
