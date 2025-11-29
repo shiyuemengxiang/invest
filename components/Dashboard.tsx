@@ -97,8 +97,8 @@ const MetricCard: React.FC<MetricCardProps> = ({
                                 {subValue && <span className="text-xs font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{subValue}</span>}
                             </div>
                             {/* Display WACC info only for the PURPLE/YIELD card */}
-                            {waccValue !== undefined && waccValue > 0 && (
-                                <p className="text-[10px] text-slate-400 mt-1">加权资金成本: {formatCurrency(waccValue, currency)} days</p>
+                            {colorTheme === 'purple' && waccValue !== undefined && waccValue > 0 && (
+                                <p className="text-[10px] text-slate-400 mt-1">加权资金成本 (WACC): {formatCurrency(waccValue, currency)} / 365天</p>
                             )}
                         </div>
                         
@@ -660,10 +660,12 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             colorTheme="purple"
             breakdownList={[
                 { label: '周期净收益', value: stats.projectedTotalProfit, color: 'bg-indigo-400' },
-                { label: 'WACC', value: stats.totalCapitalWACC, color: 'bg-purple-400' },
+                // FIX: 显示 WACC * 1/365
+                { label: '资金占用基数 (WACC)', value: stats.totalCapitalWACC / 365, color: 'bg-purple-400' },
             ]}
             categoryData={[]} // Not useful here
-            waccValue={stats.totalCapitalWACC / (365)}
+            // waccValue is the WACC in Capital*Days, for display clarity, we show WACC / 365 (Avg Capital)
+            waccValue={stats.totalCapitalWACC / 365} 
             infoAction={() => setInfoModal({ 
                 title: "资金加权回报率 (MWR)", 
                 content: <div className="text-sm text-slate-600 space-y-2">

@@ -532,7 +532,7 @@ export const calculateItemMetrics = (item: Investment) => {
       }
   }
   occupiedDurationMs = Math.max(0, occupiedDurationMs);
-  const realDurationDays = Math.round((occupiedDurationMs / MS_PER_DAY)); 
+  const realDurationDays = Math.round(occupiedDurationMs / MS_PER_DAY); 
   
   // 核心天数计算：计息天数 (Accrual Days) 和 持有天数 (Holding Days)
   // Fixed interest accrual period (Deposit -> Maturity)
@@ -663,7 +663,7 @@ export const calculateItemMetrics = (item: Investment) => {
   let unitCost = 0;
   let currentPrice = 0;
   if (currentQuantity && currentQuantity > 0) {
-      unitCost = item.totalCost / item.currentQuantity; // Cost should be total cost divided by current shares for floating 
+      unitCost = activePrincipal / currentQuantity;
       const currentTotalValue = activePrincipal + (isCompleted ? baseInterest : (item.currentReturn || accruedReturn)) + (item.type === 'Floating' ? item.totalRealizedProfit : 0);
       currentPrice = currentTotalValue / currentQuantity;
   }
