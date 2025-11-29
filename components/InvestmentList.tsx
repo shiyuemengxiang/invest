@@ -318,14 +318,13 @@ const InvestmentList: React.FC<Props> = ({
                         let yieldColorClass = 'text-slate-300';
                         let yieldBasisNote = '';
 
-                        // 核心修正点：已完结浮动资产显示持有收益率和实测年化
                         if (metrics.isPending) {
                             displayYield = formatPercent(metrics.annualizedYield);
                             displayYieldLabel = '预计(未开始)';
                             yieldColorClass = 'text-slate-400';
                         } else if (metrics.isCompleted) {
-                            // 浮动/固收已完结：显示 Holding Yield (总收益率) 和 Comprehensive Yield (实测年化)
-                            displayYield = formatPercent(metrics.holdingYield); // Holding Yield
+                            // FIXED: Show Holding Yield as main number for Completed Assets
+                            displayYield = formatPercent(metrics.holdingYield); 
                             displayYieldLabel = '总收益率';
                             yieldColorClass = metrics.holdingYield > 0 ? 'text-indigo-600' : 'text-slate-500';
                         } else if (item.type === 'Floating') {
@@ -400,7 +399,7 @@ const InvestmentList: React.FC<Props> = ({
 
                                             <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end">
                                                 <div className="text-right">
-                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">{formatCurrency(metrics.isCompleted ? item.totalCost : item.currentPrincipal, item.currency)}</span>
+                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">{formatCurrency(item.currentPrincipal, item.currency)}</span>
                                                     <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Principal</span>
                                                 </div>
                                                 
@@ -437,7 +436,10 @@ const InvestmentList: React.FC<Props> = ({
                                             </div>
                                         </div>
 
+                                        {/* Main Details Grid - 5 Columns for Finance Metrics */}
                                         <div className="relative z-10 grid grid-cols-2 md:grid-cols-5 gap-4 py-5 border-t border-slate-50">
+                                            
+                                            {/* 1. Status/Time */}
                                             <div className="space-y-1">
                                             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Status/Time</p>
                                             <div>
@@ -451,12 +453,14 @@ const InvestmentList: React.FC<Props> = ({
                                                 {metrics.isCompleted && <span className="text-sm font-bold text-slate-700">Finished</span>}
                                             </div>
                                             </div>
+                                            
+                                            {/* 2. Duration */}
                                             <div className="space-y-1">
                                             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Duration</p>
                                             <p className="font-bold text-slate-700 text-sm">{metrics.realDurationDays} <span className="text-xs font-normal text-slate-400">Days</span></p>
                                             </div>
                                             
-                                            {/* 3rd Column: EST. PROFIT / REALIZED PROFIT (Refined Logic) */}
+                                            {/* 3. EST. PROFIT / REALIZED PROFIT */}
                                             <div className="space-y-1">
                                                 <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
                                                     {metrics.isCompleted ? '结算收益' : (item.type === 'Floating' ? '持仓收益' : '产品预期收益')}
@@ -525,19 +529,27 @@ const InvestmentList: React.FC<Props> = ({
                                                 </div>
                                             </div>
 
-                                            {/* YIELD Column */}
+                                            {/* 4. HOLDING YIELD % */}
                                             <div className="space-y-1">
-                                            <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Yield</p>
-                                            <div className="flex flex-col relative group">
+                                                <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">实际收益率</p>
+                                                <div className="flex flex-col">
+                                                    <span className={`font-bold text-sm ${metrics.holdingYield > 0 ? 'text-indigo-600' : 'text-slate-500'}`}>
+                                                        {formatPercent(metrics.holdingYield)}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400">
+                                                        总持仓收益率
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            
+                                            {/* 5. ANNUALIZED YIELD % (Main Yield Column) */}
+                                            <div className="space-y-1">
+                                                <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">年化收益率</p>
+                                                <div className="flex flex-col relative group">
                                                     <div className="flex items-center gap-2">
-                                                        <span className={`font-bold text-sm ${yieldColorClass}`}>
-                                                            {displayYield}
+                                                        <span className={`font-bold text-sm ${metrics.comprehensiveYield > 0 ? 'text-purple-600' : 'text-slate-500'}`}>
+                                                            {formatPercent(metrics.comprehensiveYield)}
                                                         </span>
-                                                        {metrics.isCompleted && (
-                                                            <span className={`text-[10px] text-indigo-400 bg-indigo-50 px-1 rounded border border-indigo-100 whitespace-nowrap`}>
-                                                                {formatPercent(metrics.comprehensiveYield)}
-                                                            </span>
-                                                        )}
                                                         {yieldBasisNote && (
                                                             <span className="text-[10px] text-red-500 bg-red-50 px-1 rounded border border-red-100 whitespace-nowrap">
                                                                 {yieldBasisNote}
@@ -550,14 +562,14 @@ const InvestmentList: React.FC<Props> = ({
                                                     
                                                     {/* Tooltip for COMPLETED Yield explanation */}
                                                     {metrics.isCompleted && (
-                                                         <div className="absolute left-0 bottom-full mb-2 w-max max-w-xs p-2 bg-slate-800 text-white text-[10px] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-20">
+                                                        <div className="absolute left-0 bottom-full mb-2 w-max max-w-xs p-2 bg-slate-800 text-white text-[10px] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-20">
                                                             实测年化 = (到期收益 + 已到账返利) / 本金 * ({Number(item.interestBasis) || 365} / {metrics.realDurationDays} 天)
                                                         </div>
                                                     )}
+                                                </div>
                                             </div>
-                                            </div>
-                                        
-                                            {/* Original 5th Column (Market Data) - consolidated */}
+
+                                            {/* Final Column: Market Info (Price/Change) */}
                                             {(item.quantity || 0) > 0 && (
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
