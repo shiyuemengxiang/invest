@@ -598,7 +598,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-blue-50 h-[260px] flex flex-col">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-blue-50 rounded-2xl text-blue-600"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg></div>
-            <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only}</span>
+            <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
           </div>
           <div className="flex-1">
               <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '在途本金' : '期间平均持仓'}</p>
