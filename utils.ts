@@ -484,7 +484,7 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         
         periodProfit += itemPeriodProfit;
         totalInvested += capitalBase; // Total invested capital in the period (for UI consistency)
-
+    })
 
     let portfolioYield = 0;
     if (totalCapitalWACC > 0) {
