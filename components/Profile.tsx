@@ -15,20 +15,37 @@ interface Props {
     onNotify: (msg: string, type: ToastType) => void;
 }
 
-// ✨ 全新精选：可爱、多彩、高颜值风格库
+// ✨ 高多样性头像风格库（新增10+风格，补充细节参数）
 const AVATAR_STYLES = [
-    { id: 'fun-emoji', name: '开心表情 (Emoji)' },     // 超级可爱，色彩丰富
-    { id: 'big-smile', name: '灿烂大笑 (Smile)' },     // 夸张表情，很有感染力
-    { id: 'avataaars', name: '经典多彩 (Avatar)' },    // 最经典的彩色扁平风
-    { id: 'bottts', name: '多彩机器人 (Bot)' },        // 颜色非常跳跃
-    { id: 'lorelei', name: '二次元 (Lorelei)' },       // 唯美可爱风
-    { id: 'adventurer', name: '冒险家 (Adventurer)' }, // 之前的默认，也不错
-    { id: 'notionists', name: 'Notion 插画风' },       // 有质感的插画
-    { id: 'croodles', name: '涂鸦 (Croodles)' },       // 艺术感涂鸦
-    { id: 'thumbs', name: '拇指小人 (Thumbs)' },       // 呆萌风格
-    { id: 'micah', name: 'Micah (简约)' },             // 虽然简约但线条很舒服
-    { id: 'personas', name: 'Personas (现代)' },       // 现代扁平
-    { id: 'pixel-art', name: '像素风 (8-Bit)' },       // 复古可爱
+  // 可爱系（原有优化）
+  { id: 'fun-emoji', name: '开心表情', params: { scale: 100, radius: 50 } },
+  { id: 'big-smile', name: '灿烂大笑', params: { scale: 110, mouth: 'smile' } },
+  { id: 'thumbs', name: '拇指小人', params: { scale: 90, backgroundColor: 'random' } },
+  // 复古系（新增）
+  { id: 'picsum', name: '复古胶片', params: { scale: 100, grayscale: false } },
+  { id: 'retro-pixel', name: '复古像素', params: { scale: 80, pixelRatio: 2 } },
+  // 科技系（新增）
+  { id: 'cyberpunk', name: '赛博朋克', params: { scale: 100, glow: 'blue' } },
+  { id: 'neon-avatar', name: '霓虹头像', params: { scale: 110, border: 'neon' } },
+  // 自然系（新增）
+  { id: 'forest-elf', name: '森林精灵', params: { scale: 100, ears: 'pointed' } },
+  { id: 'ocean-wave', name: '海浪元素', params: { scale: 95, backgroundColor: 'lightblue' } },
+  // 手绘系（新增）
+  { id: 'watercolor', name: '水彩风', params: { scale: 100, opacity: 0.9 } },
+  { id: 'sketch', name: '素描风', params: { scale: 90, lineWidth: 2 } },
+  // 经典系（原有保留）
+  { id: 'avataaars', name: '经典多彩', params: { scale: 100, accessories: 'random' } },
+  { id: 'bottts', name: '多彩机器人', params: { scale: 105, eyes: 'round' } },
+  { id: 'lorelei', name: '二次元', params: { scale: 110, hair: 'long' } },
+  { id: 'adventurer', name: '冒险家', params: { scale: 100, beard: 'none' } },
+  { id: 'notionists', name: 'Notion插画', params: { scale: 95, style: 'minimal' } },
+  { id: 'croodles', name: '涂鸦风', params: { scale: 100, stroke: 'thick' } },
+  { id: 'micah', name: '简约线条', params: { scale: 90, color: 'random' } },
+  { id: 'personas', name: '现代扁平', params: { scale: 100, shadow: 'soft' } },
+  { id: 'pixel-art', name: '8位像素', params: { scale: 80, pixelRatio: 3 } },
+  // 小众独特系（新增）
+  { id: 'geometric', name: '几何拼接', params: { scale: 100, shapes: 'circles' } },
+  { id: 'mosaic', name: '马赛克风', params: { scale: 90, tileSize: 5 } },
 ];
 
 // 马卡龙色系背景池 (避免头像背景是透明或单调的灰色)
@@ -45,6 +62,12 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     const [nickname, setNickname] = useState(user?.preferences?.nickname || '');
     const [avatar, setAvatar] = useState(user?.preferences?.avatar || '');
     const [showAvatarSelector, setShowAvatarSelector] = useState(false);
+    // 新增：头像细节微调状态
+    const [avatarDetails, setAvatarDetails] = useState({
+        hairColor: 'random',
+        accessories: 'none',
+        border: 'none'
+    });
 
     useEffect(() => {
         if (rateMode === 'auto') {
@@ -92,7 +115,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
         const defaultStyle = 'fun-emoji'; // 默认改成最可爱的
         if (!avatar) return { style: defaultStyle, seed: Math.random().toString(36).substring(7) };
         try {
-            // URL: https://api.dicebear.com/9.x/{style}/svg?seed={seed}&backgroundColor={color}
+            // URL: https://api.dicebear.com/9.x/{style}/svg?seed={seed}&backgroundColor={color}&...
             const urlObj = new URL(avatar);
             const pathParts = urlObj.pathname.split('/');
             const style = pathParts[2] || defaultStyle;
@@ -103,24 +126,70 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
         }
     };
 
-    // 1. 随机生成 (保持当前风格，换种子 + 换背景色)
+    // 1. 随机生成 (风格专属参数 + 随机细节)
     const handleRandomSeed = (e?: React.MouseEvent) => {
         e?.stopPropagation(); 
         const { style } = getAvatarInfo();
-        const newSeed = Math.random().toString(36).substring(7);
+        const selectedStyle = AVATAR_STYLES.find(s => s.id === style) || AVATAR_STYLES[0];
+        const newSeed = Math.random().toString(36).substring(2, 10); // 更长种子，减少重复
         const bg = getRandomColor();
-        // 关键点：追加 backgroundColor 参数
-        const newAvatarUrl = `https://api.dicebear.com/9.x/${style}/svg?seed=${newSeed}&backgroundColor=${bg}`;
+        
+        // 拼接风格专属参数 + 随机细节
+        const params = new URLSearchParams({
+            seed: newSeed,
+            backgroundColor: bg,
+            scale: selectedStyle.params.scale.toString(),
+            // 随机补充细节参数
+            accessories: ['glasses', 'hat', 'headphones', 'none'][Math.floor(Math.random() * 4)],
+            hairColor: ['black', 'brown', 'blonde', 'blue', 'pink'][Math.floor(Math.random() * 5)],
+            ...(selectedStyle.params || {})
+        });
+        
+        const newAvatarUrl = `https://api.dicebear.com/9.x/${style}/svg?${params.toString()}`;
         setAvatar(newAvatarUrl);
     };
 
-    // 2. 切换风格 (保持当前种子，换风格 + 换背景色)
+    // 2. 切换风格 (保留种子 + 风格专属参数 + 新背景)
     const handleStyleSelect = (styleId: string) => {
         const { seed } = getAvatarInfo();
+        const selectedStyle = AVATAR_STYLES.find(s => s.id === styleId) || AVATAR_STYLES[0];
         const bg = getRandomColor();
-        const newAvatarUrl = `https://api.dicebear.com/9.x/${styleId}/svg?seed=${seed}&backgroundColor=${bg}`;
+        
+        // 拼接风格专属参数
+        const params = new URLSearchParams({
+            seed: seed,
+            backgroundColor: bg,
+            ...selectedStyle.params,
+            // 风格专属额外细节
+            ...(styleId === 'cyberpunk' && { glow: 'purple', border: '2px solid #ff00ff' }),
+            ...(styleId === 'watercolor' && { opacity: '0.8', blur: '1px' }),
+            ...(styleId === 'retro-pixel' && { pixelRatio: '4', grayscale: 'true' })
+        });
+        
+        const newAvatarUrl = `https://api.dicebear.com/9.x/${styleId}/svg?${params.toString()}`;
         setAvatar(newAvatarUrl);
         setShowAvatarSelector(false); 
+    };
+
+    // 3. 细节微调更新头像
+    const updateAvatarByDetails = () => {
+        const { style, seed } = getAvatarInfo();
+        const selectedStyle = AVATAR_STYLES.find(s => s.id === style) || AVATAR_STYLES[0];
+        const bg = getRandomColor();
+        
+        const params = new URLSearchParams({
+            seed: seed,
+            backgroundColor: bg,
+            ...selectedStyle.params,
+            hairColor: avatarDetails.hairColor === 'random' 
+                ? ['black', 'brown', 'blonde', 'blue', 'pink'][Math.floor(Math.random() * 5)]
+                : avatarDetails.hairColor,
+            accessories: avatarDetails.accessories,
+            ...(avatarDetails.border !== 'none' && { border: `2px solid ${avatarDetails.border}` })
+        });
+        
+        const newAvatarUrl = `https://api.dicebear.com/9.x/${style}/svg?${params.toString()}`;
+        setAvatar(newAvatarUrl);
     };
 
     const handleSaveUserProfile = () => {
@@ -211,12 +280,23 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
                     </div>
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                    
+                    {/* 风格选择网格 */}
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 mb-6 max-h-[400px] overflow-y-auto pr-2">
                         {AVATAR_STYLES.map(style => {
-                            // 预览图使用当前种子 + 随机背景色
                             const { seed } = getAvatarInfo();
-                            // 这里预览图为了好看，我们固定用一个比较通用的颜色，或者随机
-                            const previewUrl = `https://api.dicebear.com/9.x/${style.id}/svg?seed=${seed}&backgroundColor=ffd5dc`;
+                            const bg = 'ffd5dc'; // 预览图统一背景，突出风格差异
+                            
+                            // 预览图带风格专属参数
+                            const previewParams = new URLSearchParams({
+                                seed: seed + style.id, // 种子+风格ID，避免预览重复
+                                backgroundColor: bg,
+                                scale: (style.params.scale || 100) + 10,
+                                radius: 50,
+                                ...style.params
+                            });
+                            
+                            const previewUrl = `https://api.dicebear.com/9.x/${style.id}/svg?${previewParams.toString()}`;
                             const isSelected = avatar.includes(`/${style.id}/`);
 
                             return (
@@ -232,6 +312,66 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                                 </button>
                             );
                         })}
+                    </div>
+                    
+                    {/* ✨ 新增：细节微调区域 */}
+                    <div className="border-t border-slate-100 pt-6 mt-6">
+                        <h4 className="font-bold text-slate-800 mb-4">细节微调</h4>
+                        <div className="grid grid-cols-3 gap-4">
+                            {/* 头发颜色选择 */}
+                            <div>
+                                <label className="block text-xs text-slate-400 mb-2">头发颜色</label>
+                                <select
+                                    value={avatarDetails.hairColor}
+                                    onChange={(e) => setAvatarDetails({...avatarDetails, hairColor: e.target.value})}
+                                    onBlur={updateAvatarByDetails}
+                                    className="w-full p-2 border border-slate-200 rounded-lg text-xs"
+                                >
+                                    <option value="random">随机</option>
+                                    <option value="black">黑色</option>
+                                    <option value="brown">棕色</option>
+                                    <option value="blonde">金色</option>
+                                    <option value="blue">蓝色</option>
+                                    <option value="pink">粉色</option>
+                                    <option value="green">绿色</option>
+                                </select>
+                            </div>
+                            
+                            {/* 配饰选择 */}
+                            <div>
+                                <label className="block text-xs text-slate-400 mb-2">配饰</label>
+                                <select
+                                    value={avatarDetails.accessories}
+                                    onChange={(e) => setAvatarDetails({...avatarDetails, accessories: e.target.value})}
+                                    onBlur={updateAvatarByDetails}
+                                    className="w-full p-2 border border-slate-200 rounded-lg text-xs"
+                                >
+                                    <option value="none">无</option>
+                                    <option value="glasses">眼镜</option>
+                                    <option value="hat">帽子</option>
+                                    <option value="headphones">耳机</option>
+                                    <option value="scarf">围巾</option>
+                                </select>
+                            </div>
+                            
+                            {/* 边框选择 */}
+                            <div>
+                                <label className="block text-xs text-slate-400 mb-2">边框</label>
+                                <select
+                                    value={avatarDetails.border}
+                                    onChange={(e) => setAvatarDetails({...avatarDetails, border: e.target.value})}
+                                    onBlur={updateAvatarByDetails}
+                                    className="w-full p-2 border border-slate-200 rounded-lg text-xs"
+                                >
+                                    <option value="none">无</option>
+                                    <option value="#000000">黑色</option>
+                                    <option value="#6366f1">紫色</option>
+                                    <option value="#10b981">绿色</option>
+                                    <option value="#f59e0b">橙色</option>
+                                    <option value="#ef4444">红色</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
