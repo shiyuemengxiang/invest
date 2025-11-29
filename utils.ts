@@ -282,16 +282,22 @@ export const calculatePortfolioStats = (items: Investment[]) => {
         totalCapitalWACC += capitalBase * holdingDays;
     }
     
-    // Projected Total Profit (Includes EVERYTHING: Unrealized + Realized + Rebate)
+    // Projected Total Profit (MWR Numerator): Accrued Profit + Received Rebate + Realized Tx P&L
+    let currentProfitSum = 0;
     if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
-        projectedTotalProfit += (metrics.accruedReturn + item.rebate + item.totalRealizedProfit);
-    } else if (!metrics.isCompleted && item.type === 'Floating') {
-        projectedTotalProfit += metrics.profit;
+        currentProfitSum = metrics.accruedReturn; // Use accrued for fixed active
+    } else if (metrics.type === 'Floating') {
+        currentProfitSum = metrics.baseInterest; // Use baseInterest (currentReturn + realized txs)
     } else {
-        projectedTotalProfit += metrics.profit;
+        currentProfitSum = metrics.baseInterest; // Use baseInterest (fixed interest + realized txs)
     }
     
-    // Fee deduction for projection
+    currentProfitSum += (item.isRebateReceived ? item.rebate : 0); // Add only RECEIVED rebate
+    currentProfitSum += item.totalRealizedProfit; // Add realized transaction P&L
+    
+    projectedTotalProfit += currentProfitSum;
+
+    // Fee deduction for projection (Future fees are NOT included in MWR Numerator)
     if (!metrics.isCompleted && item.transactions) {
         item.transactions.forEach(tx => {
             const txDate = tx.date.split('T')[0];
@@ -321,10 +327,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
 
     // Weighted Yield
     if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0)) { 
-        const weight = (metrics.isCompleted || item.type === 'Floating') ? item.totalCost : item.currentPrincipal;
-        if (weight > 0) {
-            // We safely remove the old TWR summation which is now replaced by MWR logic.
-        }
+        // We safely remove the old TWR summation which is now replaced by MWR logic.
     }
   });
   
@@ -484,7 +487,7 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         
         periodProfit += itemPeriodProfit;
         totalInvested += capitalBase; // Total invested capital in the period (for UI consistency)
-    })
+
 
     let portfolioYield = 0;
     if (totalCapitalWACC > 0) {
