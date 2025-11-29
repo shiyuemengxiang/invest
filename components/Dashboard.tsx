@@ -193,58 +193,80 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
 
   // 1. Total Projected Profit Breakdown & Category Data (Corrected for Time Filter)
   const { totalBreakdownList, totalCategoryData } = useMemo(() => {
+      // Helper function to check if a date string falls within the current filter period
+      const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
+      const isBetween = (dateStr: string) => {
+          const d = new Date(dateStr);
+          // Only check date part, ignore time component (start/end already set hours for comparison in getTimeFilterRange)
+          return d >= start && d <= end;
+      };
+      
+      const catMap: Record<string, number> = {};
       const list = [
           { label: '持仓浮盈/利息', value: stats.projectedTotalProfit - stats.realizedInterest - stats.totalRebate, color: 'bg-blue-400' },
           { label: '已结盈亏', value: stats.realizedInterest, color: 'bg-emerald-400' },
           { label: '总返利', value: stats.totalRebate, color: 'bg-amber-400' }
       ];
 
-      const catMap: Record<string, number> = {};
-      const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
-
       currencyItems.forEach(item => {
-          let p = 0;
+          let p = 0; // itemPeriodTotalProfit
           if (timeFilter === 'all') {
-              // All time logic
+              // All Time Logic (Ensures consistency with calculatePortfolioStats)
               const m = calculateItemMetrics(item);
-              if (!m.isCompleted && !m.isPending && item.type === 'Fixed') p = m.accruedReturn + item.rebate + item.totalRealizedProfit;
-              else p = m.profit;
+              if (!m.isCompleted && !m.isPending && item.type === 'Fixed') {
+                  p = m.accruedReturn + item.rebate + item.totalRealizedProfit;
+              } else {
+                  p = m.profit;
+              }
+              
+              // Fee deduction for projection (Copied from calculatePortfolioStats)
+              if (!m.isCompleted && item.transactions) {
+                  const todayISO = new Date().toISOString().split('T')[0];
+                  item.transactions.forEach(tx => {
+                      const txDate = tx.date.split('T')[0];
+                      if (txDate > todayISO && (tx.type === 'Fee' || tx.type === 'Tax')) {
+                          p -= tx.amount;
+                      }
+                  });
+              }
+
           } else {
-              // Period logic (Replicate calculatePeriodStats logic for categories)
+              // Period Logic (Copied EXACTLY from calculatePeriodStats in utils.ts to ensure consistency)
               const depositDate = new Date(item.depositDate);
               const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
               
-              // Skip if completely out of range
               if (depositDate > end) return;
               if (withdrawalDate && withdrawalDate < start) return;
 
               const overlapStart = depositDate > start ? depositDate : start;
               const itemEnd = withdrawalDate || item.maturityDate ? new Date(item.maturityDate) : null || end;
-              const overlapEnd = itemEnd < end ? itemEnd : end;
+              const effectiveEnd = withdrawalDate ? (withdrawalDate < end ? withdrawalDate : end) : end;
+              const overlapEnd = effectiveEnd < end ? effectiveEnd : end;
               
               let overlapDays = 0;
               if (overlapEnd > overlapStart) {
                   overlapDays = (overlapEnd.getTime() - overlapStart.getTime()) / MS_PER_DAY;
               }
+              
+              const calculationPrincipal = item.currentPrincipal > 0.01 ? item.currentPrincipal : item.totalCost;
 
-              // Fixed Interest
-              if (item.type === 'Fixed' && item.expectedRate) {
+              if (item.type === 'Fixed' && item.expectedRate && calculationPrincipal > 0) {
                   const basis = Number(item.interestBasis || 365);
-                  p += item.currentPrincipal * (item.expectedRate / 100) * (overlapDays / basis);
+                  p += calculationPrincipal * (item.expectedRate / 100) * (overlapDays / basis);
               }
               
-              // Rebate
-              if (depositDate >= start && depositDate <= end) {
+              if (isBetween(item.depositDate)) {
                   p += item.rebate;
               }
 
-              // Transactions
               if (item.transactions) {
                   item.transactions.forEach(tx => {
-                      const d = new Date(tx.date);
-                      if (d >= start && d <= end) {
-                          if (tx.type === 'Dividend' || tx.type === 'Interest') p += tx.amount;
-                          else if (tx.type === 'Fee' || tx.type === 'Tax') p -= tx.amount;
+                      if (isBetween(tx.date)) {
+                          if (tx.type === 'Dividend' || tx.type === 'Interest') {
+                              p += tx.amount;
+                          } else if (tx.type === 'Fee' || tx.type === 'Tax') {
+                              p -= tx.amount;
+                          } 
                       }
                   });
               }
@@ -252,13 +274,16 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           
           if (Math.abs(p) > 0.01) {
               const name = CATEGORY_LABELS[item.category];
+              // Use the actual profit value for summation, rely on Math.abs later for chart visualization
               catMap[name] = (catMap[name] || 0) + p;
           }
       });
+
+      // Chart data is generated from the accumulated category profits (P)
       const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
 
       return { totalBreakdownList: list, totalCategoryData: chart };
-  }, [stats, currencyItems, timeFilter, customStart, customEnd]);
+  }, [items, stats, currencyItems, timeFilter, customStart, customEnd]);
 
   // 2. Today Profit Breakdown (Always Today)
   const { todayBreakdownList, todayCategoryData } = useMemo(() => {
@@ -291,23 +316,36 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       let completedNet = 0;
       let txRealized = 0;
       const catMap: Record<string, number> = {};
+      
       const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
+      const isBetween = (dateStr: string) => {
+          const d = new Date(dateStr);
+          return d >= start && d <= end;
+      };
 
       currencyItems.forEach(item => {
           let itemRealized = 0;
           
           if (timeFilter === 'all') {
               const m = calculateItemMetrics(item);
+              
+              // Base interest (realized return) from completed fixed items
               if (m.isCompleted) {
-                  itemRealized = m.baseInterest;
-                  completedNet += itemRealized;
+                  completedNet += m.baseInterest;
               } else {
-                  itemRealized = item.totalRealizedProfit;
-                  txRealized += itemRealized;
+                  // Realized profit from active item transactions (dividends, sell profit)
+                  txRealized += item.totalRealizedProfit;
               }
+              
+              // Total realized P&L from transactions (Buy/Sell P&L, Div/Int, Fee/Tax)
+              itemRealized = item.totalRealizedProfit + (m.isCompleted ? m.baseInterest : 0) + (item.isRebateReceived ? item.rebate : 0);
+
           } else {
-              // Period Logic
-              // 1. Transactions in period
+              // Period Logic (Mirroring calculatePeriodStats in utils.ts realizedInPeriod calculation)
+              const depositDate = new Date(item.depositDate);
+              const isRebateInPeriod = depositDate >= start && depositDate <= end;
+
+              // 1. Transactions in period (only P&L txs count as realized)
               if (item.transactions) {
                   item.transactions.forEach(tx => {
                       const d = new Date(tx.date);
@@ -318,15 +356,13 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                           } else if (tx.type === 'Fee' || tx.type === 'Tax') {
                               itemRealized -= tx.amount;
                               txRealized -= tx.amount;
-                          }
+                          } 
                       }
                   });
               }
-              // 2. Rebate in period
-              const depositDate = new Date(item.depositDate);
-              if (depositDate >= start && depositDate <= end && item.isRebateReceived) {
+              // 2. Received Rebate in period
+              if (isRebateInPeriod && item.isRebateReceived) {
                   itemRealized += item.rebate;
-                  // Rebate usually counts towards realized if received
               }
           }
           
@@ -336,16 +372,22 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           }
       });
 
+      // Breakdown List Logic (Aligned with the three components of realizedInterest from utils.ts)
       const list = [
-          { label: '已完结项目净利', value: completedNet, color: 'bg-slate-400' },
+          { 
+              label: timeFilter === 'all' ? '已完结项目净利' : '期间净利 (不含 Tx/返利)', 
+              value: timeFilter === 'all' ? completedNet : stats.realizedInterest - stats.receivedRebate - txRealized, 
+              color: 'bg-slate-400' 
+          },
           { label: '持仓中派息/减仓', value: txRealized, color: 'bg-emerald-400' },
           { label: '已到账返利(额外)', value: stats.receivedRebate, color: 'bg-amber-400' }
       ];
       
+      // Final chart data
       const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
 
       return { realizedBreakdownList: list, realizedCategoryData: chart };
-  }, [currencyItems, stats, timeFilter, customStart, customEnd]);
+  }, [items, stats, currencyItems, timeFilter, customStart, customEnd]);
 
   const handleAIAnalysis = async () => {
     setLoadingAi(true);
