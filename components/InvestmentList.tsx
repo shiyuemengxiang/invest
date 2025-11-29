@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import { Investment, CATEGORY_LABELS, Currency, InvestmentCategory, FilterType, ProductTypeFilter, CurrencyFilter, CategoryFilter, SortType } from '../types';
-import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn } from '../utils';
+import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn, getDaysDiff } from '../utils';
 import ConfirmModal from './ConfirmModal';
 import { DragDropContext, Droppable, Draggable, DropResult, DroppableProps } from '@hello-pangea/dnd';
 
@@ -371,7 +371,7 @@ const InvestmentList: React.FC<Props> = ({
                         const itemAccruedOrCurrentReturn = item.type === 'Fixed' && !metrics.isCompleted
                             ? metrics.accruedReturn 
                             : item.currentReturn !== undefined 
-                                ? item.currentReturn 
+                                ? metrics.currentReturn 
                                 : 0; 
                         
                         const displayEstProfit = formatCurrency(itemAccruedOrCurrentReturn, item.currency);
@@ -433,10 +433,13 @@ const InvestmentList: React.FC<Props> = ({
                                                 </div>
                                             </div>
 
+                                            {/* 右上角本金/存入金额 (FIXED: Completed shows totalCost) */}
                                             <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end">
                                                 <div className="text-right">
-                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">{formatCurrency(item.currentPrincipal, item.currency)}</span>
-                                                    <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Principal</span>
+                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">
+                                                         {formatCurrency(metrics.isCompleted ? item.totalCost : item.currentPrincipal, item.currency)}
+                                                    </span>
+                                                    <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">PRINCIPAL</span>
                                                 </div>
                                                 
                                                 <div className="flex gap-2 items-center">
@@ -491,32 +494,63 @@ const InvestmentList: React.FC<Props> = ({
                                             <p className="font-bold text-slate-700 text-sm">{metrics.realDurationDays} <span className="text-xs font-normal text-slate-400">Days</span></p>
                                             </div>
                                             
-                                            {/* 3rd Column: EST. PROFIT (Modified based on Image 2) */}
+                                            {/* 3rd Column: EST. PROFIT / REALIZED PROFIT (Refined Logic) */}
                                             <div className="space-y-1">
-                                                <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">产品预期收益</p>
+                                                <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
+                                                    {metrics.isCompleted ? '结算收益' : '产品预期收益'}
+                                                </p>
                                                 <div className="flex flex-col gap-0.5">
                                                     
-                                                    {/* Top Value: Value of Accrued Interest or Current Return */}
-                                                    <span className={`font-bold text-sm ${displayEstProfitColor}`}>
-                                                        {itemAccruedOrCurrentReturn > 0 ? '+' : ''}{displayEstProfit}
-                                                    </span>
-                                                    <span className="text-[10px] text-slate-400 font-semibold">
-                                                        截止今日预估收益
-                                                    </span>
-                                                    
-                                                    {/* Rebate Status */}
-                                                    {item.rebate > 0 && (
-                                                        <span className={`text-xs mt-1 ${item.isRebateReceived ? 'text-emerald-600' : 'text-amber-500'}`}>
-                                                            返利 {rebateAmount} ({rebateStatus})
-                                                        </span>
+                                                    {metrics.isCompleted ? (
+                                                        // --- UI for FINISHED item (Image 3) ---
+                                                        <>
+                                                            {/* 到期收益 */}
+                                                            <span className="block font-bold text-sm text-slate-700">
+                                                                到期收益 {formatCurrency(metrics.baseInterest, item.currency)}
+                                                            </span>
+                                                            {/* 返利状态 */}
+                                                            {item.rebate > 0 && (
+                                                                <span className={`block text-xs ${item.isRebateReceived ? 'text-emerald-600' : 'text-amber-500'}`}>
+                                                                    返利 {rebateAmount} ({rebateStatus})
+                                                                </span>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        // --- UI for ACTIVE item (Image 2) ---
+                                                        <>
+                                                            {/* Line 1: Full Expected Profit (baseInterest) up to Maturity/Target */}
+                                                            <span className={`font-bold text-sm ${metrics.baseInterest >= 0 ? 'text-orange-500' : 'text-red-500'}`}>
+                                                                {metrics.baseInterest !== 0 ? (metrics.baseInterest > 0 ? '+' : '') + formatCurrency(metrics.baseInterest, item.currency) : '-'}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-semibold">
+                                                                截止到期预估收益
+                                                            </span>
+                                                            
+                                                            {/* Line 2: Accrued Today */}
+                                                            {!metrics.isPending && metrics.accruedReturn > 0.01 && (
+                                                                <div className="flex items-center gap-1">
+                                                                    <span className="text-[10px] text-slate-400">截止今日预估:</span>
+                                                                    <span className="text-[10px] font-bold text-slate-600">
+                                                                        {formatCurrency(metrics.accruedReturn, item.currency)}
+                                                                    </span>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Rebate Status */}
+                                                            {item.rebate > 0 && (
+                                                                <span className={`text-xs mt-1 ${item.isRebateReceived ? 'text-emerald-600' : 'text-amber-500'}`}>
+                                                                    返利 {rebateAmount} ({rebateStatus})
+                                                                </span>
+                                                            )}
+                                                        </>
                                                     )}
                                                 </div>
                                             </div>
 
-                                            {/* Original 4th Column (YIELD) - moved position */}
+                                            {/* YIELD Column */}
                                             <div className="space-y-1">
                                             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Yield</p>
-                                            <div className="flex flex-col">
+                                            <div className="flex flex-col relative group">
                                                     <div className="flex items-center gap-2">
                                                         <span className={`font-bold text-sm ${yieldColorClass}`}>
                                                             {displayYield}
@@ -528,13 +562,20 @@ const InvestmentList: React.FC<Props> = ({
                                                         )}
                                                     </div>
                                                     <span className="text-[10px] text-slate-400">
-                                                        {displayYieldLabel}
+                                                        {metrics.isCompleted ? '实测年化' : displayYieldLabel}
                                                     </span>
+                                                    
+                                                    {/* Tooltip for COMPLETED Yield explanation (Image 3) */}
+                                                    {metrics.isCompleted && (
+                                                         <div className="absolute left-0 bottom-full mb-2 w-max max-w-xs p-2 bg-slate-800 text-white text-[10px] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-20">
+                                                            实测年化 = (到期收益 + 已到账返利) / 本金 * ({Number(item.interestBasis) || 365} / {metrics.realDurationDays} 天)
+                                                        </div>
+                                                    )}
                                             </div>
                                             </div>
                                         
                                             {/* Original 5th Column (Market Data) - moved position */}
-                                            {/* Note: The old 5th column logic has been partially removed/consolidated here, retaining the last one */}
+                                            {/* This section contains the remaining two columns that were consolidated into 5 in the layout */}
                                             {(item.quantity || 0) > 0 && (
                                                 <div className="space-y-0.5">
                                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
