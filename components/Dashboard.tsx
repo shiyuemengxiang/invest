@@ -21,8 +21,7 @@ interface MetricCardProps {
     categoryData: { name: string; value: number }[];
     infoAction?: () => void;
     themeConfig: any;
-    colorTheme: 'indigo' | 'blue' | 'orange' | 'amber' | 'purple';
-    // 新增：用于显示 WACC 成本信息
+    colorTheme: 'indigo' | 'blue' | 'orange' | 'amber' | 'purple' | 'red'; // Added 'red' for risk card
     waccValue?: number;
 }
 
@@ -38,6 +37,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
         orange: { bg: 'bg-orange-50', text: 'text-orange-600' },
         amber: { bg: 'bg-amber-50', text: 'text-amber-600' },
         purple: { bg: 'bg-purple-50', text: 'text-purple-600' },
+        red: { bg: 'bg-red-50', text: 'text-red-600' }, // Added red theme
     }[colorTheme];
 
     const onPieEnter = (_: any, index: number) => setActiveIndex(index);
@@ -92,7 +92,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
                             <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1 opacity-80">{title}</p>
                             <div className="flex items-baseline gap-2">
                                 <span className={`text-2xl font-bold ${themeColors.text} font-mono tracking-tight`}>
-                                    {formatCurrency(mainValue, currency)}
+                                    {colorTheme === 'purple' ? formatPercent(mainValue) : formatCurrency(mainValue, currency)}
                                 </span>
                                 {subValue && <span className="text-xs font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{subValue}</span>}
                             </div>
@@ -109,7 +109,10 @@ const MetricCard: React.FC<MetricCardProps> = ({
                                         <div className={`w-1.5 h-1.5 rounded-full ${item.color || 'bg-slate-300'}`}></div>
                                         {item.label}
                                     </span>
-                                    <span className="font-mono font-medium text-slate-600">{item.value > 0 ? '+' : ''}{formatCurrency(item.value, currency)}</span>
+                                    {/* Special handling for WACC row */}
+                                    <span className="font-mono font-medium text-slate-600">
+                                        {item.label === 'WACC' ? `${formatCurrency(item.value, currency)}` : `${item.value > 0 ? '+' : ''}${formatCurrency(item.value, currency)}`}
+                                    </span>
                                 </div>
                             ))}
                         </div>
@@ -201,7 +204,8 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       // 3. 修正：合并数据。对于 period metrics 使用 periodStats 的结果，但强制 todayEstProfit 使用 unfiltered 的结果。
       return {
           ...periodStats, 
-          todayEstProfit: allTimeStats.todayEstProfit // 覆盖掉 periodStats 中可能为 0 的值
+          todayEstProfit: allTimeStats.todayEstProfit,
+          totalCapitalWACC: periodStats.totalCapitalWACC
       };
   }, [currencyItems, timeFilter, customStart, customEnd]);
 
@@ -218,10 +222,14 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       };
       
       const catMap: Record<string, number> = {};
+      
+      // Breakdown logic uses the current profit sum structure
+      const floatingAndAccrued = stats.projectedTotalProfit - stats.receivedRebate - stats.realizedInterest;
+      
       const list = [
-          { label: '持仓浮盈/利息', value: stats.projectedTotalProfit - stats.realizedInterest - stats.totalRebate, color: 'bg-blue-400' },
+          { label: '持仓浮盈/利息', value: floatingAndAccrued, color: 'bg-blue-400' },
           { label: '已结盈亏', value: stats.realizedInterest, color: 'bg-emerald-400' },
-          { label: '总返利', value: stats.totalRebate, color: 'bg-amber-400' }
+          { label: '已到账返利', value: stats.receivedRebate, color: 'bg-amber-400' }
       ];
 
       currencyItems.forEach(item => {
@@ -229,104 +237,47 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           if (timeFilter === 'all') {
               // All Time Logic (Ensures consistency with calculatePortfolioStats)
               const m = calculateItemMetrics(item);
-              if (!m.isCompleted && !m.isPending && item.type === 'Fixed') {
-                  p = m.accruedReturn + item.rebate + item.totalRealizedProfit;
-              } else if (!m.isCompleted && item.type === 'Floating') {
-                  p = m.profit;
-              } else {
-                  p = m.profit;
-              }
-              
-              // Fee deduction for projection (Copied from calculatePortfolioStats)
-              if (!m.isCompleted && item.transactions) {
-                  const todayISO = new Date().toISOString().split('T')[0];
-                  item.transactions.forEach(tx => {
-                      const txDate = tx.date.split('T')[0];
-                      if (txDate > todayISO && (tx.type === 'Fee' || tx.type === 'Tax')) {
-                          p -= tx.amount;
-                      }
-                  });
-              }
-
+              // NOTE: For chart distribution, we must use the gross profit *before* WACC/MWR calculation, which is metrics.profit - pending rebate
+              p = m.profit - (item.rebate - (item.isRebateReceived ? item.rebate : 0));
           } else {
-              // PERIOD LOGIC: Mirroring calculatePeriodStats in utils.ts to ensure consistency
-              const depositDate = new Date(item.depositDate);
-              const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
+              // Period Logic (Replicate calculatePeriodStats logic for categories)
+              // This is complex, but for visualization, we can approximate the PERIOD profit from realized/accrued components.
               
-              if (depositDate > end) return;
-              if (withdrawalDate && withdrawalDate < start) return;
-
-              const overlapStart = depositDate > start ? depositDate : start;
-              const effectiveEnd = withdrawalDate ? (withdrawalDate < end ? withdrawalDate : end) : end;
-              const overlapEnd = effectiveEnd < end ? effectiveEnd : end;
+              const m = calculateItemMetrics(item);
               
-              let overlapDays = 0;
-              if (overlapEnd > overlapStart) {
-                  overlapDays = (overlapEnd.getTime() - overlapStart.getTime()) / MS_PER_DAY;
+              const isCompletedInPeriod = item.withdrawalDate && new Date(item.withdrawalDate) >= start && new Date(item.withdrawalDate) <= end;
+              
+              if (item.type === 'Fixed' && !isCompletedInPeriod) {
+                  // Use accrued interest up to today
+                  p += m.accruedReturn;
+              } else if (item.type === 'Floating' && !isCompletedInPeriod) {
+                  // Use current total P&L (current return + realized P&L)
+                   p += (item.currentReturn || 0) + item.totalRealizedProfit;
               }
               
-              const calculationPrincipal = item.currentPrincipal > 0.01 ? item.currentPrincipal : item.totalCost;
-              let fixedInterestProjection = 0;
-
-              // 1. Fixed Interest Projection (for Projected Profit)
-              if (item.type === 'Fixed' && item.expectedRate && calculationPrincipal > 0) {
-                  const basis = Number(item.interestBasis || 365);
-                  fixedInterestProjection = calculationPrincipal * (item.expectedRate / 100) * (overlapDays / basis);
-                  p += fixedInterestProjection;
-              }
-              
-              // 2. Realized Completion Net Profit (Copied from calculatePeriodStats)
-              const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
-              
-              if (isCompletedInPeriod) {
-                  const metrics = calculateItemMetrics(item);
-                  let netCompletionGain = metrics.baseInterest; 
-                  let realizedPnlTxBeforePeriod = 0;
-
-                  if (item.transactions) {
-                      item.transactions.forEach(tx => {
-                          const d = new Date(tx.date);
-                          if (d < start) {
-                              if (tx.type === 'Dividend' || tx.type === 'Interest') realizedPnlTxBeforePeriod += tx.amount;
-                              else if (tx.type === 'Fee' || tx.type === 'Tax') realizedPnlTxBeforePeriod -= tx.amount;
-                          }
-                      });
-                  }
-                  if (item.isRebateReceived && new Date(item.depositDate) < start) {
-                      realizedPnlTxBeforePeriod += item.rebate;
-                  }
-                  
-                  const completionNetProfit = netCompletionGain - realizedPnlTxBeforePeriod;
-                  
-                  if (item.type === 'Fixed') {
-                      p = p - fixedInterestProjection + completionNetProfit;
-                  } else {
-                      p += completionNetProfit;
-                  }
-              }
-              
-              // 3. Rebate in Period
-              if (isBetween(item.depositDate)) {
-                  p += item.rebate;
-              }
-
-              // 4. P&L Transactions (Div/Int/Fee/Tax)
+              // Add P&L transactions realized in the period
               if (item.transactions) {
                   item.transactions.forEach(tx => {
                       if (!isCompletedInPeriod && isBetween(tx.date)) {
-                          if (tx.type === 'Dividend' || tx.type === 'Interest') {
-                              p += tx.amount;
-                          } else if (tx.type === 'Fee' || tx.type === 'Tax') {
-                              p -= tx.amount;
-                          } 
+                          if (tx.type === 'Dividend' || tx.type === 'Interest') p += tx.amount;
+                          else if (tx.type === 'Fee' || tx.type === 'Tax') p -= tx.amount;
                       }
                   });
+              }
+              
+              // Add Completion Net Profit (baseInterest) for completed items in the period
+              if (isCompletedInPeriod) {
+                  p += m.baseInterest;
+              }
+
+              // Add RECEIVED rebate if deposited in the period
+              if (item.rebate > 0 && item.isRebateReceived && isBetween(item.depositDate)) {
+                  p += item.rebate;
               }
           }
           
           if (Math.abs(p) > 0.01) {
               const name = CATEGORY_LABELS[item.category];
-              // Use the actual profit value for summation, rely on Math.abs later for chart visualization
               catMap[name] = (catMap[name] || 0) + p;
           }
       });
@@ -544,6 +495,16 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   const showTotalProfitInfo = () => setInfoModal({ title: "总预估收益 (含在途)", content: <div className="text-sm text-slate-600 space-y-2"><p>历史总回报，包含账面浮盈和已落袋资金。</p><p className="font-bold text-indigo-600">公式：浮盈 + 已结 + 返利 - 费用</p></div> });
   const showTodayProfitInfo = () => setInfoModal({ title: "今日/昨日预估收益", content: <div className="text-sm text-slate-600 space-y-2"><p>仅计算今天产生的价值变化。</p><p className="font-bold text-orange-600">公式：固收日息 + 浮动资产今日涨跌</p></div> });
   const showRealizedProfitInfo = () => setInfoModal({ title: "已落袋收益", content: <div className="text-sm text-slate-600 space-y-2"><p>真正“落袋为安”的收益。</p><p className="font-bold text-amber-600">包含：完结项目净利 + 派息 + 减仓盈利</p></div> });
+  
+  // New Info Card Action
+  const showCapitalAtRiskInfo = () => setInfoModal({
+      title: "待收回总资本 (Capital At Risk)",
+      content: <div className="text-sm text-slate-600 space-y-2">
+          <p>当前仍处于投资中，尚未结算或收回的全部资金敞口。</p>
+          <p className="font-bold text-red-600">公式：在途本金 + 待到账返利</p>
+      </div>
+  });
+
 
   return (
     <div className="space-y-6 animate-fade-in pb-12 relative">
@@ -600,20 +561,21 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       {/* Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
         
-        {/* 1. Principal Card */}
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition group border-blue-50 h-[260px] flex flex-col">
-          <div className="flex justify-between items-start mb-4">
-            <div className="p-3 bg-blue-50 rounded-2xl text-blue-600"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg></div>
-            <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{selectedCurrency} Only</span>
-          </div>
-          <div className="flex-1">
-              <p className="text-slate-500 text-sm font-medium">{timeFilter === 'all' ? '在途本金' : '期间平均持仓'}</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{formatCurrency(stats.activePrincipal, selectedCurrency)}</p>
-              <div className="w-full bg-slate-100 h-1.5 mt-4 rounded-full overflow-hidden">
-                 <div className="bg-blue-500 h-full rounded-full transition-all duration-1000" style={{ width: `${stats.totalInvested ? (stats.activePrincipal / stats.totalInvested) * 100 : 0}%` }}></div>
-              </div>
-          </div>
-        </div>
+        {/* 1. Active Principal / Capital At Risk (New Card) */}
+        <MetricCard 
+            title={timeFilter === 'all' ? '待收回总资本' : '期间 WACC 本金'}
+            mainValue={timeFilter === 'all' ? stats.activePrincipal + stats.pendingRebate : stats.totalInvested}
+            subValue={timeFilter === 'all' ? '含待到账返利' : '期间总投入本金'}
+            currency={selectedCurrency}
+            colorTheme={timeFilter === 'all' ? 'red' : 'blue'}
+            breakdownList={[
+                { label: '在途本金', value: stats.activePrincipal, color: 'bg-blue-400' },
+                { label: '待返利总额', value: stats.pendingRebate, color: 'bg-amber-400' },
+            ]}
+            categoryData={[]}
+            infoAction={showCapitalAtRiskInfo}
+            themeConfig={themeConfig}
+        />
 
         {/* 2. Total Profit */}
         <MetricCard 
@@ -660,12 +622,10 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             colorTheme="purple"
             breakdownList={[
                 { label: '周期净收益', value: stats.projectedTotalProfit, color: 'bg-indigo-400' },
-                // FIX: 显示 WACC * 1/365
-                { label: '资金占用基数 (WACC)', value: stats.totalCapitalWACC / 365, color: 'bg-purple-400' },
+                { label: 'WACC', value: stats.totalCapitalWACC / 365, color: 'bg-purple-400' },
             ]}
             categoryData={[]} // Not useful here
-            // waccValue is the WACC in Capital*Days, for display clarity, we show WACC / 365 (Avg Capital)
-            waccValue={stats.totalCapitalWACC / 365} 
+            waccValue={stats.totalCapitalWACC} 
             infoAction={() => setInfoModal({ 
                 title: "资金加权回报率 (MWR)", 
                 content: <div className="text-sm text-slate-600 space-y-2">
