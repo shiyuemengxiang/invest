@@ -170,7 +170,7 @@ export const getDaysDiff = (start: string, end: string): number => {
   const d1 = new Date(start).setHours(0,0,0,0);
   const d2 = new Date(end).setHours(0,0,0,0);
   // This calculates days between two dates (inclusive start, exclusive end)
-  return Math.round((d2 - d1) / MS_PER DAY);
+  return Math.round((d2 - d1) / MS_PER_DAY);
 };
 
 export const getDaysRemaining = (targetDate: string): number => {
