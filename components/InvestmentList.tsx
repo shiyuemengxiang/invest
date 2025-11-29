@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import { Investment, CATEGORY_LABELS, Currency, InvestmentCategory, FilterType, ProductTypeFilter, CurrencyFilter, CategoryFilter, SortType } from '../types';
-import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn, getDaysDiff } from '../utils';
+import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn } from '../utils';
 import ConfirmModal from './ConfirmModal';
 import { DragDropContext, Droppable, Draggable, DropResult, DroppableProps } from '@hello-pangea/dnd';
 
@@ -60,7 +60,7 @@ const InvestmentList: React.FC<Props> = ({
   const filteredItems = useMemo(() => {
     let result = items.filter(item => {
       if (filter === 'active' && item.withdrawalDate) return false;
-      if (filter === 'completed' && item.withdrawalDate === null) return false;
+      if (filter === 'completed' && !item.withdrawalDate) return false;
       
       if (productFilter !== 'all' && item.type !== productFilter) return false;
       if (currencyFilter !== 'all' && item.currency !== currencyFilter) return false;
@@ -239,59 +239,33 @@ const InvestmentList: React.FC<Props> = ({
                 </button>
           </div>
 
-          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-col gap-4">
+          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-wrap gap-8 items-center justify-around">
              {(['CNY', 'USD', 'HKD'] as Currency[]).filter(c => currencyFilter === 'all' || currencyFilter === c).map(c => {
                  const s = summaryStats[c];
-                 const shouldDisplay = s && (s.totalProfit !== 0 || s.dailyReturn !== 0 || s.pendingRebate !== 0 || s.receivedRebate !== 0);
-                 if (!shouldDisplay && currencyFilter !== 'all' && c !== 'CNY') return null;
-                 if (currencyFilter === 'all' && !shouldDisplay && c !== 'CNY') return null;
+                 if (!s || (s.totalProfit === 0 && s.dailyReturn === 0 && currencyFilter !== 'all')) return null;
+                 if (currencyFilter === 'all' && s.totalProfit === 0 && s.dailyReturn === 0) return null;
 
                  return (
-                     <div key={c} className="flex flex-col gap-2 p-2 rounded-xl border border-slate-100 bg-white/50">
-                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">{c} Summary</span>
-                         <div className="grid grid-cols-2 md:grid-cols-3 gap-6 w-full">
-                             {/* 1. 累计收益 (预估) - UPDATED TIP & SUB-LABEL */}
-                             <div className="text-left relative group">
-                                 <div className="flex items-center gap-1">
-                                     <p className="text-[10px] text-slate-500 font-semibold">累计收益 (预估)</p>
-                                     <svg className="w-3 h-3 text-slate-300 transition-colors group-hover:text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                 </div>
-                                 {/* Tooltip */}
-                                 <div className="absolute left-0 bottom-full mb-2 w-max max-w-xs p-2 bg-slate-800 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-20">
-                                     包含已到账返利、已落袋交易盈亏、以及所有产品至今日的预估收益（固收利息/浮动浮盈）。
-                                 </div>
-                                 <p className={`font-mono font-bold text-lg ${s.totalProfit >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                     <div key={c} className="flex flex-col items-center min-w-[100px]">
+                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{c} Summary</span>
+                         <div className="flex gap-6">
+                             <div className="text-center">
+                                 <p className="text-[10px] text-slate-500">累计收益 (预估)</p>
+                                 <p className={`font-mono font-bold text-sm ${s.totalProfit >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
                                      {formatCurrency(s.totalProfit, c)}
                                  </p>
-                                 {/* NEW SUB-LABEL: (含已到账返利xx元) */}
-                                 {s.receivedRebate > 0 && (
-                                     <span className="text-[10px] text-slate-500 block">
-                                         (含已到账返利 {formatCurrency(s.receivedRebate, c)})
-                                     </span>
-                                 )}
                              </div>
-                             
-                             {/* 2. 昨日/今日收益 */}
-                             <div className="text-left">
-                                 <p className="text-[10px] text-slate-500 font-semibold">昨日/今日收益</p>
-                                 <p className={`font-mono text-lg ${s.dailyReturn >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                             <div className="text-center">
+                                 <p className="text-[10px] text-slate-500">昨日/今日收益</p>
+                                 <p className={`font-mono font-bold text-sm ${s.dailyReturn >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
                                      {s.dailyReturn >= 0 ? '+' : ''}{formatCurrency(s.dailyReturn, c)}
-                                 </p>
-                             </div>
-                             
-                             {/* 3. 未到账返利总额 - NEW FIELD */}
-                             <div className="text-left">
-                                 <p className="text-[10px] text-slate-500 font-semibold">未到账返利</p>
-                                 <p className={`font-mono text-lg ${s.pendingRebate > 0 ? 'text-amber-500' : 'text-slate-400'}`}>
-                                     {s.pendingRebate > 0 ? '+' : ''}{formatCurrency(s.pendingRebate, c)}
                                  </p>
                              </div>
                          </div>
                      </div>
                  );
              })}
-             {/* FIX: Corrected variable name from 'stats' to 'summaryStats' */}
-             {currencyFilter === 'all' && Object.values(summaryStats).every((s) => s.totalProfit === 0 && s.dailyReturn === 0 && s.pendingRebate === 0) && (
+             {currencyFilter === 'all' && Object.values(summaryStats).every((s: { totalProfit: number; dailyReturn: number }) => s.totalProfit === 0 && s.dailyReturn === 0) && (
                  <span className="text-xs text-slate-400">暂无收益数据</span>
              )}
           </div>
@@ -367,20 +341,6 @@ const InvestmentList: React.FC<Props> = ({
                             ? metrics.currentPrice * (1 + item.estGrowth / 100)
                             : undefined;
 
-                        // --- Data for new EST. PROFIT layout ---
-                        const itemAccruedOrCurrentReturn = item.type === 'Fixed' && !metrics.isCompleted
-                            ? metrics.accruedReturn 
-                            : item.currentReturn !== undefined 
-                                ? metrics.currentReturn 
-                                : 0; 
-                        
-                        const displayEstProfit = formatCurrency(itemAccruedOrCurrentReturn, item.currency);
-                        const displayEstProfitColor = itemAccruedOrCurrentReturn >= 0 ? 'text-orange-500' : 'text-red-500';
-
-                        const rebateStatus = item.isRebateReceived ? '已到账' : '未到账';
-                        const rebateAmount = formatCurrency(item.rebate, item.currency);
-                        // ------------------------------------------
-
                         return (
                             <Draggable 
                                 key={item.id} 
@@ -412,6 +372,16 @@ const InvestmentList: React.FC<Props> = ({
                                                         <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded border border-slate-200 text-slate-400">
                                                             {CATEGORY_LABELS[item.category]}
                                                         </span>
+                                                    </div>
+                                                <div>
+                                                    <h3 className="font-bold text-slate-800 text-lg leading-tight mb-1 flex items-center gap-2">
+                                                        {item.name}
+                                                        <span className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded border ${item.type === 'Floating' ? 'border-indigo-100 text-indigo-500 bg-indigo-50' : 'border-slate-200 text-slate-400'}`}>
+                                                            {item.type === 'Floating' ? 'Floating' : 'Fixed'}
+                                                        </span>
+                                                        <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded border border-slate-200 text-slate-400">
+                                                            {CATEGORY_LABELS[item.category]}
+                                                        </span>
                                                     </h3>
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         {metrics.isPending ? (
@@ -433,13 +403,10 @@ const InvestmentList: React.FC<Props> = ({
                                                 </div>
                                             </div>
 
-                                            {/* 右上角本金/存入金额 (FIXED: Completed shows totalCost) */}
                                             <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end">
                                                 <div className="text-right">
-                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">
-                                                         {formatCurrency(metrics.isCompleted ? item.totalCost : item.currentPrincipal, item.currency)}
-                                                    </span>
-                                                    <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">PRINCIPAL</span>
+                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">{formatCurrency(item.currentPrincipal, item.currency)}</span>
+                                                    <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Principal</span>
                                                 </div>
                                                 
                                                 <div className="flex gap-2 items-center">
@@ -502,7 +469,7 @@ const InvestmentList: React.FC<Props> = ({
                                                 <div className="flex flex-col gap-0.5">
                                                     
                                                     {metrics.isCompleted ? (
-                                                        // --- UI for FINISHED item (Image 3) ---
+                                                        // --- UI for FINISHED item ---
                                                         <>
                                                             {/* 到期收益 */}
                                                             <span className="block font-bold text-sm text-slate-700">
@@ -684,7 +651,7 @@ const InvestmentList: React.FC<Props> = ({
                                         
                                         {item.notes && (
                                             <div className="mt-4 text-xs text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-100 flex gap-2 items-start">
-                                                <svg className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" fill="none" viewBox="0 0 0 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
+                                                <svg className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
                                                 {item.notes}
                                             </div>
                                         )}
