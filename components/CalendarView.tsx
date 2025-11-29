@@ -14,7 +14,8 @@ interface CalendarEvent {
     date: string; // YYYY-MM-DD
     type: 'deposit' | 'payout' | 'expense' | 'settlement' | 'rebate';
     name: string;
-    amount: number; 
+    amount: number; // 严格表示 P&L (Profit, Loss, Expense, Rebate)
+    principalAmount: number; // 表示本金关联量 (Deposit/Settlement)
     currency: Currency;
     yield?: number; 
     item: Investment;
@@ -44,40 +45,40 @@ const CalendarView: React.FC<Props> = ({ items }) => {
       items.forEach(item => {
           const metrics = calculateItemMetrics(item);
 
-          // A. Deposit Event (存入) - 使用 totalCost 确保历史记录不消失
+          // A. Deposit Event (存入本金)
           if (item.depositDate) {
-              const depositAmount = item.totalCost > 0 ? item.totalCost : item.principal;
+              const depositAmount = item.totalCost; // 使用总成本作为存入本金
               if (depositAmount > 0) {
                   events.push({
                       id: `${item.id}-dep`,
                       date: item.depositDate,
                       type: 'deposit',
                       name: item.name,
-                      amount: depositAmount, 
+                      amount: 0, // 存入 P&L 为 0
+                      principalAmount: depositAmount, // 存入本金
                       currency: item.currency,
                       item
                   });
               }
           }
 
-          // B. Rebate Event (新增：返利事件)
-          // 修改：根据用户需求，返利显示在到期日/结算日，而不是存入日
+          // B. Rebate Event (返利)
           const rebateDate = item.withdrawalDate || item.maturityDate;
-
           if (item.rebate > 0 && rebateDate) {
               events.push({
                   id: `${item.id}-rebate`,
                   date: rebateDate, 
                   type: 'rebate',
                   name: item.name,
-                  amount: item.rebate,
+                  amount: item.rebate, // 返利是 P&L
+                  principalAmount: 0, // 无本金关联
                   currency: item.currency,
                   isReceived: item.isRebateReceived,
                   item
               });
           }
 
-          // C. Transaction Events (交易流水)
+          // C. Transaction Events (交易流水 - Payout/Expense)
           let totalNetPayouts = 0; 
           
           if (item.transactions && item.transactions.length > 0) {
@@ -91,7 +92,8 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                           date: dateStr,
                           type: 'payout',
                           name: item.name,
-                          amount: tx.amount,
+                          amount: tx.amount, // 派息是 P&L
+                          principalAmount: 0,
                           currency: item.currency,
                           yield: metrics.comprehensiveYield,
                           item
@@ -104,7 +106,8 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                           date: dateStr,
                           type: 'expense',
                           name: item.name,
-                          amount: tx.amount, 
+                          amount: tx.amount, // 费用是 P&L
+                          principalAmount: 0,
                           currency: item.currency,
                           item
                       });
@@ -114,24 +117,24 @@ const CalendarView: React.FC<Props> = ({ items }) => {
 
           // D. Settlement Event (结清/到期)
           const endDate = item.withdrawalDate || item.maturityDate;
-          if (endDate) {
-              // 核心修正：剩余收益 = 总收益 - 中途派息 - 返利(因为返利已经单独显示了)
+          // 修正：只要有到期日/结算日，并且历史有投入本金，就触发结算事件 (满足 0 收益也要显示)
+          const isFullySettled = endDate && item.totalCost > 0;
+
+          if (isFullySettled) {
+              // 核心修正：剩余收益 = 总收益 - 中途派息 - 返利(因为返利已单独作为事件 B 显示)
               const residualProfit = metrics.profit - totalNetPayouts - item.rebate;
               
-              // 只有当真的有剩余收益（比如利息/价差），或者没有其他流水的纯固收项目时才显示
-              // 避免出现仅有返利的项目在到期日显示金额为0的结算事件
-              if (Math.abs(residualProfit) > 1 || (totalNetPayouts === 0 && item.rebate === 0 && !item.withdrawalDate)) {
-                  events.push({
-                      id: `${item.id}-end`,
-                      date: endDate,
-                      type: 'settlement',
-                      name: item.name,
-                      amount: residualProfit,
-                      currency: item.currency,
-                      yield: metrics.comprehensiveYield,
-                      item
-                  });
-              }
+              events.push({
+                  id: `${item.id}-end`,
+                  date: endDate,
+                  type: 'settlement',
+                  name: item.name,
+                  amount: residualProfit, // P&L
+                  principalAmount: item.totalCost, // 结算返回的本金
+                  currency: item.currency,
+                  yield: metrics.comprehensiveYield,
+                  item
+              });
           }
       });
 
@@ -152,12 +155,12 @@ const CalendarView: React.FC<Props> = ({ items }) => {
           const evDate = new Date(ev.date);
           if (evDate.getFullYear() === year && evDate.getMonth() === month) {
               if (ev.type === 'deposit') {
-                  depositTotal += convertCurrency(ev.amount, ev.currency, selectedCurrency, rates);
+                  depositTotal += convertCurrency(ev.principalAmount, ev.currency, selectedCurrency, rates); // 修正：使用 principalAmount
                   if (currencyBreakdown[ev.currency]) {
-                      currencyBreakdown[ev.currency].deposit += ev.amount;
+                      currencyBreakdown[ev.currency].deposit += ev.principalAmount;
                   }
               } else if (ev.type === 'payout' || ev.type === 'settlement' || ev.type === 'rebate') {
-                  // 返利也计入本月收益
+                  // 返利、结算 P&L、派息都计入本月收益
                   profitTotal += convertCurrency(ev.amount, ev.currency, selectedCurrency, rates);
                   if (currencyBreakdown[ev.currency]) {
                       currencyBreakdown[ev.currency].profit += ev.amount;
@@ -370,11 +373,28 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                                                     {ev.currency === 'CNY' ? '人民币' : ev.currency}
                                                 </div>
                                             </div>
+                                            
+                                            {/* 修正后的右侧显示逻辑 */}
                                             <div className="text-right">
-                                                <div className={`text-lg font-bold font-mono ${ev.type === 'expense' ? 'text-red-600' : 'text-slate-800'}`}>
-                                                    {ev.type === 'expense' ? '-' : '+'}{formatCurrency(ev.amount, ev.currency)}
+                                                {/* 1. 显示本金 (仅存入和结算时显示) */}
+                                                {(ev.type === 'deposit' || ev.type === 'settlement') && ev.principalAmount > 0 && (
+                                                    <div className="text-sm font-medium text-slate-500 mb-1">
+                                                        本金: {formatCurrency(ev.principalAmount, ev.currency)}
+                                                    </div>
+                                                )}
+                                                
+                                                {/* 2. 显示主金额 (收益/损失) */}
+                                                <div className={`text-lg font-bold font-mono ${ev.type === 'deposit' ? 'text-slate-800' : ev.amount >= 0 ? 'text-slate-800' : 'text-red-600'}`}>
+                                                    {ev.type === 'deposit' ? 
+                                                        // 存入事件：主金额显示本金
+                                                        formatCurrency(ev.principalAmount, ev.currency) :
+                                                        // 其他事件：主金额显示 P&L (收益或损失)
+                                                        (ev.amount >= 0 ? '+' : '-') + formatCurrency(Math.abs(ev.amount), ev.currency)
+                                                    }
                                                 </div>
-                                                {ev.yield && (
+                                                
+                                                {/* 3. 显示年化收益率 */}
+                                                {ev.yield && (ev.type === 'settlement' || ev.type === 'payout') && (
                                                     <div className="text-[10px] text-slate-500">
                                                         年化: {formatPercent(ev.yield)}
                                                     </div>
