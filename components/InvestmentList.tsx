@@ -318,14 +318,16 @@ const InvestmentList: React.FC<Props> = ({
                         let yieldColorClass = 'text-slate-300';
                         let yieldBasisNote = '';
 
+                        // 核心修正点：已完结浮动资产显示持有收益率和实测年化
                         if (metrics.isPending) {
                             displayYield = formatPercent(metrics.annualizedYield);
                             displayYieldLabel = '预计(未开始)';
                             yieldColorClass = 'text-slate-400';
                         } else if (metrics.isCompleted) {
-                            displayYield = formatPercent(metrics.comprehensiveYield);
-                            displayYieldLabel = '实测年化';
-                            yieldColorClass = metrics.comprehensiveYield > 0 ? 'text-indigo-600' : 'text-slate-500';
+                            // 浮动/固收已完结：显示 Holding Yield (总收益率) 和 Comprehensive Yield (实测年化)
+                            displayYield = formatPercent(metrics.holdingYield); // Holding Yield
+                            displayYieldLabel = '总收益率';
+                            yieldColorClass = metrics.holdingYield > 0 ? 'text-indigo-600' : 'text-slate-500';
                         } else if (item.type === 'Floating') {
                             displayYield = formatPercent(metrics.holdingYield);
                             displayYieldLabel = '持仓收益率';
@@ -340,6 +342,9 @@ const InvestmentList: React.FC<Props> = ({
                         const estPrice = item.category === 'Fund' && item.estGrowth !== undefined 
                             ? metrics.currentPrice * (1 + item.estGrowth / 100)
                             : undefined;
+
+                        const rebateStatus = item.isRebateReceived ? '已到账' : '未到账';
+                        const rebateAmount = formatCurrency(item.rebate, item.currency);
 
                         return (
                             <Draggable 
@@ -372,16 +377,6 @@ const InvestmentList: React.FC<Props> = ({
                                                         <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded border border-slate-200 text-slate-400">
                                                             {CATEGORY_LABELS[item.category]}
                                                         </span>
-                                                    </div>
-                                                <div>
-                                                    <h3 className="font-bold text-slate-800 text-lg leading-tight mb-1 flex items-center gap-2">
-                                                        {item.name}
-                                                        <span className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded border ${item.type === 'Floating' ? 'border-indigo-100 text-indigo-500 bg-indigo-50' : 'border-slate-200 text-slate-400'}`}>
-                                                            {item.type === 'Floating' ? 'Floating' : 'Fixed'}
-                                                        </span>
-                                                        <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded border border-slate-200 text-slate-400">
-                                                            {CATEGORY_LABELS[item.category]}
-                                                        </span>
                                                     </h3>
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         {metrics.isPending ? (
@@ -405,7 +400,7 @@ const InvestmentList: React.FC<Props> = ({
 
                                             <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end">
                                                 <div className="text-right">
-                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">{formatCurrency(item.currentPrincipal, item.currency)}</span>
+                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">{formatCurrency(metrics.isCompleted ? item.totalCost : item.currentPrincipal, item.currency)}</span>
                                                     <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Principal</span>
                                                 </div>
                                                 
@@ -538,6 +533,11 @@ const InvestmentList: React.FC<Props> = ({
                                                         <span className={`font-bold text-sm ${yieldColorClass}`}>
                                                             {displayYield}
                                                         </span>
+                                                        {metrics.isCompleted && (
+                                                            <span className={`text-[10px] text-indigo-400 bg-indigo-50 px-1 rounded border border-indigo-100 whitespace-nowrap`}>
+                                                                {formatPercent(metrics.comprehensiveYield)}
+                                                            </span>
+                                                        )}
                                                         {yieldBasisNote && (
                                                             <span className="text-[10px] text-red-500 bg-red-50 px-1 rounded border border-red-100 whitespace-nowrap">
                                                                 {yieldBasisNote}
