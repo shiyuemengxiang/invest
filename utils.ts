@@ -334,8 +334,8 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   // -------------------------------------------------------------
   // 🔥 核心修复点：将 "已到账返利" 累加到 "总已落袋收益" 中,
   // -------------------------------------------------------------
-  // 错误：返利不应混入已结盈亏
-//   realizedInterest += receivedRebate;
+
+  realizedInterest += receivedRebate;
 
   let portfolioYield = 0;
   if (totalCapitalWACC > 0) {
