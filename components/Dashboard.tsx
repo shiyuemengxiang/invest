@@ -224,9 +224,15 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       const catMap: Record<string, number> = {};
       
       // Breakdown logic uses the current profit sum structure
-      const realizedOnly = stats.realizedInterest;
       const receivedRebate = stats.receivedRebate;
-      const floatingAndAccrued = stats.projectedTotalProfit - realizedOnly - receivedRebate;
+      // 已结盈亏-返利
+    //   const realizedOnly = stats.realizedInterest;
+      const realizedOnly = stats.realizedInterest - receivedRebate;
+
+      // 持仓浮盈无需-返利
+      // const floatingAndAccrued = stats.projectedTotalProfit - realizedOnly - receivedRebate;
+      const floatingAndAccrued = stats.projectedTotalProfit - realizedOnly;
+      
       
       const list = [
           { label: '持仓浮盈/利息', value: floatingAndAccrued, color: 'bg-blue-400' },
