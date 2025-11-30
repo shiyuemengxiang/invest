@@ -212,101 +212,89 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   // --- Breakdown Data Calculation ---
 
   // 1. Total Projected Profit Breakdown & Category Data (Corrected for Time Filter)
-  const { totalBreakdownList, totalCategoryData } = useMemo(() => {
-      // Helper function to check if a date string falls within the current filter period
-      const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
-      const isBetween = (dateStr: string) => {
-          const d = new Date(dateStr);
-          // Only check date part, ignore time component (start/end already set hours for comparison in getTimeFilterRange)
-          return d >= start && d <= end;
-      };
-      
-      const catMap: Record<string, number> = {};
-      
-      // Breakdown logic uses the current profit sum structure
-      const receivedRebate = stats.receivedRebate;
-      // 已结盈亏-返利
-    //   const realizedOnly = stats.realizedInterest;
-      const realizedOnly = stats.realizedInterest - receivedRebate;
+// 1. Total Projected Profit Breakdown & Category Data (Corrected for Time Filter)
+const { totalBreakdownList, totalCategoryData } = useMemo(() => {
+    const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
+    const isBetween = (dateStr: string) => {
+        const d = new Date(dateStr);
+        return d >= start && d <= end;
+    };
+    
+    const catMap: Record<string, number> = {};
 
-      // 持仓浮盈无需-返利
-      const floatingAndAccrued = stats.projectedTotalProfit - realizedOnly - receivedRebate;
-      
-      
-      const list = [
-          { label: '持仓浮盈/利息', value: floatingAndAccrued, color: 'bg-blue-400' },
-          { label: '已结盈亏', value: realizedOnly, color: 'bg-emerald-400' },
-          { label: '总返利', value: stats.totalRebate, color: 'bg-amber-400' }
-      ];
+    // 核心：先计算和 breakdownList 一致的三个部分
+    const receivedRebate = stats.receivedRebate;
+    const realizedOnly = stats.realizedInterest - receivedRebate; // 已结盈亏（不含返利）
+    const floatingAndAccrued = stats.projectedTotalProfit - realizedOnly - receivedRebate; // 持仓浮盈（不含返利）
+    const totalRebate = stats.totalRebate; // 总返利
 
-      currencyItems.forEach(item => {
-          let p = 0; // itemPeriodTotalProfit
-          if (timeFilter === 'all') {
-              // All Time Logic (Ensures consistency with calculatePortfolioStats)
-              const m = calculateItemMetrics(item);
-              if (!m.isCompleted && !m.isPending && item.type === 'Fixed') {
-                  p = m.accruedReturn + item.rebate + item.totalRealizedProfit;
-              } else if (!m.isCompleted && item.type === 'Floating') {
-                  p = m.profit;
-              } else {
-                  p = m.profit;
-              }
-              
-              // Fee deduction for projection (Copied from calculatePortfolioStats)
-              const todayISO = new Date().toISOString().split('T')[0];
-              if (!m.isCompleted && item.transactions) {
-                  item.transactions.forEach(tx => {
-                      const txDate = tx.date.split('T')[0];
-                      if (txDate > todayISO && (tx.type === 'Fee' || tx.type === 'Tax')) {
-                          p -= tx.amount;
-                      }
-                  });
-              }
+    const list = [
+        { label: '持仓浮盈/利息', value: floatingAndAccrued, color: 'bg-blue-400' },
+        { label: '已结盈亏', value: realizedOnly, color: 'bg-emerald-400' },
+        { label: '总返利', value: totalRebate, color: 'bg-amber-400' }
+    ];
 
-          } else {
-              // PERIOD LOGIC: Mirroring calculatePeriodStats in utils.ts to ensure consistency
-              const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
-              const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
-              const m = calculateItemMetrics(item);
-              
-              // 1. Accrued / Floating
-              if (item.type === 'Fixed' && !isCompletedInPeriod) {
-                  p += m.accruedReturn;
-              } else if (item.type === 'Floating' && !isCompletedInPeriod) {
-                   p += (item.currentReturn || 0) + item.totalRealizedProfit;
-              }
-              
-              // 2. Completion Net Profit
-              if (isCompletedInPeriod) {
-                  p += m.baseInterest;
-              }
-              
-              // 3. Transactions & Rebate (if within period & received)
-               if (item.transactions) {
-                  item.transactions.forEach(tx => {
-                      if (!isCompletedInPeriod && isBetween(tx.date)) {
-                          if (tx.type === 'Dividend' || tx.type === 'Interest') p += tx.amount;
-                          else if (tx.type === 'Fee' || tx.type === 'Tax') p -= tx.amount;
-                      }
-                  });
-              }
-              if (item.rebate > 0 && item.isRebateReceived && isBetween(item.depositDate)) {
-                  p += item.rebate;
-              }
-          }
-          
-          if (Math.abs(p) > 0.01) {
-              const name = CATEGORY_LABELS[item.category];
-              // Use the actual profit value for summation, rely on Math.abs later for chart visualization
-              catMap[name] = (catMap[name] || 0) + p;
-          }
-      });
+    // 🔥 关键修复：分类数据按「breakdownList 三个部分」拆分统计，而非项目原始收益
+    currencyItems.forEach(item => {
+        const m = calculateItemMetrics(item);
+        let itemFloatingAndAccrued = 0; // 项目对应「持仓浮盈/利息」的部分
+        let itemRealizedOnly = 0; // 项目对应「已结盈亏」的部分
+        let itemRebate = 0; // 项目对应「总返利」的部分
 
-      // Chart data is generated from the accumulated category profits (P)
-      const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
+        if (timeFilter === 'all') {
+            // 全时段逻辑：按项目状态拆分
+            if (!m.isCompleted && !m.isPending) {
+                // 未完结项目：仅统计「持仓浮盈/利息」
+                itemFloatingAndAccrued = m.type === 'Fixed' ? m.accruedReturn : (item.currentReturn || 0);
+                // 返利单独统计
+                itemRebate = item.rebate;
+            } else if (m.isCompleted) {
+                // 已完结项目：仅统计「已结盈亏」（不含返利）
+                itemRealizedOnly = m.baseInterest;
+                // 返利单独统计
+                itemRebate = item.rebate;
+            }
+        } else {
+            // 时段逻辑：按时段内收益类型拆分
+            const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
+            const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
 
-      return { totalBreakdownList: list, totalCategoryData: chart };
-  }, [items, stats, currencyItems, timeFilter, customStart, customEnd]);
+            // 持仓浮盈/利息（时段内未完结项目的应计/浮盈）
+            if (!isCompletedInPeriod) {
+                itemFloatingAndAccrued = m.type === 'Fixed' ? m.accruedReturn : (item.currentReturn || 0);
+            }
+
+            // 已结盈亏（时段内完结项目的净利，不含返利）
+            if (isCompletedInPeriod) {
+                itemRealizedOnly = m.baseInterest;
+            }
+
+            // 返利（时段内的总返利）
+            if (isBetween(item.depositDate)) {
+                itemRebate = item.rebate;
+            }
+        }
+
+        // 按分类累加（确保分类数据和 breakdownList 一一对应）
+        const catName = CATEGORY_LABELS[item.category];
+        if (itemFloatingAndAccrued !== 0) {
+            catMap[`${catName}-浮盈`] = (catMap[`${catName}-浮盈`] || 0) + itemFloatingAndAccrued;
+        }
+        if (itemRealizedOnly !== 0) {
+            catMap[`${catName}-已结`] = (catMap[`${catName}-已结`] || 0) + itemRealizedOnly;
+        }
+        if (itemRebate !== 0) {
+            catMap[`${catName}-返利`] = (catMap[`${catName}-返利`] || 0) + itemRebate;
+        }
+    });
+
+    // 格式化分类数据（合并重复分类，保留正负值）
+    const chart = Object.entries(catMap)
+        .filter(([_, value]) => Math.abs(value) > 0.01)
+        .map(([name, value]) => ({ name, value: Math.abs(value) }));
+
+    return { totalBreakdownList: list, totalCategoryData: chart };
+}, [items, stats, currencyItems, timeFilter, customStart, customEnd]);
 
   // 2. Today Profit Breakdown (Always Today)
   const { todayBreakdownList, todayCategoryData } = useMemo(() => {
@@ -335,109 +323,97 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   }, [currencyItems]);
 
   // 3. Realized Profit Breakdown (Corrected for Time Filter)
-  const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
-      let completedNetPeriod = 0; // Net Completion Gain in Period (The '已完结项目净利' component)
-      let txRealizedInPeriod = 0; // P&L Txs in Period (The '持仓中派息/减仓' component)
-      let realizedItemTotalMap: Record<string, number> = {}; // Data for chart
-      
-      const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
-      const isBetween = (dateStr: string) => {
-          const d = new Date(dateStr);
-          return d >= start && d <= end;
-      };
+  // 3. Realized Profit Breakdown (Corrected for Time Filter)
+const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
+    let completedNetPeriod = 0; // 已完结项目净利
+    let txRealizedInPeriod = 0; // 持仓中派息/减仓
+    const realizedItemTotalMap: Record<string, number> = {}; // 分类数据映射
 
-      currencyItems.forEach(item => {
-          let itemRealized = 0; // Total Realized P&L for this item in the period
-          
-          if (timeFilter === 'all') {
-              const m = calculateItemMetrics(item);
-              itemRealized = m.baseInterest + item.rebate + item.totalRealizedProfit;
-              
-              // Decompose for breakdown list
-              if (m.isCompleted) completedNetPeriod += m.baseInterest;
-              txRealizedInPeriod += item.totalRealizedProfit;
+    const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
+    const isBetween = (dateStr: string) => {
+        const d = new Date(dateStr);
+        return d >= start && d <= end;
+    };
 
-          } else {
-              // PERIOD LOGIC: Mirroring utils.ts realizedInPeriod calculation
-              const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
-              const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
-              
-              // 1. Completion Net Profit
-              if (isCompletedInPeriod) {
-                  const metrics = calculateItemMetrics(item);
-                  let netCompletionGain = metrics.baseInterest; 
-                  let realizedPnlTxBeforePeriod = 0;
+    currencyItems.forEach(item => {
+        const m = calculateItemMetrics(item);
+        let itemCompletedNet = 0; // 项目对应「已完结项目净利」的部分
+        let itemTxRealized = 0; // 项目对应「持仓中派息/减仓」的部分
+        let itemRebateReceived = 0; // 项目对应「已到账返利」的部分
 
-                  if (item.transactions) {
-                      item.transactions.forEach(tx => {
-                          const d = new Date(tx.date);
-                          if (d < start) {
-                              if (tx.type === 'Dividend' || tx.type === 'Interest') realizedPnlTxBeforePeriod += tx.amount;
-                              else if (tx.type === 'Fee' || tx.type === 'Tax') realizedPnlTxBeforePeriod -= tx.amount;
-                          }
-                      });
-                  }
-                  if (item.isRebateReceived && new Date(item.depositDate) < start) {
-                      realizedPnlTxBeforePeriod += item.rebate;
-                  }
-                  
-                  const completionNetProfit = netCompletionGain - realizedPnlTxBeforePeriod;
-                  itemRealized += completionNetProfit;
-                  completedNetPeriod += completionNetProfit;
-              }
+        if (timeFilter === 'all') {
+            // 全时段逻辑
+            if (m.isCompleted) {
+                itemCompletedNet = m.baseInterest; // 已完结项目净利（不含返利）
+            }
+            itemTxRealized = item.totalRealizedProfit; // 持仓中派息/减仓
+            itemRebateReceived = item.isRebateReceived ? item.rebate : 0; // 已到账返利
+        } else {
+            // 时段逻辑
+            const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
+            const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
 
-              // 2. Rebate Received in Period
-              if (isBetween(item.depositDate) && item.isRebateReceived) {
-                  itemRealized += item.rebate;
-              }
-              
-              // 3. P&L Transactions (Div/Int/Fee/Tax) - only those *in* the period
-              // And only if NOT completed in period (to avoid double count from Completion Net Profit)
-              if (!isCompletedInPeriod && item.transactions) { 
-                  item.transactions.forEach(tx => {
-                      if (isBetween(tx.date)) {
-                          if (tx.type === 'Dividend' || tx.type === 'Interest') {
-                              itemRealized += tx.amount;
-                              txRealizedInPeriod += tx.amount; // Accumulate for breakdown list
-                          } else if (tx.type === 'Fee' || tx.type === 'Tax') {
-                              itemRealized -= tx.amount;
-                              txRealizedInPeriod -= tx.amount; // Accumulate for breakdown list
-                          }
-                      }
-                  });
-              }
-          }
-          
-          if (Math.abs(itemRealized) > 0.01) {
-              const name = CATEGORY_LABELS[item.category];
-              realizedItemTotalMap[name] = (realizedItemTotalMap[name] || 0) + itemRealized;
-          }
-      });
-      
-      // Breakdown List Logic (uses the decomposed values calculated above)
-      const list = [
-          { 
-              label: '已完结项目净利', 
-              value: completedNetPeriod, 
-              color: 'bg-slate-400' 
-          },
-          { 
-              label: '持仓中派息/减仓', 
-              value: txRealizedInPeriod, 
-              color: 'bg-emerald-400' 
-          },
-          { 
-              label: '已到账返利(额外)', 
-              value: stats.receivedRebate, // This is already period-filtered by stats calculation
-              color: 'bg-amber-400' 
-          }
-      ];
-      
-      // Final chart data
-      const chart = Object.entries(realizedItemTotalMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
+            // 已完结项目净利（时段内）
+            if (isCompletedInPeriod) {
+                let netCompletionGain = m.baseInterest;
+                let realizedPnlTxBeforePeriod = 0;
+                item.transactions?.forEach(tx => {
+                    const d = new Date(tx.date);
+                    if (d < start) {
+                        if (['Dividend', 'Interest'].includes(tx.type)) realizedPnlTxBeforePeriod += Number(tx.amount) || 0;
+                        else if (['Fee', 'Tax'].includes(tx.type)) realizedPnlTxBeforePeriod -= Number(tx.amount) || 0;
+                    }
+                });
+                itemCompletedNet = netCompletionGain - realizedPnlTxBeforePeriod;
+            }
 
-      return { realizedBreakdownList: list, realizedCategoryData: chart };
-  }, [currencyItems, stats, timeFilter, customStart, customEnd]);
+            // 持仓中派息/减仓（时段内，未完结项目）
+            if (!isCompletedInPeriod && item.transactions) {
+                item.transactions.forEach(tx => {
+                    if (isBetween(tx.date)) {
+                        if (['Dividend', 'Interest'].includes(tx.type)) itemTxRealized += Number(tx.amount) || 0;
+                        else if (['Fee', 'Tax'].includes(tx.type)) itemTxRealized -= Number(tx.amount) || 0;
+                    }
+                });
+            }
+
+            // 已到账返利（时段内）
+            if (isBetween(item.depositDate) && item.isRebateReceived) {
+                itemRebateReceived = item.rebate;
+            }
+        }
+
+        // 累加 breakdownList 数据
+        completedNetPeriod += itemCompletedNet;
+        txRealizedInPeriod += itemTxRealized;
+
+        // 🔥 关键修复：分类数据按 breakdownList 三个部分拆分，确保和列表一致
+        const catName = CATEGORY_LABELS[item.category];
+        if (itemCompletedNet !== 0) {
+            realizedItemTotalMap[`${catName}-完结净利`] = (realizedItemTotalMap[`${catName}-完结净利`] || 0) + itemCompletedNet;
+        }
+        if (itemTxRealized !== 0) {
+            realizedItemTotalMap[`${catName}-派息减仓`] = (realizedItemTotalMap[`${catName}-派息减仓`] || 0) + itemTxRealized;
+        }
+        if (itemRebateReceived !== 0) {
+            realizedItemTotalMap[`${catName}-已到账返利`] = (realizedItemTotalMap[`${catName}-已到账返利`] || 0) + itemRebateReceived;
+        }
+    });
+
+    // breakdownList 保持不变（已结盈亏=已完结项目净利+持仓中派息/减仓）
+    const list = [
+        { label: '已完结项目净利', value: completedNetPeriod, color: 'bg-slate-400' },
+        { label: '持仓中派息/减仓', value: txRealizedInPeriod, color: 'bg-emerald-400' },
+        { label: '已到账返利(额外)', value: stats.receivedRebate, color: 'bg-amber-400' }
+    ];
+
+    // 格式化分类数据（过滤微小值）
+    const chart = Object.entries(realizedItemTotalMap)
+        .filter(([_, value]) => Math.abs(value) > 0.01)
+        .map(([name, value]) => ({ name, value: Math.abs(value) }));
+
+    return { realizedBreakdownList: list, realizedCategoryData: chart };
+}, [currencyItems, stats, timeFilter, customStart, customEnd]);
 
   const handleAIAnalysis = async () => {
     setLoadingAi(true);
