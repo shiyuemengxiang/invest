@@ -36,13 +36,6 @@ const StrictModeDroppable = ({ children, ...props }: DroppableProps) => {
   return <Droppable {...props}>{children}</Droppable>;
 };
 
-interface SummaryStats {
-    totalProfit: number;
-    dailyReturn: number;
-    pendingRebate: number;
-    receivedRebate: number; // 新增：用于在累计收益下方显示已到账金额
-}
-
 const InvestmentList: React.FC<Props> = ({ 
     items, onDelete, onEdit, onReorder, onRefreshMarket,
     filter, setFilter,
@@ -82,32 +75,27 @@ const InvestmentList: React.FC<Props> = ({
     return result;
   }, [items, filter, productFilter, currencyFilter, categoryFilter, showCustomDate, customStart, customEnd, sortType]);
 
-  const summaryStats = useMemo((): Record<Currency, SummaryStats> => {
-      const stats: Record<Currency, SummaryStats> = {
-          CNY: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0, receivedRebate: 0 },
-          USD: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0, receivedRebate: 0 },
-          HKD: { totalProfit: 0, dailyReturn: 0, pendingRebate: 0, receivedRebate: 0 }
+  const summaryStats = useMemo((): Record<Currency, { totalProfit: number; dailyReturn: number }> => {
+      const stats: Record<Currency, { totalProfit: number; dailyReturn: number }> = {
+          CNY: { totalProfit: 0, dailyReturn: 0 },
+          USD: { totalProfit: 0, dailyReturn: 0 },
+          HKD: { totalProfit: 0, dailyReturn: 0 }
       };
 
       filteredItems.forEach(item => {
           const metrics = calculateItemMetrics(item);
           const daily = calculateDailyReturn(item);
 
-          // metrics.profit = baseInterest + item.rebate + item.totalRealizedProfit (Total Lifetime P&L including ALL rebate)
-          
-          // 1. Calculate Base P&L (Excluding ALL Rebate: Accrued/Current P&L + Realized Tx P&L)
-          const baseProfit = metrics.profit - item.rebate; 
-          
-          // 2. Calculate Rebate components
-          const receivedRebate = item.isRebateReceived ? item.rebate : 0;
-          let profit = baseProfit + receivedRebate; // 最终总收益 = Base P&L + 已到账返利
-          const pendingRebate = item.isRebateReceived ? 0 : item.rebate;
+          let profit = 0;
+          if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
+              profit = metrics.accruedReturn + item.rebate;
+          } else {
+              profit = metrics.profit;
+          }
 
           if (stats[item.currency]) {
               stats[item.currency].totalProfit += profit;
               stats[item.currency].dailyReturn += daily;
-              stats[item.currency].pendingRebate += pendingRebate; 
-              stats[item.currency].receivedRebate += receivedRebate; // 累加已到账返利
           }
       });
 
@@ -399,8 +387,11 @@ const InvestmentList: React.FC<Props> = ({
 
                                             <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end">
                                                 <div className="text-right">
-                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">{formatCurrency(item.currentPrincipal, item.currency)}</span>
-                                                    <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Principal</span>
+                                                    <span className="block text-2xl font-bold text-slate-800 tracking-tight font-mono">
+                                                        {/* FIX: If completed, show totalCost (original principal), else show currentPrincipal */}
+                                                         {formatCurrency(metrics.isCompleted ? item.totalCost : item.currentPrincipal, item.currency)}
+                                                    </span>
+                                                    <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">PRINCIPAL</span>
                                                 </div>
                                                 
                                                 <div className="flex gap-2 items-center">
@@ -436,10 +427,7 @@ const InvestmentList: React.FC<Props> = ({
                                             </div>
                                         </div>
 
-                                        {/* Main Details Grid - 5 Columns for Finance Metrics */}
                                         <div className="relative z-10 grid grid-cols-2 md:grid-cols-5 gap-4 py-5 border-t border-slate-50">
-                                            
-                                            {/* 1. Status/Time */}
                                             <div className="space-y-1">
                                             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Status/Time</p>
                                             <div>
@@ -453,14 +441,12 @@ const InvestmentList: React.FC<Props> = ({
                                                 {metrics.isCompleted && <span className="text-sm font-bold text-slate-700">Finished</span>}
                                             </div>
                                             </div>
-                                            
-                                            {/* 2. Duration */}
                                             <div className="space-y-1">
                                             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Duration</p>
                                             <p className="font-bold text-slate-700 text-sm">{metrics.realDurationDays} <span className="text-xs font-normal text-slate-400">Days</span></p>
                                             </div>
                                             
-                                            {/* 3. EST. PROFIT / REALIZED PROFIT */}
+                                            {/* 3rd Column: EST. PROFIT / REALIZED PROFIT (Refined Logic) */}
                                             <div className="space-y-1">
                                                 <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
                                                     {metrics.isCompleted ? '结算收益' : (item.type === 'Floating' ? '持仓收益' : '产品预期收益')}
@@ -550,6 +536,21 @@ const InvestmentList: React.FC<Props> = ({
                                                         <span className={`font-bold text-sm ${metrics.comprehensiveYield > 0 ? 'text-purple-600' : 'text-slate-500'}`}>
                                                             {formatPercent(metrics.comprehensiveYield)}
                                                         </span>
+                                                        {item.type === 'Floating' && metrics.isCompleted && ( // 浮动类已完结，仅显示一个年化
+                                                            <span className="text-[10px] text-slate-400">
+                                                                实测年化
+                                                            </span>
+                                                        )}
+                                                        {item.type !== 'Floating' && !metrics.isCompleted && (
+                                                            <span className="text-[10px] text-slate-400">
+                                                                {displayYieldLabel}
+                                                            </span>
+                                                        )}
+                                                        {item.type !== 'Floating' && metrics.isCompleted && (
+                                                             <span className="text-[10px] text-slate-400">
+                                                                实测年化
+                                                             </span>
+                                                        )}
                                                         {yieldBasisNote && (
                                                             <span className="text-[10px] text-red-500 bg-red-50 px-1 rounded border border-red-100 whitespace-nowrap">
                                                                 {yieldBasisNote}
