@@ -437,9 +437,9 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
                 });
             }
             // 考虑提前收到的返利
-            if (item.isRebateReceived && new Date(item.depositDate) < start) {
-                realizedPnlTxBeforePeriod += item.rebate;
-            }
+            // if (item.isRebateReceived && new Date(item.depositDate) < start) {
+            //     realizedPnlTxBeforePeriod += item.rebate;
+            // }
             
             // Completion Net Profit = Total Lifetime Net Gain - Portion realized BEFORE the period
             const completionNetProfit = netCompletionGain - realizedPnlTxBeforePeriod;
@@ -461,7 +461,7 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
             totalRebate += item.rebate;
             itemPeriodProfit += item.rebate;
             if (item.isRebateReceived) {
-                realizedInPeriod += item.rebate;
+                // realizedInPeriod += item.rebate;
                 receivedRebate += item.rebate;
             } else {
                 pendingRebate += item.rebate;
