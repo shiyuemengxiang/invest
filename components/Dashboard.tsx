@@ -230,7 +230,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       const realizedOnly = stats.realizedInterest - receivedRebate;
 
       // 持仓浮盈无需-返利
-      // const floatingAndAccrued = stats.projectedTotalProfit - realizedOnly - receivedRebate;
       const floatingAndAccrued = stats.projectedTotalProfit - realizedOnly - receivedRebate;
       
       
