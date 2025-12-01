@@ -212,8 +212,18 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   // --- Breakdown Data Calculation ---
 
   // 1. Total Projected Profit Breakdown & Category Data (Corrected for Time Filter)
-// 1. Total Projected Profit Breakdown & Category Data (Corrected for Time Filter)
+// 1. Total Projected Profit Breakdown & Category Data（含修复）
 const { totalBreakdownList, totalCategoryData } = useMemo(() => {
+    // 🔥 分类显示自助管控配置（所有规则都在这里）
+    const categoryDisplayConfig = {
+        enableSubdivision: false, // false=不细分（默认），true=细分
+        typeShortName: {
+            floatingAndAccrued: '浮盈',
+            realizedOnly: '已结',
+            totalRebate: '已返'
+        }
+    };
+
     const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
     const isBetween = (dateStr: string) => {
         const d = new Date(dateStr);
@@ -222,7 +232,7 @@ const { totalBreakdownList, totalCategoryData } = useMemo(() => {
     
     const catMap: Record<string, number> = {};
 
-    // 核心：先计算和 breakdownList 一致的三个部分
+    // 核心：计算和 breakdownList 一致的三个部分
     const receivedRebate = stats.receivedRebate;
     const realizedOnly = stats.realizedInterest - receivedRebate; // 已结盈亏（不含返利）
     const floatingAndAccrued = stats.projectedTotalProfit - realizedOnly - receivedRebate; // 持仓浮盈（不含返利）
@@ -234,12 +244,12 @@ const { totalBreakdownList, totalCategoryData } = useMemo(() => {
         { label: '总返利', value: totalRebate, color: 'bg-amber-400' }
     ];
 
-    // 🔥 关键修复：分类数据按「breakdownList 三个部分」拆分统计，而非项目原始收益
+    // 分类数据统计（对接管控配置）
     currencyItems.forEach(item => {
         const m = calculateItemMetrics(item);
-        let itemFloatingAndAccrued = 0; // 项目对应「持仓浮盈/利息」的部分
-        let itemRealizedOnly = 0; // 项目对应「已结盈亏」的部分
-        let itemRebate = 0; // 项目对应「总返利」的部分
+        let itemFloatingAndAccrued = 0; // 对应「浮盈」
+        let itemRealizedOnly = 0;       // 对应「已结」
+        let itemRebate = 0;             // 对应「已返」
 
         if (timeFilter === 'all') {
             // 全时段逻辑：按项目状态拆分
@@ -275,59 +285,90 @@ const { totalBreakdownList, totalCategoryData } = useMemo(() => {
             }
         }
 
-        // 按分类累加（确保分类数据和 breakdownList 一一对应）
-        const catName = CATEGORY_LABELS[item.category];
-        if (itemFloatingAndAccrued !== 0) {
-            catMap[`${catName}-浮盈`] = (catMap[`${catName}-浮盈`] || 0) + itemFloatingAndAccrued;
-        }
-        if (itemRealizedOnly !== 0) {
-            catMap[`${catName}-已结`] = (catMap[`${catName}-已结`] || 0) + itemRealizedOnly;
-        }
-        if (itemRebate !== 0) {
-            catMap[`${catName}-返利`] = (catMap[`${catName}-返利`] || 0) + itemRebate;
+        // 对接管控配置：是否细分 + 简称显示
+        const catName = CATEGORY_LABELS[item.category] || item.category; // 原始分类名（兜底避免未映射）
+        if (categoryDisplayConfig.enableSubdivision) {
+            // 开启细分：显示“分类+简称”（如“股票-浮盈”）
+            if (itemFloatingAndAccrued !== 0) {
+                const shortName = categoryDisplayConfig.typeShortName.floatingAndAccrued;
+                catMap[`${catName}-${shortName}`] = (catMap[`${catName}-${shortName}`] || 0) + itemFloatingAndAccrued;
+            }
+            if (itemRealizedOnly !== 0) {
+                const shortName = categoryDisplayConfig.typeShortName.realizedOnly;
+                catMap[`${catName}-${shortName}`] = (catMap[`${catName}-${shortName}`] || 0) + itemRealizedOnly;
+            }
+            if (itemRebate !== 0) {
+                const shortName = categoryDisplayConfig.typeShortName.totalRebate;
+                catMap[`${catName}-${shortName}`] = (catMap[`${catName}-${shortName}`] || 0) + itemRebate;
+            }
+        } else {
+            // 不细分：合并为原始分类（如“股票”）
+            const totalItemProfit = itemFloatingAndAccrued + itemRealizedOnly + itemRebate;
+            if (Math.abs(totalItemProfit) > 0.01) { // 过滤微小值
+                catMap[catName] = (catMap[catName] || 0) + totalItemProfit;
+            }
         }
     });
 
-    // 格式化分类数据（合并重复分类，保留正负值）
+    // 格式化分类数据（保留正负值，过滤微小值）
     const chart = Object.entries(catMap)
         .filter(([_, value]) => Math.abs(value) > 0.01)
-        .map(([name, value]) => ({ name, value: Math.abs(value) }));
+        .map(([name, value]) => ({ name, value })); // 移除 Math.abs，保留正负号
 
     return { totalBreakdownList: list, totalCategoryData: chart };
 }, [items, stats, currencyItems, timeFilter, customStart, customEnd]);
 
-  // 2. Today Profit Breakdown (Always Today)
-  const { todayBreakdownList, todayCategoryData } = useMemo(() => {
-      let fixedDaily = 0;
-      let floatingDaily = 0;
-      const catMap: Record<string, number> = {};
 
-      currencyItems.forEach(item => {
-          const daily = calculateDailyReturn(item);
-          if (item.type === 'Fixed') fixedDaily += daily;
-          else floatingDaily += daily;
+    // 2. Today Profit Breakdown (Always Today)   
+    // 2. Today Profit Breakdown（补充完整，确保一致性）
+const { todayBreakdownList, todayCategoryData } = useMemo(() => {
+    let fixedDaily = 0;
+    let floatingDaily = 0;
+    const catMap: Record<string, number> = {};
 
-          if (Math.abs(daily) > 0.001) {
-              const name = CATEGORY_LABELS[item.category];
-              catMap[name] = (catMap[name] || 0) + daily;
-          }
-      });
+    currencyItems.forEach(item => {
+        const daily = calculateDailyReturn(item); // 今日收益（固收日息/市值波动）
+        if (item.type === 'Fixed') fixedDaily += daily;
+        else floatingDaily += daily;
 
-      const list = [
-          { label: '固收日息', value: fixedDaily, color: 'bg-blue-400' },
-          { label: '市值波动', value: floatingDaily, color: 'bg-orange-400' }
-      ];
-      const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
+        // 分类统计（保留正负值，不细分）
+        if (Math.abs(daily) > 0.001) {
+            const name = CATEGORY_LABELS[item.category] || item.category;
+            catMap[name] = (catMap[name] || 0) + daily;
+        }
+    });
 
-      return { todayBreakdownList: list, todayCategoryData: chart };
-  }, [currencyItems]);
+    // breakdownList（今日收益明细）
+    const list = [
+        { label: '固收日息', value: fixedDaily, color: 'bg-blue-400' },
+        { label: '市值波动', value: floatingDaily, color: 'bg-orange-400' }
+    ];
+
+    // 格式化分类数据（保留正负值）
+    const chart = Object.entries(catMap)
+        .filter(([_, value]) => Math.abs(value) > 0.001)
+        .map(([name, value]) => ({ name, value })); // 移除 Math.abs，保留正负号
+
+    return { todayBreakdownList: list, todayCategoryData: chart };
+}, [currencyItems]);
 
   // 3. Realized Profit Breakdown (Corrected for Time Filter)
-  // 3. Realized Profit Breakdown (Corrected for Time Filter)
-const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
+// 3. Realized Profit Breakdown（含修复：总和含返利、负值显示）
+const { realizedBreakdownList, realizedCategoryData, totalRealized } = useMemo(() => {
+    // 🔥 分类显示自助管控配置（和总预估收益共用规则，可统一提取到组件顶部）
+    const categoryDisplayConfig = {
+        enableSubdivision: false, // false=不细分（默认），true=细分
+        typeShortName: {
+            completedNet: '完结',
+            txRealized: '派息',
+            receivedRebate: '已返'
+        }
+    };
+
     let completedNetPeriod = 0; // 已完结项目净利
     let txRealizedInPeriod = 0; // 持仓中派息/减仓
-    const realizedItemTotalMap: Record<string, number> = {}; // 分类数据映射
+    let receivedRebatePeriod = 0; // 时段内已到账返利（新增，确保总和包含）
+    const realizedItemTotalMap: Record<string, number> = {};
 
     const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
     const isBetween = (dateStr: string) => {
@@ -337,9 +378,9 @@ const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
 
     currencyItems.forEach(item => {
         const m = calculateItemMetrics(item);
-        let itemCompletedNet = 0; // 项目对应「已完结项目净利」的部分
-        let itemTxRealized = 0; // 项目对应「持仓中派息/减仓」的部分
-        let itemRebateReceived = 0; // 项目对应「已到账返利」的部分
+        let itemCompletedNet = 0; // 对应「完结」
+        let itemTxRealized = 0;   // 对应「派息」
+        let itemRebateReceived = 0; // 对应「已返」
 
         if (timeFilter === 'all') {
             // 全时段逻辑
@@ -348,12 +389,13 @@ const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
             }
             itemTxRealized = item.totalRealizedProfit; // 持仓中派息/减仓
             itemRebateReceived = item.isRebateReceived ? item.rebate : 0; // 已到账返利
+            receivedRebatePeriod = stats.receivedRebate; // 全时段直接取 stats 已统计值
         } else {
             // 时段逻辑
             const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
             const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
 
-            // 已完结项目净利（时段内）
+            // 1. 已完结项目净利（时段内）
             if (isCompletedInPeriod) {
                 let netCompletionGain = m.baseInterest;
                 let realizedPnlTxBeforePeriod = 0;
@@ -367,7 +409,7 @@ const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
                 itemCompletedNet = netCompletionGain - realizedPnlTxBeforePeriod;
             }
 
-            // 持仓中派息/减仓（时段内，未完结项目）
+            // 2. 持仓中派息/减仓（时段内，未完结项目）
             if (!isCompletedInPeriod && item.transactions) {
                 item.transactions.forEach(tx => {
                     if (isBetween(tx.date)) {
@@ -377,9 +419,10 @@ const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
                 });
             }
 
-            // 已到账返利（时段内）
+            // 3. 已到账返利（时段内，单独累加）
             if (isBetween(item.depositDate) && item.isRebateReceived) {
                 itemRebateReceived = item.rebate;
+                receivedRebatePeriod += itemRebateReceived; // 累加时段内返利
             }
         }
 
@@ -387,33 +430,53 @@ const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
         completedNetPeriod += itemCompletedNet;
         txRealizedInPeriod += itemTxRealized;
 
-        // 🔥 关键修复：分类数据按 breakdownList 三个部分拆分，确保和列表一致
-        const catName = CATEGORY_LABELS[item.category];
-        if (itemCompletedNet !== 0) {
-            realizedItemTotalMap[`${catName}-完结净利`] = (realizedItemTotalMap[`${catName}-完结净利`] || 0) + itemCompletedNet;
-        }
-        if (itemTxRealized !== 0) {
-            realizedItemTotalMap[`${catName}-派息减仓`] = (realizedItemTotalMap[`${catName}-派息减仓`] || 0) + itemTxRealized;
-        }
-        if (itemRebateReceived !== 0) {
-            realizedItemTotalMap[`${catName}-已到账返利`] = (realizedItemTotalMap[`${catName}-已到账返利`] || 0) + itemRebateReceived;
+        // 对接管控配置：分类统计（是否细分 + 简称）
+        const catName = CATEGORY_LABELS[item.category] || item.category; // 兜底未映射分类
+        if (categoryDisplayConfig.enableSubdivision) {
+            // 开启细分：显示“分类+简称”（如“股票-派息”）
+            if (itemCompletedNet !== 0) {
+                const shortName = categoryDisplayConfig.typeShortName.completedNet;
+                realizedItemTotalMap[`${catName}-${shortName}`] = (realizedItemTotalMap[`${catName}-${shortName}`] || 0) + itemCompletedNet;
+            }
+            if (itemTxRealized !== 0) {
+                const shortName = categoryDisplayConfig.typeShortName.txRealized;
+                realizedItemTotalMap[`${catName}-${shortName}`] = (realizedItemTotalMap[`${catName}-${shortName}`] || 0) + itemTxRealized;
+            }
+            if (itemRebateReceived !== 0) {
+                const shortName = categoryDisplayConfig.typeShortName.receivedRebate;
+                realizedItemTotalMap[`${catName}-${shortName}`] = (realizedItemTotalMap[`${catName}-${shortName}`] || 0) + itemRebateReceived;
+            }
+        } else {
+            // 不细分：合并为原始分类（如“股票”）
+            const totalItemRealized = itemCompletedNet + itemTxRealized + itemRebateReceived;
+            if (Math.abs(totalItemRealized) > 0.01) { // 过滤微小值
+                realizedItemTotalMap[catName] = (realizedItemTotalMap[catName] || 0) + totalItemRealized;
+            }
         }
     });
 
-    // breakdownList 保持不变（已结盈亏=已完结项目净利+持仓中派息/减仓）
+    // 已落袋总和 = 已完结项目净利 + 派息/减仓 + 已到账返利（核心修复）
+    const finalTotalRealized = completedNetPeriod + txRealizedInPeriod + receivedRebatePeriod;
+
+    // breakdownList（显示明细）
     const list = [
         { label: '已完结项目净利', value: completedNetPeriod, color: 'bg-slate-400' },
         { label: '持仓中派息/减仓', value: txRealizedInPeriod, color: 'bg-emerald-400' },
-        { label: '已到账返利(额外)', value: stats.receivedRebate, color: 'bg-amber-400' }
+        { label: '已到账返利(额外)', value: receivedRebatePeriod, color: 'bg-amber-400' }
     ];
 
-    // 格式化分类数据（过滤微小值）
+    // 格式化分类数据（保留正负值，过滤微小值）
     const chart = Object.entries(realizedItemTotalMap)
         .filter(([_, value]) => Math.abs(value) > 0.01)
-        .map(([name, value]) => ({ name, value: Math.abs(value) }));
+        .map(([name, value]) => ({ name, value })); // 移除 Math.abs，保留正负号
 
-    return { realizedBreakdownList: list, realizedCategoryData: chart };
+    return {
+        realizedBreakdownList: list,
+        realizedCategoryData: chart,
+        totalRealized: finalTotalRealized // 包含返利的已落袋总和
+    };
 }, [currencyItems, stats, timeFilter, customStart, customEnd]);
+
 
   const handleAIAnalysis = async () => {
     setLoadingAi(true);
@@ -608,7 +671,7 @@ const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
         {/* 4. Realized Profit */}
         <MetricCard 
             title={timeFilter === 'all' ? '已落袋收益' : '本期已落袋'}
-            mainValue={stats.realizedInterest}
+            mainValue={totalRealized} // 关键：使用包含返利的已落袋总和
             currency={selectedCurrency}
             colorTheme="amber"
             breakdownList={realizedBreakdownList}
