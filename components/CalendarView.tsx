@@ -121,8 +121,8 @@ const CalendarView: React.FC<Props> = ({ items }) => {
           const isFullySettled = endDate && item.totalCost > 0;
 
           if (isFullySettled) {
-              // 核心修正：剩余收益 = 总收益 - 中途派息 - 返利(因为返利已单独作为事件 B 显示)
-              const residualProfit = metrics.profit - totalNetPayouts - item.rebate;
+              // 核心修正：剩余收益 = 总收益 - 中途派息 - 返利(因为返利已单独作为事件 B 显示) 日历视图到期不能倒扣返利
+              const residualProfit = metrics.profit - totalNetPayouts;
               
               events.push({
                   id: `${item.id}-end`,
