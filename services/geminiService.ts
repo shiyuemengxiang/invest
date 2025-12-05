@@ -13,7 +13,7 @@ export const getAIAnalysis = async (items: Investment[]) => {
   const ai = getAiClient();
   const stats = calculatePortfolioStats(items);
   
-  // 1. 基础资产概况 (用于展示列表)
+  // 1. 基础资产概况 (数据增强)
   const portfolioSummary = items.map(item => {
     const m = calculateItemMetrics(item);
     return {
@@ -23,26 +23,26 @@ export const getAIAnalysis = async (items: Investment[]) => {
       type: item.type,
       category: item.category,
       days: m.realDurationDays,
-      yield: m.comprehensiveYield.toFixed(2) + "%",
+      // 🔥 关键修改：明确区分持仓收益率与年化收益率
+      holdingYield: m.holdingYield.toFixed(2) + "%",       // 绝对收益率 (Total Return)
+      annualizedYield: m.comprehensiveYield.toFixed(2) + "%", // 年化收益率 (Annualized / CAGR)
       status: m.isCompleted ? "Finished" : "Active",
       maturity: item.maturityDate
     };
   });
 
-  // 2. 🔥 核心修复：不再限制"30天内"，而是获取"未来最近即将到期"的前 5 笔
+  // 2. 现金流逻辑 (保持不变)
   const now = new Date();
-  now.setHours(0, 0, 0, 0); // 忽略时分秒，只比日期
+  now.setHours(0, 0, 0, 0); 
 
   const upcomingCashFlows = items
     .filter(item => {
-        // 筛选条件：未完结 + 有到期日 + 到期日是今天或未来
         if (item.withdrawalDate || !item.maturityDate) return false;
         const matDate = new Date(item.maturityDate);
         return matDate >= now;
     })
     .map(item => {
         const m = calculateItemMetrics(item);
-        // 估算回款 = 本金 + 预估收益 + 待收返利
         const estimatedTotal = item.principal + m.profit + (item.isRebateReceived ? 0 : item.rebate);
         return {
             date: item.maturityDate,
@@ -52,17 +52,17 @@ export const getAIAnalysis = async (items: Investment[]) => {
             daysLeft: Math.ceil((new Date(item.maturityDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
         };
     })
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) // 按时间正序排列（最近的在前）
-    .slice(0, 5); // 🔥 关键：只取最近的 5 笔，无论它们是一周后还是明年
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .slice(0, 5);
 
-  // 3. 构建 Prompt
+  // 3. 构建 Prompt (指令增强)
   const prompt = `
     You are a professional financial advisor. Analyze the following personal investment ledger summary.
     
     **1. Portfolio Overview:**
     - Total Invested: ${stats.totalInvested}
     - Active Principal: ${stats.activePrincipal}
-    - Weighted Avg Yield: ${stats.comprehensiveYield.toFixed(2)}%
+    - Weighted Avg Annualized Yield: ${stats.comprehensiveYield.toFixed(2)}% (MWR)
     
     **2. ⚠️ Liquidity Alert (Next 5 Upcoming Maturities):**
     ${upcomingCashFlows.length > 0 ? JSON.stringify(upcomingCashFlows) : "No upcoming maturities found."}
@@ -73,16 +73,21 @@ export const getAIAnalysis = async (items: Investment[]) => {
     Please provide a concise analysis in **Simplified Chinese (zh-CN)** covering:
     
     1.  **流动性与现金流 (Liquidity)**: 
-        - **Crucial**: Analyze the "Liquidity Alert" section. Explicitly list the dates and amounts of the next big maturities.
-        - Treat these dates as the most critical upcoming cash flow events, even if they are months away.
-        - Mention how many days are left for the nearest one.
+        - Analyze the "Liquidity Alert" section. List dates and amounts of next big maturities.
+    
     2.  **投资组合健康度 (Health)**: 
-        - Comment on the weighted yield (${stats.comprehensiveYield.toFixed(2)}%).
-    3.  **风险提示 (Risk)**: 
-        - Check for "Maturity Clumping" (dates close to each other).
-        - Currency risks.
-    4.  **优化建议 (Optimization)**: 
-        - Practical advice for re-investment.
+        - Comment on the weighted annualized yield (${stats.comprehensiveYield.toFixed(2)}%).
+    
+    3.  **收益深度解析 (Yield Analysis)**: 
+        - **CRITICAL**: When analyzing items, strictly distinguish between **"Holding Yield" (持仓收益率/绝对回报)** and **"Annualized Yield" (年化收益率/资金效率)**.
+        - Example: If an item has 50% holding yield but over 5 years, point out its low annualized efficiency. If an item has 2% holding yield in 5 days, highlight its high annualized efficiency.
+        - Identify any "high holding yield" items and verify if their "annualized yield" justifies the duration.
+        
+    4.  **风险提示 (Risk)**: 
+        - Maturity Clumping & Currency risks.
+        
+    5.  **优化建议 (Optimization)**: 
+        - Practical advice.
     
     **Format:** Use Markdown. Use Emojis. Be direct.
   `;
@@ -99,7 +104,7 @@ export const getAIAnalysis = async (items: Investment[]) => {
   }
 };
 
-// 日历视图专用的月度分析接口
+// ... (getMonthlyCashFlowAnalysis 保持不变)
 export const getMonthlyCashFlowAnalysis = async (events: any[], year: number, month: number) => {
     const ai = getAiClient();
 
