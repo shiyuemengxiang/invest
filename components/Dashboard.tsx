@@ -792,7 +792,48 @@ const { realizedBreakdownList, realizedCategoryData, totalRealized } = useMemo((
               </div>
           </div>
       )}
-
+{/* AI Insights Section */}
+<div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-3xl p-6 shadow-lg text-white relative overflow-hidden mb-6">
+    <div className="relative z-10">
+        <div className="flex justify-between items-start mb-4">
+            <div>
+                <h3 className="text-xl font-bold flex items-center gap-2">
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    AI 智能投资分析
+                </h3>
+                <p className="text-indigo-100 text-sm mt-1">基于 Gemini Pro 的投资组合诊断与建议</p>
+            </div>
+            <button 
+                onClick={handleAIAnalysis} 
+                disabled={loadingAi}
+                className="px-4 py-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-xl text-sm font-bold transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                {loadingAi ? (
+                    <><svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> 分析中...</>
+                ) : (
+                    '生成分析报告'
+                )}
+            </button>
+        </div>
+        
+        {aiInsight ? (
+            <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 text-sm leading-relaxed border border-white/10 animate-fade-in">
+                {/* 简单的 Markdown 渲染，如果不需要 markdown 库，直接显示文本即可，或者用 dangerouslySetInnerHTML 处理简单的换行 */}
+                <div className="whitespace-pre-wrap font-medium opacity-90">
+                    {aiInsight}
+                </div>
+            </div>
+        ) : (
+            <div className="p-4 text-center text-indigo-200 text-sm border border-white/10 border-dashed rounded-xl">
+                点击右上角按钮，获取针对您当前持仓的 AI 诊断报告
+            </div>
+        )}
+    </div>
+    
+    {/* Decorative Background Elements */}
+    <div className="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-white/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div className="absolute bottom-0 left-0 -mb-10 -ml-10 w-40 h-40 bg-purple-500/30 rounded-full blur-2xl pointer-events-none"></div>
+</div>
       {infoModal && (
           <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setInfoModal(null)}>
               <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in-up relative" onClick={e => e.stopPropagation()}>
