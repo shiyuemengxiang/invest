@@ -25,6 +25,45 @@ interface MetricCardProps {
     waccValue?: number;
 }
 
+// ✨ 新增：简易 Markdown 渲染组件 (提升 AI 文本可读性)
+const SimpleMarkdown = ({ text }: { text: string }) => {
+    if (!text) return null;
+    
+    // 按行分割
+    const lines = text.split('\n');
+    
+    return (
+        <div className="space-y-2 text-sm leading-relaxed text-indigo-50/90">
+            {lines.map((line, index) => {
+                // 处理 ### 标题
+                if (line.startsWith('### ')) {
+                    return <h4 key={index} className="text-base font-bold text-white mt-4 mb-1">{line.replace('### ', '')}</h4>;
+                }
+                // 处理列表点
+                if (line.trim().startsWith('- ')) {
+                     return (
+                        <div key={index} className="flex gap-2 pl-1">
+                            <span className="text-indigo-300">•</span>
+                            <span dangerouslySetInnerHTML={{ __html: parseBold(line.replace('- ', '')) }}></span>
+                        </div>
+                     );
+                }
+                // 处理空行
+                if (!line.trim()) return <div key={index} className="h-1"></div>;
+
+                // 普通文本 (处理加粗)
+                return <p key={index} dangerouslySetInnerHTML={{ __html: parseBold(line) }}></p>;
+            })}
+        </div>
+    );
+};
+
+// 辅助函数：把 **text** 替换为 <b>text</b>
+const parseBold = (text: string) => {
+    // 简单的正则替换，注意转义
+    return text.replace(/\*\*(.*?)\*\*/g, '<b class="text-white font-bold">$1</b>');
+};
+
 const MetricCard: React.FC<MetricCardProps> = ({ 
     title, mainValue, subValue, currency, breakdownList, categoryData, infoAction, colorTheme, waccValue
 }) => {
@@ -792,48 +831,44 @@ const { realizedBreakdownList, realizedCategoryData, totalRealized } = useMemo((
               </div>
           </div>
       )}
-{/* AI Insights Section */}
-<div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-3xl p-6 shadow-lg text-white relative overflow-hidden mb-6">
-    <div className="relative z-10">
-        <div className="flex justify-between items-start mb-4">
-            <div>
-                <h3 className="text-xl font-bold flex items-center gap-2">
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                    AI 智能投资分析
-                </h3>
-                <p className="text-indigo-100 text-sm mt-1">基于 Gemini Pro 的投资组合诊断与建议</p>
-            </div>
-            <button 
-                onClick={handleAIAnalysis} 
-                disabled={loadingAi}
-                className="px-4 py-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-xl text-sm font-bold transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-                {loadingAi ? (
-                    <><svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> 分析中...</>
-                ) : (
-                    '生成分析报告'
-                )}
-            </button>
-        </div>
-        
-        {aiInsight ? (
-            <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 text-sm leading-relaxed border border-white/10 animate-fade-in">
-                {/* 简单的 Markdown 渲染，如果不需要 markdown 库，直接显示文本即可，或者用 dangerouslySetInnerHTML 处理简单的换行 */}
-                <div className="whitespace-pre-wrap font-medium opacity-90">
-                    {aiInsight}
-                </div>
-            </div>
-        ) : (
-            <div className="p-4 text-center text-indigo-200 text-sm border border-white/10 border-dashed rounded-xl">
-                点击右上角按钮，获取针对您当前持仓的 AI 诊断报告
-            </div>
-        )}
-    </div>
-    
-    {/* Decorative Background Elements */}
-    <div className="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-white/10 rounded-full blur-3xl pointer-events-none"></div>
-    <div className="absolute bottom-0 left-0 -mb-10 -ml-10 w-40 h-40 bg-purple-500/30 rounded-full blur-2xl pointer-events-none"></div>
-</div>
+{/* 🔥 AI 智能分析卡片 (优化版 UI) */}
+<div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-[2rem] p-1 shadow-xl relative overflow-hidden group">
+          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
+          <div className="bg-white/10 backdrop-blur-xl rounded-[1.8rem] p-6 h-full relative z-10 border border-white/10">
+              
+              <div className="flex justify-between items-start mb-4">
+                  <div className="flex items-center gap-3">
+                      <div className="p-2 bg-white/20 rounded-xl text-white">
+                          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                      </div>
+                      <div>
+                          <h3 className="text-lg font-bold text-white tracking-wide">AI 投资顾问</h3>
+                          <p className="text-xs text-indigo-200">基于 Gemini 2.5 Flash</p>
+                      </div>
+                  </div>
+                  <button 
+                      onClick={handleAIAnalysis} 
+                      disabled={loadingAi}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${loadingAi ? 'bg-white/10 text-white/50 cursor-not-allowed' : 'bg-white text-indigo-600 hover:bg-indigo-50 shadow-lg transform hover:scale-105 active:scale-95'}`}
+                  >
+                      {loadingAi ? '深度分析中...' : '生成诊断报告'}
+                      {!loadingAi && <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>}
+                  </button>
+              </div>
+
+              {aiInsight ? (
+                  <div className="bg-black/20 rounded-2xl p-5 animate-fade-in border border-white/5 shadow-inner">
+                      <SimpleMarkdown text={aiInsight} />
+                  </div>
+              ) : (
+                  <div className="flex flex-col items-center justify-center py-8 text-center border-2 border-dashed border-white/10 rounded-2xl bg-white/5">
+                      <svg className="w-12 h-12 text-white/20 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                      <p className="text-sm text-indigo-100 font-medium">点击按钮，让 AI 为您的投资组合体检</p>
+                      <p className="text-xs text-white/40 mt-1">分析流动性、风险敞口及收益优化建议</p>
+                  </div>
+              )}
+          </div>
+      </div>
       {infoModal && (
           <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setInfoModal(null)}>
               <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in-up relative" onClick={e => e.stopPropagation()}>

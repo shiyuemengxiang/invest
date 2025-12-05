@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { Investment } from "../types";
-import { calculateItemMetrics, calculatePortfolioStats, formatCurrency } from "../utils";
+import { calculateItemMetrics, calculatePortfolioStats } from "../utils";
 
 const getAiClient = () => {
     if (!process.env.API_KEY) {
@@ -13,77 +13,45 @@ export const getAIAnalysis = async (items: Investment[]) => {
   const ai = getAiClient();
   const stats = calculatePortfolioStats(items);
   
-  // 1. 基础资产概况
+  // 1. 基础资产概况 (简化数据以节省 Token)
   const portfolioSummary = items.map(item => {
     const m = calculateItemMetrics(item);
     return {
-      name: item.name,
-      amount: item.principal,
-      currency: item.currency,
-      type: item.type,
-      category: item.category,
-      days: m.realDurationDays,
-      yield: m.comprehensiveYield.toFixed(2) + "%",
-      status: m.isCompleted ? "Finished" : "Active",
-      maturity: item.maturityDate
+      n: item.name, // 简写 name
+      a: item.principal, // 简写 amount
+      c: item.currency,
+      t: item.type,
+      d: m.realDurationDays, // 简写 days
+      y: m.comprehensiveYield.toFixed(2) + "%", // yield
+      end: item.maturityDate || item.withdrawalDate // 到期日
     };
   });
 
-  // 2. 🔥 核心升级：计算未来 30 天的现金流 (模拟日历视图逻辑)
-  const now = new Date();
-  const next30Days = new Date();
-  next30Days.setDate(now.getDate() + 30);
-
-  const upcomingCashFlows = items
-    .filter(item => {
-        // 筛选未完结且有到期日的
-        if (item.withdrawalDate || !item.maturityDate) return false;
-        const matDate = new Date(item.maturityDate);
-        return matDate >= now && matDate <= next30Days;
-    })
-    .map(item => {
-        const m = calculateItemMetrics(item);
-        // 估算回款 = 本金 + 预估收益 + 返利 (如果不扣除)
-        // 这里给 AI 一个大致的 liquidity 概念
-        const estimatedTotal = item.principal + m.profit + (item.isRebateReceived ? 0 : item.rebate);
-        return {
-            date: item.maturityDate,
-            name: item.name,
-            amount: estimatedTotal.toFixed(2),
-            currency: item.currency
-        };
-    })
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-  // 3. 构建增强版 Prompt
+  // 2. 构建增强版 Prompt
   const prompt = `
-    You are a professional financial advisor. Analyze the following personal investment ledger summary.
-    
-    **1. Portfolio Overview:**
-    - Total Invested: ${stats.totalInvested}
-    - Active Principal: ${stats.activePrincipal}
-    - Weighted Avg Yield: ${stats.comprehensiveYield.toFixed(2)}%
-    
-    **2. ⚠️ Liquidity Alert (Upcoming Maturities in 30 Days):**
-    ${upcomingCashFlows.length > 0 ? JSON.stringify(upcomingCashFlows) : "No major maturities in the next 30 days."}
+    你是一位经验丰富且风趣的私人理财顾问。请根据用户的投资账本生成一份简短、犀利的诊断报告。
 
-    **3. Detailed Items (Active & Recent):**
-    ${JSON.stringify(portfolioSummary.slice(0, 15))} 
+    **资产概况:**
+    - 总投入: ${stats.totalInvested.toFixed(0)}
+    - 综合年化: ${stats.comprehensiveYield.toFixed(2)}% (非常关键的指标)
+    - 持仓明细: ${JSON.stringify(portfolioSummary.slice(0, 20))}
 
-    Please provide a concise analysis in **Simplified Chinese (zh-CN)** covering:
+    请用 **中文简体** 回答，采用以下结构（使用 Markdown 格式，多用 Emoji 🌟）：
+
+    ### 1. 🩺 资产体检
+    用一句话点评当前的综合年化收益率（MWR）。是"跑赢通胀"、"稳健增值"还是"激进高收益"？
+
+    ### 2. 💡 机会与风险
+    - **流动性**: 未来30天是否有大额资金到期？(具体到日期和金额)
+    - **风险**: 是否过度集中在某些高风险产品？
     
-    1.  **流动性与现金流 (Liquidity)**: 
-        - Based on the "Liquidity Alert" section, specifically mention if any large funds are freeing up soon (dates and amounts). 
-        - Give advice on re-investment preparation.
-    2.  **投资组合健康度 (Health)**: 
-        - Comment on the weighted yield (${stats.comprehensiveYield.toFixed(2)}%). Is it aggressive or conservative?
-    3.  **风险提示 (Risk)**: 
-        - Check for "Maturity Clumping" (too many items ending same day).
-        - Check for currency concentration.
-    4.  **优化建议 (Optimization)**: 
-        - How to improve yield? (e.g. check rebates, adjust duration).
-    
-    **Format:** Use Markdown with bolding for key figures. Keep it encouraging but professional.
+    ### 3. 🚀 搞钱建议
+    给出1-2条具体的优化建议（例如：建议配置更多固收以平衡风险，或者注意某笔即将到期的资金复投）。
+
+    **要求：**
+    - 语气亲切自然，像朋友聊天。
+    - 重点数据请使用 **加粗** 标记。
+    - 总字数控制在 300 字以内，不要长篇大论。
   `;
 
   try {
@@ -94,36 +62,27 @@ export const getAIAnalysis = async (items: Investment[]) => {
     return response.text;
   } catch (error) {
     console.error("Gemini API Error:", error);
-    return "AI分析暂时不可用，请检查网络或 Key 设置。";
+    return "AI 助手正在休息，请稍后再试。";
   }
 };
 
-// 日历视图专用的月度分析接口
+// ... (getMonthlyCashFlowAnalysis 保持不变或按需微调)
 export const getMonthlyCashFlowAnalysis = async (events: any[], year: number, month: number) => {
+    // (保持原有的代码逻辑即可，或者也加上 Emoji 优化)
     const ai = getAiClient();
-
-    // 简化事件数据
     const simplifiedEvents = events.map(e => ({
-        date: e.date,
-        type: e.type,
-        name: e.name,
-        amount: e.amount,
-        currency: e.currency,
-        isReceived: e.isReceived
+        d: e.date, t: e.type, n: e.name, a: e.amount, c: e.currency
     }));
 
     const prompt = `
-      你是一位贴心的私人理财助理。请根据以下 **${year}年${month}月** 的账本现金流事件，为我生成一份简短的月度资金规划简报。
+      作为理财助理，请分析 ${year}年${month}月 的现金流。
+      数据: ${JSON.stringify(simplifiedEvents)}
       
-      **本月事件列表:**
-      ${JSON.stringify(simplifiedEvents)}
-      
-      请用 **中文简体** 回答，重点关注：
-      1. **📅 关键日期**: 哪天有大额回款(Settlement)？
-      2. **💰 收支概况**: 本月是净投入还是净回款？
-      3. **💡 操作建议**: 针对回款资金的建议。
-      
-      保持简洁。
+      请用中文简体回答：
+      1. 📅 **关键日**: 哪天有大额回款？
+      2. 💰 **收支**: 本月是净投入还是净回款？
+      3. 📝 **建议**: 简短的操作建议。
+      使用 Emoji，保持简洁。
     `;
 
     try {
@@ -134,6 +93,6 @@ export const getMonthlyCashFlowAnalysis = async (events: any[], year: number, mo
         return response.text;
     } catch (error) {
         console.error("Gemini Calendar Analysis Error:", error);
-        return "AI 现金流分析暂时不可用。";
+        return "AI 分析暂时不可用。";
     }
 };
