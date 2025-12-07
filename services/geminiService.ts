@@ -1,16 +1,38 @@
-import { GoogleGenAI } from "@google/genai";
+// import { GoogleGenAI } from "@google/genai";
 import { Investment } from "../types";
 import { calculateItemMetrics, calculatePortfolioStats, formatCurrency } from "../utils";
 
-const getAiClient = () => {
-    if (!process.env.API_KEY) {
-        throw new Error("API Key is missing");
-    }
-    return new GoogleGenAI({ apiKey: process.env.API_KEY });
-};
+// const getAiClient = () => {
+//     if (!process.env.API_KEY) {
+//         throw new Error("API Key is missing");
+//     }
+//     return new GoogleGenAI({ apiKey: process.env.API_KEY });
+// };
+// ✅ 新增：通用请求函数 (请求自己的 Vercel 后端 /api/ai)
+const callGeminiAPI = async (prompt: string): Promise<string> => {
+  try {
+      // 请求您刚刚创建的 api/ai.ts 接口
+      const response = await fetch('/api/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt }) 
+      });
 
+      if (!response.ok) {
+          throw new Error(`API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      // 解析 Google 返回的数据结构
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || "AI 未返回有效内容。";
+  } catch (error) {
+      console.error("Gemini Service Error:", error);
+      return "AI 分析服务暂时不可用，请稍后再试。";
+  }
+};
 export const getAIAnalysis = async (items: Investment[]) => {
-  const ai = getAiClient();
+  // const ai = getAiClient();
   const stats = calculatePortfolioStats(items);
   
   // 1. 基础资产概况 (数据增强)
@@ -92,21 +114,22 @@ export const getAIAnalysis = async (items: Investment[]) => {
     **Format:** Use Markdown. Use Emojis. Be direct.
   `;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
-    return response.text;
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    return "AI分析暂时不可用，请检查网络或 Key 设置。";
-  }
+  // try {
+  //   const response = await ai.models.generateContent({
+  //     model: 'gemini-2.5-flash',
+  //     contents: prompt,
+  //   });
+  //   return response.text;
+  // } catch (error) {
+  //   console.error("Gemini API Error:", error);
+  //   return "AI分析暂时不可用，请检查网络或 Key 设置。";
+  // }
+  return await callGeminiAPI(prompt);
 };
 
 // ... (getMonthlyCashFlowAnalysis 保持不变)
 export const getMonthlyCashFlowAnalysis = async (events: any[], year: number, month: number) => {
-    const ai = getAiClient();
+    // const ai = getAiClient();
 
     const simplifiedEvents = events.map(e => ({
         date: e.date,
@@ -131,14 +154,15 @@ export const getMonthlyCashFlowAnalysis = async (events: any[], year: number, mo
       保持简洁。使用 Emoji。
     `;
 
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-        return response.text;
-    } catch (error) {
-        console.error("Gemini Calendar Analysis Error:", error);
-        return "AI 现金流分析暂时不可用。";
-    }
+    // try {
+    //     const response = await ai.models.generateContent({
+    //         model: 'gemini-2.5-flash',
+    //         contents: prompt,
+    //     });
+    //     return response.text;
+    // } catch (error) {
+    //     console.error("Gemini Calendar Analysis Error:", error);
+    //     return "AI 现金流分析暂时不可用。";
+    // }
+    return await callGeminiAPI(prompt);
 };
