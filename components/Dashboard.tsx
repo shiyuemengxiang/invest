@@ -547,10 +547,17 @@ const { realizedBreakdownList, realizedCategoryData, totalRealized } = useMemo((
         if (!i.maturityDate) return false;
         if (i.withdrawalDate) return false;
         if (i.currentPrincipal <= 0.01) return false; 
-        return true;
+        // 新增：计算天数差
+        const today = new Date();
+        const matDate = new Date(i.maturityDate);
+        const diffTime = matDate.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        // 只显示 0 到 30 天内的（不含逾期，不含30天后）
+        return diffDays >= 0 && diffDays <= 30;
+        // return true;
     })
     .sort((a, b) => new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime())
-    .slice(0, 5)
+    .slice(0, 20)
     .map(i => {
         const m = calculateItemMetrics(i);
         return { ...i, daysRemaining: m.daysRemaining };
