@@ -310,6 +310,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
         } else {
             // 🔥🔥 核心修复点：解决双重计算 🔥🔥
             // 如果是浮动资产且已清仓(qty<=0)，即使没完结(Active)，浮盈也必须为0
+            // 否则会叠加 (Realized Loss) + (Current Return Loss) = Double Loss
             if (item.type === 'Floating' && (!item.currentQuantity || item.currentQuantity <= 0)) {
                 itemUnrealized = 0;
             } else {
@@ -419,6 +420,7 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         }
 
         const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
+        
         if (isCompletedInPeriod) {
             const metrics = calculateItemMetrics(item);
             let netCompletionGain = metrics.baseInterest; 
@@ -496,9 +498,6 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
     };
 };
 
-// ----------------------------------------------------------------
-// [单项核心计算] 修复成本价和浮盈逻辑
-// ----------------------------------------------------------------
 export const calculateItemMetrics = (item: Investment) => {
   const now = new Date();
   const todayStart = new Date().setHours(0,0,0,0);
@@ -537,6 +536,7 @@ export const calculateItemMetrics = (item: Investment) => {
       }
   } else if (isCompleted) {
       
+      // 🟢 修复: 浮动资产完结逻辑 - 支持"手动最终收益"作为兜底
       if (item.type === 'Floating') {
            if (item.totalRealizedProfit !== 0) {
                baseInterest = item.totalRealizedProfit;
@@ -650,7 +650,7 @@ export const calculateItemMetrics = (item: Investment) => {
       comprehensiveYield = item.expectedRate; 
   }
 
-  // 🟢 修复: 成本价计算 (兼容清仓/完结状态)
+  // 🟢 修复 2: 成本价与现价计算 (兼容已完结状态)
   let unitCost = 0;
   let currentPrice = 0;
   const calcQuantity = isCompleted ? (item.quantity || 0) : (item.currentQuantity || 0);
@@ -744,8 +744,8 @@ export const filterInvestmentsByTime = (items: Investment[], filter: TimeFilter,
             case '3m': cutoff.setMonth(cutoff.getMonth() - 3); break;
             case '6m': cutoff.setMonth(cutoff.getMonth() - 6); break;
             case '1y': cutoff.setFullYear(cutoff.getFullYear() - 1); break;
-            case 'ytd': cutoff = new Date(now.getFullYear(), 0, 1); break;
-            case 'mtd': cutoff = new Date(now.getFullYear(), now.getMonth(), 1); break;
+            case 'ytd': start = new Date(now.getFullYear(), 0, 1); break;
+            case 'mtd': start = new Date(now.getFullYear(), now.getMonth(), 1); break;
             default: return true;
         }
         return date >= cutoff;
