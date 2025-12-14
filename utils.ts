@@ -266,7 +266,7 @@ export const getTimeFilterRange = (filter: TimeFilter, customStart?: string, cus
 };
 
 // ----------------------------------------------------------------
-// [逻辑修复] 全局统计函数 (All Time)
+// [核心逻辑修复] 全局统计函数 (All Time)
 // ----------------------------------------------------------------
 export const calculatePortfolioStats = (items: Investment[]) => {
   let totalInvested = 0;
@@ -295,6 +295,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
         totalCapitalWACC += capitalBase * holdingDays;
     }
 
+    // 1. 计算已结 (Realized)
     let itemRealized = 0;
     if (metrics.isCompleted) {
         itemRealized = metrics.baseInterest;
@@ -303,12 +304,13 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     }
     realizedInterest += itemRealized;
 
+    // 2. 计算浮盈 (Unrealized)
+    // 🔥🔥 核心修复点：解决双重计算 🔥🔥
     let itemUnrealized = 0;
     if (!metrics.isCompleted) {
         if (item.type === 'Fixed') {
             itemUnrealized = metrics.accruedReturn;
         } else {
-            // 🔥🔥 核心修复点：解决双重计算 🔥🔥
             // 如果是浮动资产且已清仓(qty<=0)，即使没完结(Active)，浮盈也必须为0
             // 否则会叠加 (Realized Loss) + (Current Return Loss) = Double Loss
             if (item.type === 'Floating' && (!item.currentQuantity || item.currentQuantity <= 0)) {
@@ -375,6 +377,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
   };
 };
 
+// ... (calculatePeriodStats 逻辑相似)
 export const calculatePeriodStats = (items: Investment[], start: Date, end: Date) => {
     let totalInvested = 0; 
     let periodProfit = 0;
@@ -498,6 +501,9 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
     };
 };
 
+// ----------------------------------------------------------------
+// [单项核心计算] 修复成本价和浮盈逻辑
+// ----------------------------------------------------------------
 export const calculateItemMetrics = (item: Investment) => {
   const now = new Date();
   const todayStart = new Date().setHours(0,0,0,0);
@@ -536,7 +542,6 @@ export const calculateItemMetrics = (item: Investment) => {
       }
   } else if (isCompleted) {
       
-      // 🟢 修复: 浮动资产完结逻辑 - 支持"手动最终收益"作为兜底
       if (item.type === 'Floating') {
            if (item.totalRealizedProfit !== 0) {
                baseInterest = item.totalRealizedProfit;
@@ -695,7 +700,10 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
             if (item.type === 'Fixed') {
                  value += metrics.accruedReturn;
             } else {
-                 if (item.currentReturn !== undefined) {
+                 // 🟢 同步修复：如果已清仓(Active但Qty=0)，不再计入 currentReturn
+                 if (item.type === 'Floating' && (!item.currentQuantity || item.currentQuantity <= 0)) {
+                     value += 0;
+                 } else if (item.currentReturn !== undefined) {
                      value += item.currentReturn;
                  }
             }
@@ -706,7 +714,6 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
     return totalValuation;
 };
 
-// 🔥🔥🔥 补充遗漏的 format 函数 🔥🔥🔥
 export const formatCurrency = (amount: number, currency: Currency = 'CNY'): string => {
     const symbol = currency === 'USD' ? '$' : currency === 'HKD' ? 'HK$' : '¥';
     const safeAmount = amount || 0;
@@ -744,8 +751,8 @@ export const filterInvestmentsByTime = (items: Investment[], filter: TimeFilter,
             case '3m': cutoff.setMonth(cutoff.getMonth() - 3); break;
             case '6m': cutoff.setMonth(cutoff.getMonth() - 6); break;
             case '1y': cutoff.setFullYear(cutoff.getFullYear() - 1); break;
-            case 'ytd': start = new Date(now.getFullYear(), 0, 1); break;
-            case 'mtd': start = new Date(now.getFullYear(), now.getMonth(), 1); break;
+            case 'ytd': cutoff = new Date(now.getFullYear(), 0, 1); break;
+            case 'mtd': cutoff = new Date(now.getFullYear(), now.getMonth(), 1); break;
             default: return true;
         }
         return date >= cutoff;
