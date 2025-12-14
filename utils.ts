@@ -185,37 +185,67 @@ export const convertCurrency = (amount: number, from: Currency, to: Currency, ra
     return inCNY / rates[to];
 };
 
+// ----------------------------------------------------------------
+// [核心修复] 今日收益：支持券商算法 (涨跌幅倒推) + 现金流
+// ----------------------------------------------------------------
 export const calculateDailyReturn = (item: Investment): number => {
     const todayStart = new Date().setHours(0,0,0,0);
-    const depositStart = new Date(item.depositDate).setHours(0,0,0,0);
-    if (todayStart < depositStart) return 0;
+    const todayISO = new Date().toISOString().split('T')[0];
+    
+    // 如果已经结清，今日无收益
     if (item.withdrawalDate) return 0;
 
+    let dailyUnrealized = 0;
     const activePrincipal = item.currentPrincipal; 
-    let dailyVal = 0;
 
-    if (item.type === 'Floating') {
-        if (item.estGrowth && activePrincipal > 0) {
-            const currentTotalValue = activePrincipal + (item.currentReturn || 0);
-            const baseValue = Math.max(0, currentTotalValue);
-            dailyVal = baseValue * (item.estGrowth / 100);
+    // 1. 处理 "今日新建仓"：今日盈亏 = 总浮盈
+    const isBoughtToday = todayISO === item.depositDate;
+
+    if (isBoughtToday) {
+        if (item.type === 'Floating') {
+             dailyUnrealized = item.currentReturn || 0;
+        } else if (item.type === 'Fixed') {
+             const basis = Number(item.interestBasis || 365);
+             dailyUnrealized = activePrincipal * ((item.expectedRate || 0) / 100) / basis;
         }
-    } else if (item.type === 'Fixed' && item.expectedRate) {
-        const basis = Number(item.interestBasis || 365);
-        dailyVal = activePrincipal * (item.expectedRate / 100) / basis;
+    } else {
+        // 2. 处理 "持仓过夜"
+        if (item.type === 'Floating') {
+            if (item.estGrowth && activePrincipal > 0) {
+                // 当前市值 = 本金 + 当前总浮盈
+                const currentTotalValue = activePrincipal + (item.currentReturn || 0);
+                
+                // estGrowth 是涨跌幅% (例如 1.5 代表 1.5%)
+                const rate = item.estGrowth / 100;
+                
+                // 🔥 核心修正：券商算法 PnL = V_now * (r / (1+r))
+                if (rate !== -1) {
+                    dailyUnrealized = currentTotalValue * (rate / (1 + rate));
+                }
+            }
+        } else if (item.type === 'Fixed' && item.expectedRate) {
+            // 固收每日利息
+            const basis = Number(item.interestBasis || 365);
+            dailyUnrealized = activePrincipal * (item.expectedRate / 100) / basis;
+        }
     }
 
-    const todayISO = new Date().toISOString().split('T')[0];
+    // 3. 加上今日 "已实现" 现金流
+    let dailyRealized = 0;
     if (item.transactions) {
         item.transactions.forEach(tx => {
             const txDate = tx.date.split('T')[0];
-            if (txDate === todayISO && (tx.type === 'Fee' || tx.type === 'Tax')) {
-                dailyVal -= tx.amount;
+            if (txDate === todayISO) {
+                if (tx.type === 'Dividend' || tx.type === 'Interest') {
+                    dailyRealized += tx.amount;
+                } else if (tx.type === 'Fee' || tx.type === 'Tax') {
+                    dailyRealized -= tx.amount;
+                }
             }
         });
     }
 
-    return dailyVal;
+    return dailyUnrealized + dailyRealized;
 };
 
 export const getTimeFilterRange = (filter: TimeFilter, customStart?: string, customEnd?: string): { start: Date, end: Date } => {
@@ -223,9 +253,7 @@ export const getTimeFilterRange = (filter: TimeFilter, customStart?: string, cus
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const end = new Date(today);
     end.setHours(23, 59, 59, 999);
-    
     let start = new Date(today);
-
     switch (filter) {
         case '1m': start.setMonth(start.getMonth() - 1); break;
         case '3m': start.setMonth(start.getMonth() - 3); break;
@@ -252,114 +280,107 @@ export const getTimeFilterRange = (filter: TimeFilter, customStart?: string, cus
 // [逻辑修复] 全局统计函数 (All Time)
 // ----------------------------------------------------------------
 export const calculatePortfolioStats = (items: Investment[]) => {
-  let totalInvested = 0;
-  let activePrincipal = 0;
-  let completedPrincipal = 0;
-  let totalRebate = 0;
-  let pendingRebate = 0;
-  let receivedRebate = 0;
-  let realizedInterest = 0;
-  let projectedTotalProfit = 0;
-  let todayEstProfit = 0;
+    let totalInvested = 0;
+    let activePrincipal = 0;
+    let completedPrincipal = 0;
+    let totalRebate = 0;
+    let pendingRebate = 0;
+    let receivedRebate = 0;
+    let realizedInterest = 0;
+    let projectedTotalProfit = 0;
+    let todayEstProfit = 0;
+    let totalCapitalWACC = 0;
+    let weightedYieldSum = 0;
+    let totalWeight = 0;
+    const todayISO = new Date().toISOString().split('T')[0];
   
-  let totalCapitalWACC = 0; // NEW: Sum of (Capital * Days Held) for MWR
+    items.forEach(item => {
+      const metrics = calculateItemMetrics(item);
+      totalInvested += item.totalCost; 
+      totalRebate += item.rebate;
+      const holdingDays = metrics.isCompleted 
+          ? getDaysDiff(item.depositDate, item.withdrawalDate) 
+          : getDaysDiff(item.depositDate, new Date().toISOString().split('T')[0]);
+      const capitalBase = item.totalCost;
+      if (holdingDays > 0 && capitalBase > 0) {
+          totalCapitalWACC += capitalBase * holdingDays;
+      }
   
-  const todayISO = new Date().toISOString().split('T')[0];
-
-  items.forEach(item => {
-    const metrics = calculateItemMetrics(item);
-    
-    totalInvested += item.totalCost; 
-    totalRebate += item.rebate;
-    
-    // WACC Calculation (Total Days from Deposit to Withdrawal/Today)
-    const holdingDays = metrics.isCompleted 
-        ? getDaysDiff(item.depositDate, item.withdrawalDate) 
-        : getDaysDiff(item.depositDate, new Date().toISOString().split('T')[0]);
-        
-    const capitalBase = item.totalCost; // Use initial investment cost as the capital base
-    if (holdingDays > 0 && capitalBase > 0) {
-        totalCapitalWACC += capitalBase * holdingDays;
-    }
-    
-    // Projected Total Profit (MWR Numerator): Accrued Profit + Received Rebate + Realized Tx P&L
-    let currentProfitSum = 0;
-    if (!metrics.isCompleted && !metrics.isPending && item.type === 'Fixed') {
-        currentProfitSum = metrics.accruedReturn; // Use accrued for fixed active
-    } else if (metrics.type === 'Floating') {
-        currentProfitSum = metrics.baseInterest; // Use baseInterest (currentReturn + realized txs)
-    } else {
-        currentProfitSum = metrics.baseInterest; // Use baseInterest (fixed interest + realized txs)
-    }
-    
-    currentProfitSum += (item.isRebateReceived ? item.rebate : 0); // Add only RECEIVED rebate
-    currentProfitSum += item.totalRealizedProfit; // Add realized transaction P&L
-    
-    projectedTotalProfit += currentProfitSum;
-
-    // Fee deduction for projection (Future fees are NOT included in MWR Numerator)
-    if (!metrics.isCompleted && item.transactions) {
-        item.transactions.forEach(tx => {
-            const txDate = tx.date.split('T')[0];
-            if (txDate > todayISO && (tx.type === 'Fee' || tx.type === 'Tax')) {
-                projectedTotalProfit -= tx.amount;
-            }
-        });
-    }
-    
-    if (!metrics.isCompleted) {
-        todayEstProfit += calculateDailyReturn(item);
-    }
-
-    if (item.isRebateReceived) {
-      receivedRebate += item.rebate;
-    } else {
-      pendingRebate += item.rebate;
-    }
-
-    if (metrics.isCompleted) {
-      completedPrincipal += item.totalCost;
-      realizedInterest += metrics.baseInterest;
-    } else {
-      activePrincipal += item.currentPrincipal;
-      realizedInterest += item.totalRealizedProfit;
-    }
-
-    // Weighted Yield
-    if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0)) { 
-        // We safely remove the old TWR summation which is now replaced by MWR logic.
-    }
-  });
+      let itemRealized = 0;
+      if (metrics.isCompleted) {
+          itemRealized = metrics.baseInterest;
+      } else {
+          itemRealized = item.totalRealizedProfit;
+      }
+      realizedInterest += itemRealized;
   
-  // -------------------------------------------------------------
-  // 🔥 核心修复点：将 "已到账返利" 累加到 "总已落袋收益" 中,
-  // -------------------------------------------------------------
-
-  realizedInterest += receivedRebate;
-
-  let portfolioYield = 0;
-  if (totalCapitalWACC > 0) {
-      // MWR / WACC Annualized Yield = (Total Profit / Total Capital WACC) * 365 * 100%
-      portfolioYield = (projectedTotalProfit / totalCapitalWACC) * 365 * 100;
-  }
+      let itemUnrealized = 0;
+      if (!metrics.isCompleted) {
+          if (item.type === 'Fixed') {
+              itemUnrealized = metrics.accruedReturn;
+          } else {
+              itemUnrealized = item.currentReturn || 0;
+          }
+      }
+      const itemRebateReceived = item.isRebateReceived ? item.rebate : 0;
+      projectedTotalProfit += (itemRealized + itemUnrealized + itemRebateReceived);
   
-  const projectedTotalYield = totalInvested > 0 ? (projectedTotalProfit / totalInvested) * 100 : 0;
-
-  return {
-    totalInvested,
-    activePrincipal,
-    completedPrincipal,
-    totalRebate,
-    pendingRebate,
-    receivedRebate,
-    realizedInterest, // 现在的 realizedInterest 已经包含返利了
-    projectedTotalProfit,
-    projectedTotalYield,
-    todayEstProfit,
-    comprehensiveYield: portfolioYield,
-    totalCapitalWACC // NEW RETURN FIELD
+      if (!metrics.isCompleted && item.transactions) {
+          item.transactions.forEach(tx => {
+              const txDate = tx.date.split('T')[0];
+              if (txDate > todayISO && (tx.type === 'Fee' || tx.type === 'Tax')) {
+                  projectedTotalProfit -= tx.amount;
+              }
+          });
+      }
+      
+      if (!metrics.isCompleted) {
+          todayEstProfit += calculateDailyReturn(item);
+      }
+  
+      if (item.isRebateReceived) receivedRebate += item.rebate;
+      else pendingRebate += item.rebate;
+  
+      if (metrics.isCompleted) {
+          completedPrincipal += item.totalCost;
+      } else {
+          activePrincipal += item.currentPrincipal;
+      }
+  
+      if (!metrics.isPending && (metrics.hasYieldInfo || item.rebate > 0)) { 
+           const weight = (metrics.isCompleted || item.type === 'Floating') ? item.totalCost : item.currentPrincipal;
+           if (weight > 0) {
+               weightedYieldSum += metrics.comprehensiveYield * weight;
+               totalWeight += weight;
+           }
+      }
+    });
+  
+    // realizedInterest 保持纯净，不包含返利
+    // Dashboard UI 中会单独加 receivedRebate
+  
+    let portfolioYield = 0;
+    if (totalCapitalWACC > 0) {
+        portfolioYield = (projectedTotalProfit / totalCapitalWACC) * 365 * 100;
+    }
+    
+    const projectedTotalYield = totalInvested > 0 ? (projectedTotalProfit / totalInvested) * 100 : 0;
+  
+    return {
+      totalInvested,
+      activePrincipal,
+      completedPrincipal,
+      totalRebate,
+      pendingRebate,
+      receivedRebate,
+      realizedInterest, 
+      projectedTotalProfit,
+      projectedTotalYield,
+      todayEstProfit,
+      comprehensiveYield: portfolioYield,
+      totalCapitalWACC
+    };
   };
-};
 
 // ----------------------------------------------------------------
 // Period Stats Logic (Fixed: use totalCost for closed items)
@@ -368,13 +389,10 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
     let totalInvested = 0; 
     let periodProfit = 0;
     let realizedInPeriod = 0;
-    
-    let totalCapitalWACC = 0; // NEW: Sum of (Capital * Days Held) for MWR
-    
+    let totalCapitalWACC = 0; 
     let totalRebate = 0;
     let pendingRebate = 0;
     let receivedRebate = 0;
-
     const isBetween = (dateStr: string) => {
         const d = new Date(dateStr);
         return d >= start && d <= end;
@@ -383,7 +401,6 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
     items.forEach(item => {
         const depositDate = new Date(item.depositDate);
         const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
-        
         if (depositDate > end) return;
         if (withdrawalDate && withdrawalDate < start) return;
 
@@ -397,35 +414,26 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
             overlapDays = (overlapEnd.getTime() - overlapStart.getTime()) / MS_PER_DAY;
         }
 
-        // WACC Calculation (Period WACC)
-        const capitalBase = item.totalCost; // Use total investment cost as the capital base
+        const capitalBase = item.totalCost; 
         if (overlapDays > 0 && capitalBase > 0) {
-             // WACC should only count holding days *within* the filter period
              totalCapitalWACC += capitalBase * overlapDays;
         }
-
 
         let itemPeriodProfit = 0;
         const calculationPrincipal = item.currentPrincipal > 0.01 ? item.currentPrincipal : item.totalCost;
         let fixedInterestProjection = 0;
 
-        // 1. Fixed Interest Projection (for Projected Profit)
         if (item.type === 'Fixed' && item.expectedRate && calculationPrincipal > 0) {
             const basis = Number(item.interestBasis || 365);
             fixedInterestProjection = calculationPrincipal * (item.expectedRate / 100) * (overlapDays / basis);
             itemPeriodProfit += fixedInterestProjection;
         }
 
-        // 2. Realized Completion Net Profit (The core fix for '已完结项目净利')
         const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
         
         if (isCompletedInPeriod) {
             const metrics = calculateItemMetrics(item);
-            
-            // metrics.baseInterest: Total fixed interest (for Fixed) OR total realized return (for Floating)
             let netCompletionGain = metrics.baseInterest; 
-            
-            // Subtract P&L Transactions (Div/Int/Fee/Tax) AND Rebates that were realized BEFORE the period start.
             let realizedPnlTxBeforePeriod = 0;
             if (item.transactions) {
                 item.transactions.forEach(tx => {
@@ -436,42 +444,32 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
                     }
                 });
             }
-            // 考虑提前收到的返利
-            // if (item.isRebateReceived && new Date(item.depositDate) < start) {
-            //     realizedPnlTxBeforePeriod += item.rebate;
-            // }
-            
-            // Completion Net Profit = Total Lifetime Net Gain - Portion realized BEFORE the period
+            if (item.isRebateReceived && new Date(item.depositDate) < start) {
+                realizedPnlTxBeforePeriod += item.rebate;
+            }
             const completionNetProfit = netCompletionGain - realizedPnlTxBeforePeriod;
-            
-            // Add to the period's total realized amount (Fixes the main card issue)
             realizedInPeriod += completionNetProfit;
 
-            // Adjust projected profit (Fixes consistency with the breakdown chart):
             if (item.type === 'Fixed') {
-                // For Fixed, the completion net profit replaces the original interest projection.
                 itemPeriodProfit = itemPeriodProfit - fixedInterestProjection + completionNetProfit;
             } else {
                 itemPeriodProfit += completionNetProfit;
             }
         }
         
-        // 3. Rebate 
         if (isBetween(item.depositDate)) {
             totalRebate += item.rebate;
             itemPeriodProfit += item.rebate;
             if (item.isRebateReceived) {
-                // realizedInPeriod += item.rebate;
+                // realizedInPeriod += item.rebate; // Rebate excluded from realizedInterest for consistency
                 receivedRebate += item.rebate;
             } else {
                 pendingRebate += item.rebate;
             }
         }
 
-        // 4. P&L Transactions (Div/Int/Fee/Tax) - only those *in* the period
         if (item.transactions) {
             item.transactions.forEach(tx => {
-                // Only count transactions if the item was NOT completed in the period.
                 if (!isCompletedInPeriod) {
                     if (isBetween(tx.date)) {
                         if (tx.type === 'Dividend' || tx.type === 'Interest') {
@@ -487,19 +485,19 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         }
         
         periodProfit += itemPeriodProfit;
-        totalInvested += capitalBase; // Total invested capital in the period (for UI consistency)
-    })
+        const weight = calculationPrincipal;
+        totalInvested += weight;
+    });
 
     let portfolioYield = 0;
     if (totalCapitalWACC > 0) {
-        // MWR / WACC Annualized Yield = (Period Profit / Total Capital WACC) * 365 * 100%
         portfolioYield = (periodProfit / totalCapitalWACC) * 365 * 100;
     }
 
     return {
         projectedTotalProfit: periodProfit,
         realizedInterest: realizedInPeriod,
-        activePrincipal: totalInvested, // Total invested capital in the period (for UI consistency)
+        activePrincipal: totalInvested,
         comprehensiveYield: portfolioYield,
         totalInvested: totalInvested,
         completedPrincipal: 0,
@@ -508,199 +506,200 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         receivedRebate: receivedRebate,
         projectedTotalYield: 0,
         todayEstProfit: 0,
-        totalCapitalWACC: totalCapitalWACC // NEW RETURN FIELD
+        totalCapitalWACC: totalCapitalWACC
     };
 };
 
 export const calculateItemMetrics = (item: Investment) => {
-  const now = new Date();
-  const todayStart = new Date().setHours(0,0,0,0);
-  const deposit = new Date(item.depositDate);
-  const depositStart = new Date(item.depositDate).setHours(0,0,0,0);
-  const maturity = item.maturityDate ? new Date(item.maturityDate) : null;
-  const withdrawal = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
-  const isCompleted = !!item.withdrawalDate;
-  const isPending = todayStart < depositStart;
-
-  const activePrincipal = item.currentPrincipal; 
-  const currentQuantity = item.currentQuantity || 0;
+    const now = new Date();
+    const todayStart = new Date().setHours(0,0,0,0);
+    const deposit = new Date(item.depositDate);
+    const depositStart = new Date(item.depositDate).setHours(0,0,0,0);
+    const maturity = item.maturityDate ? new Date(item.maturityDate) : null;
+    const withdrawal = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
+    const isCompleted = !!item.withdrawalDate;
+    const isPending = todayStart < depositStart;
   
-  const interestBasis = Number(item.interestBasis || '365');
-
-  let occupiedDurationMs = 0;
-  if (!isPending) {
-      if (isCompleted && withdrawal) {
-          occupiedDurationMs = withdrawal.getTime() - deposit.getTime();
-      } else {
-          occupiedDurationMs = now.getTime() - deposit.getTime();
-      }
-  }
-  occupiedDurationMs = Math.max(0, occupiedDurationMs);
-  const realDurationDays = Math.round(occupiedDurationMs / MS_PER_DAY); 
+    const activePrincipal = item.currentPrincipal; 
+    const currentQuantity = item.currentQuantity || 0;
+    const interestBasis = Number(item.interestBasis || 365);
   
-  // 核心天数计算：计息天数 (Accrual Days) 和 持有天数 (Holding Days)
-  // Fixed interest accrual period (Deposit -> Maturity)
-  const durationForAccrual = item.type === 'Fixed' && maturity ? getDaysDiff(item.depositDate, item.maturityDate) : 0;
-  // Actual holding period for yield annualization (Deposit -> Withdrawal/Today)
-  const durationForAnnualization = isCompleted ? getDaysDiff(item.depositDate, item.withdrawalDate) : realDurationDays;
-  
-  let baseInterest = 0;
-  let annualizedYield = 0;
-  let holdingYield = 0;
-  let hasYieldInfo = true;
-  let accruedReturn = 0;
-
-  if (isPending) {
-      hasYieldInfo = true;
-      if (item.type === 'Fixed' && item.expectedRate) {
-           annualizedYield = item.expectedRate;
-      }
-  } else if (isCompleted) {
-      
-      // 1. Fixed Interest Calculation (using Maturity days)
-      const fixedInterest = item.type === 'Fixed' && item.expectedRate && item.totalCost > 0 && durationForAccrual > 0
-          ? item.totalCost * (item.expectedRate / 100) * (durationForAccrual / interestBasis) 
-          : 0;
-      
-      // 2. Determine final net product P&L (baseInterest)
-      // FIX: Prefer item.currentReturn (manual final P&L) if set for Floating. 
-      if (item.currentReturn !== undefined && item.type === 'Floating') {
-          // Use manual final profit/loss (which is -814.64 in the user example)
-          baseInterest = item.currentReturn + item.totalRealizedProfit;
-      } else {
-          // Fixed or Floating w/o manual final P&L: rely on fixed interest accrual + transaction sum
-          baseInterest = fixedInterest + item.totalRealizedProfit;
-      }
-      
-      const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
-      if (calcBase > 0 && baseInterest !== 0) {
-        holdingYield = (baseInterest / calcBase) * 100;
-        // 修正 实测年化 公式: 使用 item.interestBasis 作为年化基准
-        if (durationForAnnualization > 0) {
-            annualizedYield = (holdingYield / (durationForAnnualization / interestBasis));
+    let occupiedDurationMs = 0;
+    if (!isPending) {
+        if (isCompleted && withdrawal) {
+            occupiedDurationMs = withdrawal.getTime() - deposit.getTime();
+        } else {
+            occupiedDurationMs = now.getTime() - deposit.getTime();
         }
-      }
-
-  } else if (item.type === 'Fixed' && item.expectedRate) {
-      // --- REVISED FIXED ACTIVE ACCRUAL LOGIC ---
-      const rate = item.expectedRate;
-      const daysInYear = Number(item.interestBasis || 365);
-      
-      // 1. Total Expected Profit (Full Term) - 用于 '截止到期预估收益'
-      baseInterest = durationForAccrual > 0 ? (activePrincipal * (rate / 100) * (durationForAccrual / daysInYear)) : 0;
-      
-      // 2. Accrued Profit (Up to Today) - 用于 '截止今日预估'
-      const accrualDays = getDaysDiff(item.depositDate, now.toISOString().split('T')[0]);
-      accruedReturn = accrualDays > 0 ? (activePrincipal * (rate / 100) * (accrualDays / daysInYear)) : 0;
-
-      // Yield calculation uses the total expected rate/return for comparison
-      if (activePrincipal > 0) {
-          holdingYield = (baseInterest / activePrincipal) * 100;
-          if (durationForAccrual > 0) {
-             annualizedYield = rate;
+    }
+    occupiedDurationMs = Math.max(0, occupiedDurationMs);
+    const realDurationDays = Math.round(occupiedDurationMs / MS_PER_DAY); 
+    
+    let baseInterest = 0;
+    let annualizedYield = 0;
+    let holdingYield = 0;
+    let hasYieldInfo = true;
+    let accruedReturn = 0;
+  
+    if (isPending) {
+        hasYieldInfo = true;
+        if (item.type === 'Fixed' && item.expectedRate) {
+             annualizedYield = item.expectedRate;
+        }
+    } else if (isCompleted) {
+        
+        // 🟢 修复 1: 浮动资产完结逻辑 - 支持"手动最终收益"作为兜底
+        if (item.type === 'Floating') {
+             if (item.totalRealizedProfit !== 0) {
+                 baseInterest = item.totalRealizedProfit;
+             } else if (item.currentReturn !== undefined && item.currentReturn !== 0) {
+                 // 如果没有交易流水（如只记了买入，最后手动填了总收益），使用 currentReturn
+                 baseInterest = item.currentReturn;
+             } else {
+                 baseInterest = 0;
+             }
+        } else {
+            const fixedInterest = item.expectedRate && item.totalCost > 0 
+                ? item.totalCost * (item.expectedRate / 100) * (realDurationDays / interestBasis)
+                : 0;
+            baseInterest = item.totalRealizedProfit !== 0 ? item.totalRealizedProfit : fixedInterest;
+        }
+        
+        const finalGain = baseInterest + (item.isRebateReceived ? item.rebate : 0);
+        const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
+        
+        if (calcBase > 0) {
+          holdingYield = (finalGain / calcBase) * 100;
+          if (realDurationDays > 0) {
+              annualizedYield = (holdingYield / (realDurationDays / 365));
           }
-      } else {
-          hasYieldInfo = false;
-      }
-
-  } else if (item.type === 'Floating') {
-      
-      // FIX: Consolidate P&L calculation to run if total realized or unrealized profit exists.
-      const currentReturn = item.currentReturn !== undefined ? item.currentReturn : 0;
-      const totalPnl = currentReturn + item.totalRealizedProfit;
-
-      if (totalPnl !== 0 || item.expectedRate) { 
-          hasYieldInfo = true;
-          const costBasis = item.totalCost > 0 ? item.totalCost : item.principal > 0 ? item.principal : activePrincipal;
-          
-          if (item.expectedRate) {
-              // Case 2 Logic: Use expected rate for projection
-              const rate = item.expectedRate;
-              annualizedYield = rate;
-              baseInterest = activePrincipal * (rate / 100) * (realDurationDays / 365);
-              if (activePrincipal > 0) holdingYield = (baseInterest / activePrincipal) * 100;
-
-          } else {
-              // Case 1 & 3 Logic: Use actual P&L to derive yield (FIXES THE USER SCENARIO)
-              baseInterest = totalPnl; 
-              
-              if (costBasis > 0) {
-                  holdingYield = (baseInterest / costBasis) * 100;
-                  if (realDurationDays > 0) {
-                      annualizedYield = (holdingYield / (realDurationDays / 365));
-                  }
+        }
+  
+    } else if (item.type === 'Fixed' && item.expectedRate) {
+        // Active Fixed Logic
+        const rate = item.expectedRate;
+        annualizedYield = rate;
+        
+        // Segmented Interest Calculation
+        const relevantTxs = (item.transactions || []).filter(t => t.type === 'Buy' || t.type === 'Sell');
+        const sortedTxs = [...relevantTxs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        const calculateSegmentedInterest = (endDate: Date) => {
+            let totalInterest = 0;
+            let currentBalance = 0;
+            for (let i = 0; i < sortedTxs.length; i++) {
+                const tx = sortedTxs[i];
+                const txDate = new Date(tx.date);
+                const nextTx = sortedTxs[i+1];
+                const nextDate = nextTx ? new Date(nextTx.date) : endDate;
+                if (tx.type === 'Buy') currentBalance += tx.amount;
+                else if (tx.type === 'Sell') currentBalance -= tx.amount;
+                
+                const segmentEnd = nextDate < endDate ? nextDate : endDate;
+                if (segmentEnd > txDate) {
+                    const days = (segmentEnd.getTime() - txDate.getTime()) / MS_PER_DAY;
+                    if (days > 0 && currentBalance > 0) {
+                        totalInterest += currentBalance * (rate / 100) * (days / interestBasis);
+                    }
+                }
+                if (new Date(nextTx?.date || '') > endDate) break;
+            }
+            return totalInterest;
+        };
+  
+        accruedReturn = calculateSegmentedInterest(now);
+        if (maturity) baseInterest = calculateSegmentedInterest(maturity);
+        if (activePrincipal > 0 && maturity) holdingYield = (baseInterest / activePrincipal) * 100;
+  
+    } else if (item.type === 'Floating') {
+        // Active Floating Logic
+        if (item.currentReturn !== undefined) {
+            baseInterest = item.currentReturn; 
+            const totalValueChange = item.currentReturn + item.totalRealizedProfit;
+            const costBasis = item.totalCost > 0 ? item.totalCost : activePrincipal;
+            
+            if (costBasis > 0) {
+              holdingYield = (totalValueChange / costBasis) * 100;
+              if (realDurationDays > 0) {
+                  annualizedYield = (holdingYield / (realDurationDays / 365));
               }
-          }
-          
-      } else {
-          hasYieldInfo = false;
-      }
-  } else {
-      hasYieldInfo = false;
-  }
+            }
+        } else if (item.expectedRate) {
+             const rate = item.expectedRate;
+             annualizedYield = rate;
+             baseInterest = activePrincipal * (rate / 100) * (realDurationDays / 365);
+             if (activePrincipal > 0) holdingYield = (baseInterest / activePrincipal) * 100;
+        } else {
+            if (item.totalRealizedProfit !== 0) {
+                baseInterest = item.totalRealizedProfit;
+                hasYieldInfo = true;
+                const costBasis = item.totalCost > 0 ? item.totalCost : activePrincipal;
+                if (costBasis > 0) {
+                    holdingYield = (baseInterest / costBasis) * 100;
+                    if (realDurationDays > 0) {
+                        annualizedYield = (holdingYield / (realDurationDays / 365));
+                    }
+                }
+            } else {
+                hasYieldInfo = false;
+            }
+        }
+    } else {
+        hasYieldInfo = false;
+    }
+    
+    const totalReturn = baseInterest + item.rebate + (!isCompleted && item.type === 'Floating' ? item.totalRealizedProfit : 0);
+    
+    let comprehensiveYield = 0;
+    const yieldBase = isCompleted || item.type === 'Floating' ? item.totalCost : activePrincipal;
   
-//   const totalReturn = baseInterest + item.rebate + item.totalRealizedProfit; 
-// remove rebate     
-const totalReturn = baseInterest  + item.totalRealizedProfit; 
-
+    if (!isPending && (hasYieldInfo || item.rebate > 0) && realDurationDays > 0 && yieldBase > 0) {
+         const gainForYield = (isCompleted ? baseInterest : (item.currentReturn || 0) + item.totalRealizedProfit) + (item.isRebateReceived ? item.rebate : 0);
+         comprehensiveYield = (gainForYield / yieldBase) * 100 / (realDurationDays / 365);
+    } else if (isPending && item.type === 'Fixed' && item.expectedRate) {
+        comprehensiveYield = item.expectedRate; 
+    }
   
-  let comprehensiveYield = 0;
-  const yieldBase = isCompleted || item.type === 'Floating' ? item.totalCost : activePrincipal;
-  const finalGain = baseInterest + (item.isRebateReceived ? item.rebate : 0); // Total Net Profit + Received Rebate (For COMPLETED calculation)
-
-
-  if (!isPending && (hasYieldInfo || item.rebate > 0) && durationForAnnualization > 0 && yieldBase > 0) {
-      if (item.type === 'Fixed' && !isCompleted && item.expectedRate) {
-          const rebateYield = (item.rebate / yieldBase) * 100 / (realDurationDays / 365);
-          comprehensiveYield = item.expectedRate + rebateYield;
-      } else if (isCompleted) {
-          // 修正 实测年化 公式: 使用 item.interestBasis 作为年化基准， durationForAnnualization (取出时间-存入时间) 作为持有时间
-          const holdingYield = (finalGain / yieldBase) * 100;
-          comprehensiveYield = holdingYield * (interestBasis / durationForAnnualization);
-      } else {
-          const yieldVal = (totalReturn / yieldBase) * 100;
-          comprehensiveYield = yieldVal * (interestBasis / durationForAnnualization);
-      }
-  } else if (isPending && item.type === 'Fixed' && item.expectedRate) {
-      comprehensiveYield = item.expectedRate; 
-  }
-
-  const profit = totalReturn; 
+    // 🟢 修复 2: 成本价与现价计算 (兼容已完结状态)
+    let unitCost = 0;
+    let currentPrice = 0;
+    // 如果已完结，currentQuantity=0，需使用原始 quantity；否则使用 currentQuantity
+    const calcQuantity = isCompleted ? (item.quantity || 0) : (item.currentQuantity || 0);
+    const calcPrincipal = isCompleted ? item.totalCost : activePrincipal;
   
-  let unitCost = 0;
-  let currentPrice = 0;
-  if (currentQuantity && currentQuantity > 0) {
-      unitCost = activePrincipal / currentQuantity;
-      const currentTotalValue = activePrincipal + (isCompleted ? baseInterest : (item.currentReturn || accruedReturn)) + (item.type === 'Floating' ? item.totalRealizedProfit : 0);
-      currentPrice = currentTotalValue / currentQuantity;
-  }
-
-  return {
-    interestDays: realDurationDays,
-    baseInterest, 
-    totalReturn,
-    profit,
-    realDurationDays,
-    annualizedYield,
-    holdingYield,
-    comprehensiveYield,
-    accruedReturn, 
-    isCompleted,
-    isPending,
-    hasYieldInfo,
-    daysRemaining: item.maturityDate ? getDaysRemaining(item.maturityDate) : 0,
-    unitCost,
-    currentPrice
+    if (calcQuantity > 0) {
+         unitCost = calcPrincipal / calcQuantity;
+         
+         // 现价计算：Active = (本金+浮盈)/Qty, Completed = (成本+净利)/Qty (即平均卖出价)
+         const profitValue = isCompleted ? baseInterest : (item.currentReturn || accruedReturn);
+         const currentVal = calcPrincipal + profitValue; 
+         currentPrice = currentVal / calcQuantity;
+    }
+  
+    return {
+      interestDays: realDurationDays,
+      baseInterest, 
+      totalReturn,
+      profit: totalReturn,
+      realDurationDays,
+      annualizedYield,
+      holdingYield,
+      comprehensiveYield,
+      accruedReturn, 
+      isCompleted,
+      isPending,
+      hasYieldInfo,
+      daysRemaining: item.maturityDate ? getDaysRemaining(item.maturityDate) : 0,
+      unitCost,
+      currentPrice
+    };
   };
-};
 
-export const calculateTotalValuation = (items: Investment[], targetCurrency: Currency, rates: ExchangeRates) => {
+  export const calculateTotalValuation = (items: Investment[], targetCurrency: Currency, rates: ExchangeRates) => {
     let totalValuation = 0;
-
     items.forEach(item => {
         const metrics = calculateItemMetrics(item);
         let value = item.currentPrincipal;
-
         if (metrics.isCompleted) {
             value = 0; 
         } else if (metrics.isPending) {
@@ -709,18 +708,14 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
             if (item.type === 'Fixed') {
                  value += metrics.accruedReturn;
             } else {
-                 if (metrics.currentReturn !== undefined) {
-                     value += metrics.currentReturn;
-                 } else {
-                    // If currentReturn is not set, use accrued interest or keep currentPrincipal as proxy
-                    value += metrics.accruedReturn;
+                 if (item.currentReturn !== undefined) {
+                     value += item.currentReturn;
                  }
             }
-            value += item.totalRealizedProfit; // Add realized profit back for valuation
+            value += item.totalRealizedProfit; 
         }
         totalValuation += convertCurrency(value, item.currency, targetCurrency, rates);
     });
-
     return totalValuation;
 };
 
