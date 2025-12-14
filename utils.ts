@@ -203,7 +203,7 @@ export const calculateDailyReturn = (item: Investment): number => {
              dailyUnrealized = activePrincipal * ((item.expectedRate || 0) / 100) / basis;
         }
     } else {
-        // 🔥 核心修正: 如果当前持仓为0 (已清仓未归档)，不应产生市值波动的盈亏
+        // 🔥 修复：如果已清仓(qty<=0)，即使未完结，也不应有每日市值波动
         if (item.type === 'Floating') {
             if (item.currentQuantity && item.currentQuantity > 0 && item.estGrowth && activePrincipal > 0) {
                 const currentTotalValue = activePrincipal + (item.currentReturn || 0);
@@ -266,7 +266,7 @@ export const getTimeFilterRange = (filter: TimeFilter, customStart?: string, cus
 };
 
 // ----------------------------------------------------------------
-// [逻辑修复] 全局统计函数 (All Time)
+// [核心逻辑修复] 全局统计函数 (All Time)
 // ----------------------------------------------------------------
 export const calculatePortfolioStats = (items: Investment[]) => {
   let totalInvested = 0;
@@ -295,6 +295,7 @@ export const calculatePortfolioStats = (items: Investment[]) => {
         totalCapitalWACC += capitalBase * holdingDays;
     }
 
+    // 1. 计算已结 (Realized)
     let itemRealized = 0;
     if (metrics.isCompleted) {
         itemRealized = metrics.baseInterest;
@@ -303,12 +304,13 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     }
     realizedInterest += itemRealized;
 
+    // 2. 计算浮盈 (Unrealized)
+    // 🔥🔥 核心修复点：解决双重计算 🔥🔥
     let itemUnrealized = 0;
     if (!metrics.isCompleted) {
         if (item.type === 'Fixed') {
             itemUnrealized = metrics.accruedReturn;
         } else {
-            // 🔥🔥 核心修复点：解决双重计算 🔥🔥
             // 如果是浮动资产且已清仓(qty<=0)，即使没完结(Active)，浮盈也必须为0
             // 否则会叠加 (Realized Loss) + (Current Return Loss) = Double Loss
             if (item.type === 'Floating' && (!item.currentQuantity || item.currentQuantity <= 0)) {
@@ -498,6 +500,9 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
     };
 };
 
+// ----------------------------------------------------------------
+// [单项核心计算] 修复成本价和浮盈逻辑
+// ----------------------------------------------------------------
 export const calculateItemMetrics = (item: Investment) => {
   const now = new Date();
   const todayStart = new Date().setHours(0,0,0,0);
@@ -536,7 +541,6 @@ export const calculateItemMetrics = (item: Investment) => {
       }
   } else if (isCompleted) {
       
-      // 🟢 修复: 浮动资产完结逻辑 - 支持"手动最终收益"作为兜底
       if (item.type === 'Floating') {
            if (item.totalRealizedProfit !== 0) {
                baseInterest = item.totalRealizedProfit;
