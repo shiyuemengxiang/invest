@@ -266,7 +266,7 @@ export const getTimeFilterRange = (filter: TimeFilter, customStart?: string, cus
 };
 
 // ----------------------------------------------------------------
-// [核心逻辑修复] 全局统计函数 (All Time)
+// [逻辑修复] 全局统计函数 (All Time)
 // ----------------------------------------------------------------
 export const calculatePortfolioStats = (items: Investment[]) => {
   let totalInvested = 0;
@@ -295,7 +295,6 @@ export const calculatePortfolioStats = (items: Investment[]) => {
         totalCapitalWACC += capitalBase * holdingDays;
     }
 
-    // 1. 计算已结 (Realized)
     let itemRealized = 0;
     if (metrics.isCompleted) {
         itemRealized = metrics.baseInterest;
@@ -304,15 +303,13 @@ export const calculatePortfolioStats = (items: Investment[]) => {
     }
     realizedInterest += itemRealized;
 
-    // 2. 计算浮盈 (Unrealized)
-    // 🔥🔥 核心修复点：解决双重计算 🔥🔥
     let itemUnrealized = 0;
     if (!metrics.isCompleted) {
         if (item.type === 'Fixed') {
             itemUnrealized = metrics.accruedReturn;
         } else {
+            // 🔥🔥 核心修复点：解决双重计算 🔥🔥
             // 如果是浮动资产且已清仓(qty<=0)，即使没完结(Active)，浮盈也必须为0
-            // 否则会叠加 (Realized Loss) + (Current Return Loss) = Double Loss
             if (item.type === 'Floating' && (!item.currentQuantity || item.currentQuantity <= 0)) {
                 itemUnrealized = 0;
             } else {
@@ -422,7 +419,6 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
         }
 
         const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
-        
         if (isCompletedInPeriod) {
             const metrics = calculateItemMetrics(item);
             let netCompletionGain = metrics.baseInterest; 
@@ -601,7 +597,13 @@ export const calculateItemMetrics = (item: Investment) => {
       if (activePrincipal > 0 && maturity) holdingYield = (baseInterest / activePrincipal) * 100;
 
   } else if (item.type === 'Floating') {
-      if (item.currentReturn !== undefined) {
+      
+      // 🔥🔥 核心修复点：Active 状态下，如果持仓 quantity 为 0，强制浮盈为 0 🔥🔥
+      if (!item.currentQuantity || item.currentQuantity <= 0) {
+          baseInterest = 0;
+          // 清仓后无浮动收益，仅保留交易记录的 Realized P&L
+      } 
+      else if (item.currentReturn !== undefined) {
           baseInterest = item.currentReturn; 
           const totalValueChange = item.currentReturn + item.totalRealizedProfit;
           const costBasis = item.totalCost > 0 ? item.totalCost : activePrincipal;
@@ -648,7 +650,7 @@ export const calculateItemMetrics = (item: Investment) => {
       comprehensiveYield = item.expectedRate; 
   }
 
-  // 🟢 修复 2: 成本价与现价计算 (兼容已完结状态)
+  // 🟢 修复: 成本价计算 (兼容清仓/完结状态)
   let unitCost = 0;
   let currentPrice = 0;
   const calcQuantity = isCompleted ? (item.quantity || 0) : (item.currentQuantity || 0);
@@ -657,8 +659,7 @@ export const calculateItemMetrics = (item: Investment) => {
   if (calcQuantity > 0) {
        unitCost = calcPrincipal / calcQuantity;
        const profitValue = isCompleted ? baseInterest : (item.currentReturn || accruedReturn);
-       // 如果是未完结的浮动资产，现价还需要加上已实现的盈亏部分来反推
-       const currentVal = calcPrincipal + profitValue;
+       const currentVal = calcPrincipal + profitValue; 
        currentPrice = currentVal / calcQuantity;
   }
 
@@ -703,4 +704,50 @@ export const calculateTotalValuation = (items: Investment[], targetCurrency: Cur
         totalValuation += convertCurrency(value, item.currency, targetCurrency, rates);
     });
     return totalValuation;
+};
+
+// 🔥🔥🔥 补充遗漏的 format 函数 🔥🔥🔥
+export const formatCurrency = (amount: number, currency: Currency = 'CNY'): string => {
+    const symbol = currency === 'USD' ? '$' : currency === 'HKD' ? 'HK$' : '¥';
+    const safeAmount = amount || 0;
+    return `${symbol}${safeAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+export const formatPercent = (val: number): string => {
+    const safeVal = val || 0;
+    return `${safeVal.toFixed(2)}%`;
+};
+
+export const filterInvestmentsByTime = (items: Investment[], filter: TimeFilter, customStart?: string, customEnd?: string): Investment[] => {
+    if (filter === 'all') return items;
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    return items.filter(item => {
+        const date = new Date(item.depositDate);
+
+        if (filter === 'custom') {
+            if (customStart && customEnd) {
+                const start = new Date(customStart);
+                const end = new Date(customEnd);
+                end.setHours(23, 59, 59, 999);
+                return date >= start && date <= end;
+            }
+            return true;
+        }
+
+        let cutoff = new Date(today);
+
+        switch (filter) {
+            case '1m': cutoff.setMonth(cutoff.getMonth() - 1); break;
+            case '3m': cutoff.setMonth(cutoff.getMonth() - 3); break;
+            case '6m': cutoff.setMonth(cutoff.getMonth() - 6); break;
+            case '1y': cutoff.setFullYear(cutoff.getFullYear() - 1); break;
+            case 'ytd': cutoff = new Date(now.getFullYear(), 0, 1); break;
+            case 'mtd': cutoff = new Date(now.getFullYear(), now.getMonth(), 1); break;
+            default: return true;
+        }
+        return date >= cutoff;
+    });
 };
