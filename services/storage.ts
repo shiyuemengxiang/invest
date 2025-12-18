@@ -12,68 +12,73 @@ const API_BASE = '/api';
 export const storageService = {
     // --- Local Storage Helpers ---
     getLocalData: (): Investment[] | null => {
+        if (typeof window === 'undefined') return null;
         const saved = localStorage.getItem(STORAGE_KEYS.DATA);
         return saved ? JSON.parse(saved) : null;
     },
 
     saveLocalData: (items: Investment[]) => {
+        if (typeof window === 'undefined') return;
         localStorage.setItem(STORAGE_KEYS.DATA, JSON.stringify(items));
     },
 
     getLocalUser: (): User | null => {
+        if (typeof window === 'undefined') return null;
         const saved = localStorage.getItem(STORAGE_KEYS.USER);
         return saved ? JSON.parse(saved) : null;
     },
 
     saveLocalUser: (user: User | null) => {
+        if (typeof window === 'undefined') return;
         if (user) localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
         else localStorage.removeItem(STORAGE_KEYS.USER);
     },
 
     getRates: (): ExchangeRates => {
+        if (typeof window === 'undefined') return DEFAULT_EXCHANGE_RATES;
         const saved = localStorage.getItem(STORAGE_KEYS.RATES);
         return saved ? JSON.parse(saved) : DEFAULT_EXCHANGE_RATES;
     },
 
     saveRates: (rates: ExchangeRates) => {
+        if (typeof window === 'undefined') return;
         localStorage.setItem(STORAGE_KEYS.RATES, JSON.stringify(rates));
     },
 
     getTheme: (): ThemeOption => {
+        if (typeof window === 'undefined') return 'slate';
         return (localStorage.getItem(STORAGE_KEYS.THEME) as ThemeOption) || 'slate';
     },
 
     saveTheme: (theme: ThemeOption) => {
+        if (typeof window === 'undefined') return;
         localStorage.setItem(STORAGE_KEYS.THEME, theme);
     },
 
-    // --- Cloud Sync Logic (修复版) ---
+    // --- Cloud Sync Logic ---
 
-    // Save Data: 增加错误处理和返回值
-    async saveData(user: User | null, items: Investment[]): Promise<boolean> {
-        this.saveLocalData(items); // 总是先存本地
+    // Save Data: 🔥 恢复逻辑 - 只有登录用户才同步到云端
+    async saveData(user: User | null, items: Investment[]) {
+        // 1. 无论是否登录，总是存本地
+        this.saveLocalData(items);
         
-        if (user) {
+        // 2. 只有登录用户，才推送到云端
+        if (user && user.id) {
             try {
+                // console.log(`[Sync] Uploading data for user: ${user.id}`);
                 const res = await fetch(`${API_BASE}/sync`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: user.id, data: items })
                 });
-
+                
                 if (!res.ok) {
-                    const errText = await res.text();
-                    console.error("❌ Cloud Sync Failed:", errText);
-                    return false; // 明确返回失败
+                    console.error("云端同步失败:", await res.text());
                 }
-                console.log("✅ Cloud Sync Success");
-                return true;
             } catch (e) {
-                console.error("❌ Cloud Sync Network Error:", e);
-                return false;
+                console.warn("Background sync failed:", e);
             }
         }
-        return true; // 没登录也算“本地保存成功”
     },
     
     // Save Preferences
@@ -81,18 +86,14 @@ export const storageService = {
         this.saveTheme(theme);
         this.saveRates(rates);
         
-        if (user) {
+        if (user && user.id) {
             try {
-                const finalRateMode = rateMode || user.preferences?.rateMode;
-                const finalNickname = nickname !== undefined ? nickname : user.preferences?.nickname;
-                const finalAvatar = avatar !== undefined ? avatar : user.preferences?.avatar;
+                const finalRateMode = rateMode || user?.preferences?.rateMode;
+                const finalNickname = nickname !== undefined ? nickname : user?.preferences?.nickname;
+                const finalAvatar = avatar !== undefined ? avatar : user?.preferences?.avatar;
 
                 const prefs: UserPreferences = { 
-                    theme, 
-                    rates, 
-                    rateMode: finalRateMode,
-                    nickname: finalNickname,
-                    avatar: finalAvatar
+                    theme, rates, rateMode: finalRateMode, nickname: finalNickname, avatar: finalAvatar
                 };
                 
                 await fetch(`${API_BASE}/market/preferences`, { 
@@ -139,10 +140,12 @@ export const storageService = {
                     if (user.preferences.rates) this.saveRates(user.preferences.rates);
                 }
 
-                // 登录策略：如果本地有数据，强制覆盖云端（避免旧覆盖新）
+                // 登录成功后：
+                // 如果是注册或本地有新数据，上传覆盖云端
                 if (isRegister || currentItems.length > 0) {
                     await this.saveData(user, currentItems);
                 } else {
+                    // 否则拉取云端数据
                     await this.syncDown(user.id);
                 }
                 
@@ -156,6 +159,7 @@ export const storageService = {
         }
     },
 
+    // 仅用于登录用户的拉取
     async syncDown(userId: string) {
         try {
             const res = await fetch(`${API_BASE}/investments?userId=${userId}`);
@@ -163,10 +167,9 @@ export const storageService = {
             if (res.ok && contentType && contentType.includes('application/json')) {
                 const json = await res.json();
                 const data = Array.isArray(json) ? json : (json.data || []);
-                
-                // 只有云端有数据时才覆盖本地
-                if (Array.isArray(data) && data.length > 0) {
-                    this.saveLocalData(data);
+                if (Array.isArray(data)) {
+                    // console.log('📥 从云端拉取数据成功:', data.length);
+                    this.saveLocalData(data); // 更新本地缓存
                     return data;
                 }
             }

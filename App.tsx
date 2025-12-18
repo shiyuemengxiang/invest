@@ -43,68 +43,76 @@ const App: React.FC = () => {
   const migrateAndSetItems = (rawItems: Investment[]) => {
       const migrated = rawItems.map(migrateInvestmentData);
       setItems(migrated);
+      return migrated; // 返回给调用链使用
   };
 
+  // 🔥🔥🔥 核心修复区：串行化初始化逻辑 🔥🔥🔥
   useEffect(() => {
-    const currentUser = storageService.getLocalUser();
-    const currentTheme = storageService.getTheme();
-    const currentRates = storageService.getRates();
-    const localData = storageService.getLocalData();
-    
-    setUser(currentUser);
-    setTheme(currentTheme);
-    setRates(currentRates);
+    const initApp = async () => {
+        const currentUser = storageService.getLocalUser();
+        const currentTheme = storageService.getTheme();
+        const currentRates = storageService.getRates();
+        const localData = storageService.getLocalData();
+        
+        setUser(currentUser);
+        setTheme(currentTheme);
+        setRates(currentRates);
 
-    let loadedItems: Investment[] = [];
-    if (localData) {
-        loadedItems = localData;
-    } else if (!currentUser) {
-        const seed: Investment[] = [
-            { id: '1', name: '新手专享理财', category: 'Fixed', type: 'Fixed', currency: 'CNY', depositDate: '2023-10-01', maturityDate: '2023-11-01', withdrawalDate: '2023-11-02', principal: 50000, expectedRate: 3.5, realizedReturn: 145, rebate: 100, isRebateReceived: true, notes: '新人福利', transactions: [], currentPrincipal: 50000, totalCost: 50000, totalRealizedProfit: 145 },
-            { id: '2', name: '稳健季季红', category: 'Deposit', type: 'Fixed', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期', transactions: [], currentPrincipal: 100000, totalCost: 100000, totalRealizedProfit: 0 },
-            { id: '3', name: '科技ETF基金', category: 'Fund', type: 'Floating', currency: 'CNY', depositDate: '2024-03-01', maturityDate: '', withdrawalDate: null, principal: 20000, expectedRate: undefined, currentReturn: 850, rebate: 0, isRebateReceived: false, notes: '长期持有', transactions: [], currentPrincipal: 20000, totalCost: 20000, totalRealizedProfit: 0 },
-        ];
-        loadedItems = seed;
-    }
-    
-    loadedItems.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
-    migrateAndSetItems(loadedItems);
+        let finalItems: Investment[] = [];
 
-    if (currentUser) {
-        storageService.syncDown(currentUser.id).then(cloudData => {
-            if (cloudData && Array.isArray(cloudData)) {
-                 migrateAndSetItems(cloudData);
+        // 1. 先展示本地缓存（为了首屏速度）
+        if (localData) {
+            finalItems = migrateAndSetItems(localData);
+        } else if (!currentUser) {
+            // 只有未登录且无本地数据时，才加载 Seed
+            const seed: Investment[] = [
+                { id: '1', name: '新手专享理财', category: 'Fixed', type: 'Fixed', currency: 'CNY', depositDate: '2023-10-01', maturityDate: '2023-11-01', withdrawalDate: '2023-11-02', principal: 50000, expectedRate: 3.5, realizedReturn: 145, rebate: 100, isRebateReceived: true, notes: '新人福利', transactions: [], currentPrincipal: 50000, totalCost: 50000, totalRealizedProfit: 145 },
+                { id: '2', name: '稳健季季红', category: 'Deposit', type: 'Fixed', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期', transactions: [], currentPrincipal: 100000, totalCost: 100000, totalRealizedProfit: 0 },
+                { id: '3', name: '科技ETF基金', category: 'Fund', type: 'Floating', currency: 'CNY', depositDate: '2024-03-01', maturityDate: '', withdrawalDate: null, principal: 20000, expectedRate: undefined, currentReturn: 850, rebate: 0, isRebateReceived: false, notes: '长期持有', transactions: [], currentPrincipal: 20000, totalCost: 20000, totalRealizedProfit: 0 },
+            ];
+            finalItems = migrateAndSetItems(seed);
+        }
+
+        // 2. 如果已登录，强制等待云端同步完成！(防止 Race Condition)
+        if (currentUser) {
+            try {
+                // await 是关键，卡住流程直到拿到最新数据
+                const cloudData = await storageService.syncDown(currentUser.id);
+                if (cloudData && Array.isArray(cloudData)) {
+                    console.log("☁️ 已同步云端最新数据，覆盖本地");
+                    finalItems = migrateAndSetItems(cloudData);
+                }
+            } catch (error) {
+                console.warn("云端同步失败，降级使用本地数据", error);
             }
-        });
 
-        if (currentUser.preferences?.rateMode === 'auto') {
-             marketService.getRates().then(newRates => {
-                 if (newRates) {
-                     setRates(newRates);
-                     storageService.saveRates(newRates);
-                 }
-             });
+            // 同步汇率设置
+            if (currentUser.preferences?.rateMode === 'auto') {
+                marketService.getRates().then(newRates => {
+                    if (newRates) {
+                        setRates(newRates);
+                        storageService.saveRates(newRates);
+                    }
+                });
+            }
         }
-    }
-    
-    setTimeout(() => {
-        const hasAutoQuote = loadedItems.some(i => i.isAutoQuote && !i.withdrawalDate);
-        if (hasAutoQuote) {
-            handleRefreshMarketData(true); 
-        }
-    }, 1000);
 
-  }, []);
+        // 3. 只有数据确定后，才触发自动行情刷新
+        // 并且！显式传入 finalItems，防止闭包读取到旧的 State
+        setTimeout(() => {
+            const hasAutoQuote = finalItems.some(i => i.isAutoQuote && !i.withdrawalDate);
+            if (hasAutoQuote) {
+                console.log("📈 启动自动行情刷新...");
+                handleRefreshMarketData(true, finalItems); // 传入最新数据
+            }
+        }, 1000);
+    };
+
+    initApp();
+  }, []); // 仅执行一次
+
+  // 移除旧的 useEffect 依赖项，防止循环
   
-  useEffect(() => {
-      if (items.length > 0) {
-          const shouldRefresh = items.some(i => i.isAutoQuote && !i.withdrawalDate && (!i.lastUpdate || (new Date().getTime() - new Date(i.lastUpdate).getTime() > 3600000))); 
-          if (shouldRefresh) {
-              handleRefreshMarketData(true); 
-          }
-      }
-  }, [items.length]); 
-
   const saveItems = (newItems: Investment[]) => {
       setItems(newItems);
       storageService.saveData(user, newItems);
@@ -146,8 +154,12 @@ const App: React.FC = () => {
       saveItems(updatedList);
   };
   
-  const handleRefreshMarketData = async (silent = false) => {
-      const itemsToUpdate = items.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
+  // 🔥 核心修复：增加 itemsOverride 参数，打破闭包
+  const handleRefreshMarketData = async (silent = false, itemsOverride?: Investment[]) => {
+      // 优先使用传入的最新数据（初始化时），否则使用 State（手动操作时）
+      const currentList = itemsOverride || items;
+
+      const itemsToUpdate = currentList.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
       if (itemsToUpdate.length === 0) {
           return;
       }
@@ -157,7 +169,7 @@ const App: React.FC = () => {
       
       let updatedCount = 0;
       if (quotes) {
-          const updatedList = items.map(item => {
+          const updatedList = currentList.map(item => {
               if (item.isAutoQuote && item.symbol && quotes[item.symbol] && item.quantity) {
                   const marketData = quotes[item.symbol];
                   const newPrice = marketData.price;
@@ -175,7 +187,11 @@ const App: React.FC = () => {
               }
               return item;
           });
-          saveItems(updatedList);
+          
+          // 只有当确实有数据更新时，才执行保存！防止无意义的覆盖
+          if (updatedCount > 0) {
+              saveItems(updatedList);
+          }
       }
       
       if (user?.preferences?.rateMode === 'auto') {
@@ -193,8 +209,15 @@ const App: React.FC = () => {
           if (loggedInUser.preferences.rates) setRates(loggedInUser.preferences.rates);
       }
       
-      const freshData = storageService.getLocalData();
-      if (freshData) migrateAndSetItems(freshData);
+      // 登录后立刻拉取云端数据，并刷新界面
+      storageService.syncDown(loggedInUser.id).then(cloudData => {
+          if (cloudData && Array.isArray(cloudData)) {
+              migrateAndSetItems(cloudData);
+          } else {
+              const freshData = storageService.getLocalData();
+              if (freshData) migrateAndSetItems(freshData);
+          }
+      });
 
       setView('dashboard');
       showToast('欢迎回来！数据已同步', 'success');
