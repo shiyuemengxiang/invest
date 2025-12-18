@@ -1,4 +1,3 @@
-
 import { ExchangeRates, Investment, ThemeOption, User, DEFAULT_EXCHANGE_RATES, UserPreferences } from "../types";
 
 const STORAGE_KEYS = {
@@ -11,7 +10,7 @@ const STORAGE_KEYS = {
 const API_BASE = '/api';
 
 export const storageService = {
-    // --- Local Storage Helpers (Guest / Cache) ---
+    // --- Local Storage Helpers ---
     getLocalData: (): Investment[] | null => {
         const saved = localStorage.getItem(STORAGE_KEYS.DATA);
         return saved ? JSON.parse(saved) : null;
@@ -48,32 +47,42 @@ export const storageService = {
         localStorage.setItem(STORAGE_KEYS.THEME, theme);
     },
 
-    // --- Cloud Sync Logic ---
+    // --- Cloud Sync Logic (修复版) ---
 
-    // Save Data: Uploads to Vercel PG if logged in, always saves to LocalStorage
-    async saveData(user: User | null, items: Investment[]) {
-        this.saveLocalData(items);
+    // Save Data: 增加错误处理和返回值
+    async saveData(user: User | null, items: Investment[]): Promise<boolean> {
+        this.saveLocalData(items); // 总是先存本地
+        
         if (user) {
             try {
-                await fetch(`${API_BASE}/sync`, {
+                const res = await fetch(`${API_BASE}/sync`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: user.id, data: items })
                 });
+
+                if (!res.ok) {
+                    const errText = await res.text();
+                    console.error("❌ Cloud Sync Failed:", errText);
+                    return false; // 明确返回失败
+                }
+                console.log("✅ Cloud Sync Success");
+                return true;
             } catch (e) {
-                console.warn("Background sync failed:", e);
+                console.error("❌ Cloud Sync Network Error:", e);
+                return false;
             }
         }
+        return true; // 没登录也算“本地保存成功”
     },
     
-    // Save Preferences: Uploads to Vercel PG if logged in, always saves to LocalStorage
+    // Save Preferences
     async savePreferences(user: User | null, theme: ThemeOption, rates: ExchangeRates, rateMode?: 'auto' | 'manual', nickname?: string, avatar?: string) {
         this.saveTheme(theme);
         this.saveRates(rates);
         
         if (user) {
             try {
-                // Determine values: use argument if provided, else fallback to user's existing pref
                 const finalRateMode = rateMode || user.preferences?.rateMode;
                 const finalNickname = nickname !== undefined ? nickname : user.preferences?.nickname;
                 const finalAvatar = avatar !== undefined ? avatar : user.preferences?.avatar;
@@ -86,13 +95,12 @@ export const storageService = {
                     avatar: finalAvatar
                 };
                 
-                await fetch(`${API_BASE}/market/preferences`, { // NOTE: Verify API path in your setup, assumed /api/market/preferences based on previous context
+                await fetch(`${API_BASE}/market/preferences`, { 
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: user.id, preferences: prefs })
                 });
                 
-                // Update local user object too
                 const updatedUser = { ...user, preferences: prefs };
                 this.saveLocalUser(updatedUser);
             } catch (e) {
@@ -101,7 +109,7 @@ export const storageService = {
         }
     },
 
-    // Login: Tries Vercel API
+    // Login
     async login(email: string, password: string, isRegister: boolean, currentItems: Investment[]): Promise<User> {
         try {
             const controller = new AbortController();
@@ -117,7 +125,7 @@ export const storageService = {
 
             const contentType = res.headers.get('content-type');
             if (!contentType || !contentType.includes('application/json')) {
-                throw new Error('Backend service unavailable. Please check your database connection.');
+                throw new Error('Backend service unavailable.');
             }
 
             const data = await res.json();
@@ -126,16 +134,14 @@ export const storageService = {
                 const user = data as User;
                 this.saveLocalUser(user);
                 
-                // Apply User Preferences if available
                 if (user.preferences) {
                     if (user.preferences.theme) this.saveTheme(user.preferences.theme);
                     if (user.preferences.rates) this.saveRates(user.preferences.rates);
                 }
 
-                if (isRegister && currentItems.length > 0) {
+                // 登录策略：如果本地有数据，强制覆盖云端（避免旧覆盖新）
+                if (isRegister || currentItems.length > 0) {
                     await this.saveData(user, currentItems);
-                    // Also save current theme/rates as default for new user
-                    await this.savePreferences(user, this.getTheme(), this.getRates());
                 } else {
                     await this.syncDown(user.id);
                 }
@@ -157,7 +163,9 @@ export const storageService = {
             if (res.ok && contentType && contentType.includes('application/json')) {
                 const json = await res.json();
                 const data = Array.isArray(json) ? json : (json.data || []);
-                if (Array.isArray(data)) {
+                
+                // 只有云端有数据时才覆盖本地
+                if (Array.isArray(data) && data.length > 0) {
                     this.saveLocalData(data);
                     return data;
                 }
