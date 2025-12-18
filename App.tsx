@@ -11,6 +11,9 @@ import { storageService } from './services/storage';
 import { marketService } from './services/market';
 import { THEMES, migrateInvestmentData } from './utils';
 
+// 确保与 storage.ts 中的 DEFAULT_USER_ID 一致
+const DEFAULT_USER_ID = 'default_owner_v1';
+
 const App: React.FC = () => {
   const [items, setItems] = useState<Investment[]>([]);
   const [view, setView] = useState<ViewState>('dashboard');
@@ -79,32 +82,35 @@ const App: React.FC = () => {
             migrateAndSetItems(currentDisplayItems);
         }
 
-        // 2. 🔥 如果已登录，强制等待云端同步！
-        if (currentUser) {
-            try {
-                // await 是关键，必须等拿到最新数据
-                const cloudData = await storageService.syncDown(currentUser.id);
-                if (cloudData && Array.isArray(cloudData)) {
-                    console.log("☁️ 初始化：已同步云端最新数据，覆盖本地旧缓存");
-                    // 再次更新状态，确保使用的是云端数据
-                    currentDisplayItems = migrateAndSetItems(cloudData);
-                }
-            } catch (error) {
-                console.warn("云端同步失败，继续使用本地数据", error);
+        // 2. 🔥 强制等待云端同步！这是防止覆盖的关键！
+        // 如果已登录，必须等 syncDown 完成，拿到最新数据后，再做后续操作
+        // 如果未登录，尝试用默认 ID 同步 (单人模式兼容)
+        const targetUserId = currentUser ? currentUser.id : DEFAULT_USER_ID;
+        
+        try {
+            // await 是关键，必须等拿到最新数据
+            const cloudData = await storageService.syncDown(targetUserId);
+            
+            if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
+                console.log("☁️ 初始化：已同步云端最新数据，覆盖本地旧缓存");
+                // 再次更新状态，确保使用的是云端数据作为基准
+                currentDisplayItems = migrateAndSetItems(cloudData);
             }
-
-            // 同步汇率设置
-            if (currentUser.preferences?.rateMode === 'auto') {
-                marketService.getRates().then(newRates => {
-                    if (newRates) {
-                        setRates(newRates);
-                        storageService.saveRates(newRates);
-                    }
-                });
-            }
+        } catch (e) {
+            console.warn("云端同步失败，使用本地数据继续", e);
         }
 
-        // 3. 🔥 安全的行情刷新
+        // 3. 更新汇率
+        if (currentUser?.preferences?.rateMode === 'auto') {
+             marketService.getRates().then(newRates => {
+                 if (newRates) {
+                     setRates(newRates);
+                     storageService.saveRates(newRates);
+                 }
+             });
+        }
+
+        // 4. 🔥 安全的行情刷新
         // 使用刚刚确认的 currentDisplayItems，而不是可能过时的 items state
         setTimeout(() => {
             const hasAutoQuote = currentDisplayItems.some(i => i.isAutoQuote && !i.withdrawalDate);
@@ -163,8 +169,22 @@ const App: React.FC = () => {
   
   // 🔥 核心修复：支持 itemsOverride 参数，打破闭包
   const handleRefreshMarketData = async (silent = false, itemsOverride?: Investment[]) => {
-      // 优先使用传入的最新数据（初始化时），否则使用 State（手动操作时）
-      const targetItems = itemsOverride || items;
+      // 1. 如果是手动触发(没有override)，先尝试拉取云端最新数据，防止本地数据过时
+      let targetItems = itemsOverride || items;
+      
+      if (!itemsOverride) {
+          const targetUserId = user ? user.id : DEFAULT_USER_ID;
+          try {
+              console.log("🔄 行情更新前置检查：正在拉取云端数据...");
+              const cloudData = await storageService.syncDown(targetUserId);
+              if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
+                  targetItems = migrateAndSetItems(cloudData);
+                  console.log("✅ 已基于云端最新数据进行更新");
+              }
+          } catch (e) {
+              console.warn("前置同步失败，降级使用本地数据");
+          }
+      }
 
       const itemsToUpdate = targetItems.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
       if (itemsToUpdate.length === 0) {
@@ -222,7 +242,7 @@ const App: React.FC = () => {
           if (loggedInUser.preferences.rates) setRates(loggedInUser.preferences.rates);
       }
       
-      // 登录后重新同步该用户的数据
+      // 登录后立刻拉取云端数据，并刷新界面
       storageService.syncDown(loggedInUser.id).then(cloudData => {
           if (cloudData && Array.isArray(cloudData)) {
               migrateAndSetItems(cloudData);
@@ -270,7 +290,18 @@ const App: React.FC = () => {
       }
   };
 
-  const handleNav = (targetView: ViewState) => {
+  // 🔥 核心修复：切换页面时，自动触发云端同步，防止看到旧数据
+  const handleNav = async (targetView: ViewState) => {
+      if (targetView !== view) {
+          const targetUserId = user ? user.id : DEFAULT_USER_ID;
+          // 静默拉取最新数据，防止页面切换时看到旧缓存
+          storageService.syncDown(targetUserId).then(cloudData => {
+              if (cloudData && Array.isArray(cloudData)) {
+                  migrateAndSetItems(cloudData);
+              }
+          });
+      }
+
       if (targetView === 'list' && view !== 'list') {
           setTimeout(() => handleRefreshMarketData(true), 500); 
       }
@@ -306,7 +337,7 @@ const App: React.FC = () => {
       );
   }
 
-  // --- PC 端侧边栏 (现代化+折叠+皮肤跟随+隐私保护) ---
+  // --- PC 端侧边栏 ---
   const DesktopSidebar = () => {
       const sidebarWidth = isSidebarCollapsed ? 'w-24' : 'w-72';
       
