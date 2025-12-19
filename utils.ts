@@ -501,18 +501,18 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
 
 export const calculateItemMetrics = (item: Investment) => {
     const now = new Date();
-    const todayStart = new Date().setHours(0,0,0,0);
+    const todayStart = new Date().setHours(0, 0, 0, 0);
     const deposit = new Date(item.depositDate);
-    const depositStart = new Date(item.depositDate).setHours(0,0,0,0);
+    const depositStart = new Date(item.depositDate).setHours(0, 0, 0, 0);
     const maturity = item.maturityDate ? new Date(item.maturityDate) : null;
     const withdrawal = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
     const isCompleted = !!item.withdrawalDate;
     const isPending = todayStart < depositStart;
-  
-    const activePrincipal = item.currentPrincipal; 
+
+    const activePrincipal = item.currentPrincipal;
     const currentQuantity = item.currentQuantity || 0;
     const interestBasis = Number(item.interestBasis || 365);
-  
+
     // 1. 计算实际资金占用时长 (Holding Duration)
     // 如果完结，就是 取出 - 买入；如果未完结，就是 今天 - 买入
     let occupiedDurationMs = 0;
@@ -524,88 +524,88 @@ export const calculateItemMetrics = (item: Investment) => {
         }
     }
     occupiedDurationMs = Math.max(0, occupiedDurationMs);
-    const realDurationDays = Math.round(occupiedDurationMs / MS_PER_DAY); 
-    
+    const realDurationDays = Math.round(occupiedDurationMs / MS_PER_DAY);
+
     let baseInterest = 0;
     let annualizedYield = 0;
     let holdingYield = 0;
     let hasYieldInfo = true;
     let accruedReturn = 0;
-  
+
     if (isPending) {
         hasYieldInfo = true;
         if (item.type === 'Fixed' && item.expectedRate) {
-             annualizedYield = item.expectedRate;
+            annualizedYield = item.expectedRate;
         }
     } else if (isCompleted) {
-        
+
         if (item.type === 'Floating') {
-             // 浮动资产完结逻辑
-             if (item.totalRealizedProfit !== 0) {
-                 baseInterest = item.totalRealizedProfit;
-             } else if (item.currentReturn !== undefined && item.currentReturn !== 0) {
-                 baseInterest = item.currentReturn;
-             } else {
-                 baseInterest = 0;
-             }
+            // 浮动资产完结逻辑
+            if (item.totalRealizedProfit !== 0) {
+                baseInterest = item.totalRealizedProfit;
+            } else if (item.currentReturn !== undefined && item.currentReturn !== 0) {
+                baseInterest = item.currentReturn;
+            } else {
+                baseInterest = 0;
+            }
         } else {
             // 🔴 修复 Fixed 资产完结逻辑：计息时长 vs 资金占用时长
-            
+
             // 1. 计算计息天数 (Accrual Days)
             // 逻辑：计息天数不能超过到期日。如果提前取出，按实际天数算；如果超期取出，按到期日算。
             let accrualDays = realDurationDays;
-            
+
             if (maturity) {
                 const maturityDurationMs = maturity.getTime() - deposit.getTime();
                 const maturityDays = Math.round(maturityDurationMs / MS_PER_DAY);
-                
+
                 // 如果实际持仓超过了到期日，计息天数封顶为到期日
                 if (realDurationDays > maturityDays) {
                     accrualDays = maturityDays;
                 }
             }
-  
+
             // 2. 计算预期产生的利息 (Fixed Interest)
             // 使用 accrualDays (计息天数) 来计算金额
-            const fixedInterest = item.expectedRate && item.totalCost > 0 
+            const fixedInterest = item.expectedRate && item.totalCost > 0
                 ? item.totalCost * (item.expectedRate / 100) * (accrualDays / interestBasis)
                 : 0;
-            
+
             // 优先使用手动填写的 realizedReturn (totalRealizedProfit)，如果没有则使用自动计算的
             baseInterest = item.totalRealizedProfit !== 0 ? item.totalRealizedProfit : fixedInterest;
         }
-        
+
         const finalGain = baseInterest + (item.isRebateReceived ? item.rebate : 0);
-        const calcBase = item.totalCost > 0 ? item.totalCost : 1; 
-        
+        const calcBase = item.totalCost > 0 ? item.totalCost : 1;
+
         if (calcBase > 0) {
-          holdingYield = (finalGain / calcBase) * 100;
-          
-          // 🔴 修复年化计算：使用 realDurationDays (实际资金占用时长) 作为分母
-          // 公式：(总收益率) / (实际占用天数 / 365)
-          if (realDurationDays > 0) {
-              annualizedYield = (holdingYield / realDurationDays) * 365; // 这里通常用365作为年化标准，或者用 interestBasis 也可以
-          }
+            holdingYield = (finalGain / calcBase) * 100;
+
+            // 🔴 修复年化计算：使用 realDurationDays (实际资金占用时长) 作为分母
+            // 公式：(总收益率) / (实际占用天数 / 365)
+            if (realDurationDays > 0) {
+                annualizedYield = (holdingYield / realDurationDays) * 365; // 这里通常用365作为年化标准，或者用 interestBasis 也可以
+            }
         }
-  
+
     } else if (item.type === 'Fixed' && item.expectedRate) {
         const rate = item.expectedRate;
         annualizedYield = rate;
-        
+
         const relevantTxs = (item.transactions || []).filter(t => t.type === 'Buy' || t.type === 'Sell');
         const sortedTxs = [...relevantTxs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        
+
         const calculateSegmentedInterest = (endDate: Date) => {
             let totalInterest = 0;
             let currentBalance = 0;
             for (let i = 0; i < sortedTxs.length; i++) {
                 const tx = sortedTxs[i];
                 const txDate = new Date(tx.date);
-                const nextTx = sortedTxs[i+1];
+                const nextTx = sortedTxs[i + 1];
                 const nextDate = nextTx ? new Date(nextTx.date) : endDate;
                 if (tx.type === 'Buy') currentBalance += tx.amount;
                 else if (tx.type === 'Sell') currentBalance -= tx.amount;
-                
+
                 const segmentEnd = nextDate < endDate ? nextDate : endDate;
                 if (segmentEnd > txDate) {
                     const days = (segmentEnd.getTime() - txDate.getTime()) / MS_PER_DAY;
@@ -617,37 +617,46 @@ export const calculateItemMetrics = (item: Investment) => {
             }
             return totalInterest;
         };
-  
+        // 1. 计算【截止今日】的应计收益 (用于持有率、净值)
         accruedReturn = calculateSegmentedInterest(now);
-        baseInterest = accruedReturn; 
-  
+        // 2. 计算【持有到期】的预期总收益 (用于列表显示预期收益)
+        // 如果有到期日，算到期；否则(永续)暂按今日算
+        if (maturity) {
+            baseInterest = calculateSegmentedInterest(maturity);
+        } else {
+            baseInterest = accruedReturn;
+        }
+        // baseInterest = accruedReturn; 
+        // 3. 计算持有收益率 (Yield)
+        // 🔥 关键修正：分母应该是"应计收益"，而不是"到期收益"
+        // 这样显示的持有率才是当前实际赚到的比例
         if (activePrincipal > 0) {
-            holdingYield = (baseInterest / activePrincipal) * 100;
+            holdingYield = (accruedReturn / activePrincipal) * 100;
         } else {
             hasYieldInfo = false;
         }
-  
+
     } else if (item.type === 'Floating') {
-        
+
         if (!item.currentQuantity || item.currentQuantity <= 0) {
             baseInterest = 0;
-        } 
+        }
         else if (item.currentReturn !== undefined) {
-            baseInterest = item.currentReturn; 
+            baseInterest = item.currentReturn;
             const totalValueChange = item.currentReturn + item.totalRealizedProfit;
             const costBasis = item.totalCost > 0 ? item.totalCost : activePrincipal;
-            
+
             if (costBasis > 0) {
-              holdingYield = (totalValueChange / costBasis) * 100;
-              if (realDurationDays > 0) {
-                  annualizedYield = (holdingYield / (realDurationDays / 365));
-              }
+                holdingYield = (totalValueChange / costBasis) * 100;
+                if (realDurationDays > 0) {
+                    annualizedYield = (holdingYield / (realDurationDays / 365));
+                }
             }
         } else if (item.expectedRate) {
-             const rate = item.expectedRate;
-             annualizedYield = rate;
-             baseInterest = activePrincipal * (rate / 100) * (realDurationDays / 365);
-             if (activePrincipal > 0) holdingYield = (baseInterest / activePrincipal) * 100;
+            const rate = item.expectedRate;
+            annualizedYield = rate;
+            baseInterest = activePrincipal * (rate / 100) * (realDurationDays / 365);
+            if (activePrincipal > 0) holdingYield = (baseInterest / activePrincipal) * 100;
         } else {
             if (item.totalRealizedProfit !== 0) {
                 baseInterest = item.totalRealizedProfit;
@@ -666,55 +675,55 @@ export const calculateItemMetrics = (item: Investment) => {
     } else {
         hasYieldInfo = false;
     }
-    
+
     const totalReturn = baseInterest + item.rebate + (!isCompleted && item.type === 'Floating' ? item.totalRealizedProfit : 0);
-    
+
     let comprehensiveYield = 0;
     const yieldBase = isCompleted || item.type === 'Floating' ? item.totalCost : activePrincipal;
-  
+
     if (!isPending && (hasYieldInfo || item.rebate > 0) && realDurationDays > 0 && yieldBase > 0) {
-         const gainForYield = (isCompleted ? baseInterest : (item.currentReturn || 0) + item.totalRealizedProfit) + (item.isRebateReceived ? item.rebate : 0);
-         // 修复：如果已清仓未完结，gainForYield 应为 totalRealizedProfit + rebate
-         const effectiveGain = (!isCompleted && item.type === 'Floating' && (!item.currentQuantity || item.currentQuantity <= 0))
-              ? (item.totalRealizedProfit + (item.isRebateReceived ? item.rebate : 0))
-              : gainForYield;
-  
-         comprehensiveYield = (effectiveGain / yieldBase) * 100 / (realDurationDays / 365);
+        const gainForYield = (isCompleted ? baseInterest : (item.currentReturn || 0) + item.totalRealizedProfit) + (item.isRebateReceived ? item.rebate : 0);
+        // 修复：如果已清仓未完结，gainForYield 应为 totalRealizedProfit + rebate
+        const effectiveGain = (!isCompleted && item.type === 'Floating' && (!item.currentQuantity || item.currentQuantity <= 0))
+            ? (item.totalRealizedProfit + (item.isRebateReceived ? item.rebate : 0))
+            : gainForYield;
+
+        comprehensiveYield = (effectiveGain / yieldBase) * 100 / (realDurationDays / 365);
     } else if (isPending && item.type === 'Fixed' && item.expectedRate) {
-        comprehensiveYield = item.expectedRate; 
+        comprehensiveYield = item.expectedRate;
     }
-  
+
     // 修复: 成本价与现价计算
     let unitCost = 0;
     let currentPrice = 0;
     const calcQuantity = isCompleted ? (item.quantity || 0) : (item.currentQuantity || 0);
     const calcPrincipal = isCompleted ? item.totalCost : activePrincipal;
-  
+
     if (calcQuantity > 0) {
-         unitCost = calcPrincipal / calcQuantity;
-         const profitValue = isCompleted ? baseInterest : (item.currentReturn || accruedReturn);
-         const currentVal = calcPrincipal + profitValue; 
-         currentPrice = currentVal / calcQuantity;
+        unitCost = calcPrincipal / calcQuantity;
+        const profitValue = isCompleted ? baseInterest : (item.currentReturn || accruedReturn);
+        const currentVal = calcPrincipal + profitValue;
+        currentPrice = currentVal / calcQuantity;
     }
-  
+
     return {
-      interestDays: realDurationDays,
-      baseInterest, 
-      totalReturn,
-      profit: totalReturn,
-      realDurationDays,
-      annualizedYield,
-      holdingYield,
-      comprehensiveYield,
-      accruedReturn, 
-      isCompleted,
-      isPending,
-      hasYieldInfo,
-      daysRemaining: item.maturityDate ? getDaysRemaining(item.maturityDate) : 0,
-      unitCost,
-      currentPrice
+        interestDays: realDurationDays,
+        baseInterest,
+        totalReturn,
+        profit: totalReturn,
+        realDurationDays,
+        annualizedYield,
+        holdingYield,
+        comprehensiveYield,
+        accruedReturn,
+        isCompleted,
+        isPending,
+        hasYieldInfo,
+        daysRemaining: item.maturityDate ? getDaysRemaining(item.maturityDate) : 0,
+        unitCost,
+        currentPrice
     };
-  };
+};
 
 export const calculateTotalValuation = (items: Investment[], targetCurrency: Currency, rates: ExchangeRates) => {
     let totalValuation = 0;
