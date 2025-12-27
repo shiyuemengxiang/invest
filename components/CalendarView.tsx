@@ -120,7 +120,7 @@ const CalendarView: React.FC<Props> = ({ items }) => {
           const isFullySettled = endDate && item.totalCost > 0;
 
           if (isFullySettled) {
-              // 剩余收益 = 总收益 - 中途派息 - 返利 (避免重复计算)
+              // 剩余收益 = 总收益 - 中途派息 - 返利
               const residualProfit = metrics.profit - totalNetPayouts - item.rebate;
               
               events.push({
@@ -160,12 +160,9 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                   }
               } else if (ev.type === 'payout' || ev.type === 'settlement' || ev.type === 'rebate') {
                   
-                  // 🔥 核心修正：仅当返利已到账时，才计入本月净收益统计
-                  if (ev.type === 'rebate' && !ev.isReceived) {
-                      return; 
-                  }
+                  // 返利仅当已到账时计入统计
+                  if (ev.type === 'rebate' && !ev.isReceived) return;
 
-                  // 结算 P&L、派息、已到账返利 计入本月收益
                   profitTotal += convertCurrency(ev.amount, ev.currency, selectedCurrency, rates);
                   if (currencyBreakdown[ev.currency]) {
                       currencyBreakdown[ev.currency].profit += ev.amount;
@@ -234,7 +231,6 @@ const CalendarView: React.FC<Props> = ({ items }) => {
           <div className="space-y-1 overflow-y-auto max-h-[calc(100%-28px)] no-scrollbar">
             {events.map(ev => {
                 let badgeClass = '';
-                // 样式逻辑
                 if (ev.type === 'deposit') badgeClass = 'bg-emerald-50 border-emerald-100 text-emerald-700';
                 else if (ev.type === 'payout') badgeClass = 'bg-blue-50 border-blue-100 text-blue-700'; 
                 else if (ev.type === 'expense') badgeClass = 'bg-red-50 border-red-100 text-red-700'; 
@@ -292,9 +288,11 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                      <p className="text-sm font-bold text-emerald-800/70 uppercase tracking-wider">本月存入 (Deposited)</p>
                      <p className="text-2xl font-bold text-emerald-700 mt-1 tabular-nums font-mono">{formatCurrency(monthlyStats.depositTotal, selectedCurrency)}</p>
                      
-                     <div className="mt-3 flex gap-3 text-xs text-emerald-600/60 font-medium">
+                     {/* 🔥 修复：增加 HKD 统计显示 */}
+                     <div className="mt-3 flex gap-3 text-xs text-emerald-600/60 font-medium flex-wrap">
                          <span>CNY: {formatCurrency(monthlyStats.currencyBreakdown.CNY.deposit, 'CNY')}</span>
                          <span>USD: {formatCurrency(monthlyStats.currencyBreakdown.USD.deposit, 'USD')}</span>
+                         <span>HKD: {formatCurrency(monthlyStats.currencyBreakdown.HKD.deposit, 'HKD')}</span>
                      </div>
                 </div>
 
@@ -303,9 +301,11 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                      <p className={`text-2xl font-bold mt-1 tabular-nums font-mono ${monthlyStats.profitTotal >= 0 ? 'text-orange-700' : 'text-slate-600'}`}>{formatCurrency(monthlyStats.profitTotal, selectedCurrency)}</p>
                      <p className="text-[10px] text-orange-400 mt-0.5">收益 + 返利(仅已到账) + 派息 - 费用</p>
                      
-                     <div className="mt-3 flex gap-3 text-xs text-orange-600/60 font-medium">
+                     {/* 🔥 修复：增加 HKD 统计显示 */}
+                     <div className="mt-3 flex gap-3 text-xs text-orange-600/60 font-medium flex-wrap">
                          <span>CNY: {formatCurrency(monthlyStats.currencyBreakdown.CNY.profit, 'CNY')}</span>
                          <span>USD: {formatCurrency(monthlyStats.currencyBreakdown.USD.profit, 'USD')}</span>
+                         <span>HKD: {formatCurrency(monthlyStats.currencyBreakdown.HKD.profit, 'HKD')}</span>
                      </div>
                 </div>
             </div>
@@ -379,24 +379,19 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                                             </div>
                                             
                                             <div className="text-right">
-                                                {/* 1. 显示本金 (仅存入和结算时显示) */}
                                                 {(ev.type === 'deposit' || ev.type === 'settlement') && ev.principalAmount > 0 && (
                                                     <div className="text-sm font-medium text-slate-500 mb-1">
                                                         本金: {formatCurrency(ev.principalAmount, ev.currency)}
                                                     </div>
                                                 )}
                                                 
-                                                {/* 2. 显示主金额 (收益/损失) */}
                                                 <div className={`text-lg font-bold font-mono ${ev.type === 'deposit' ? 'text-slate-800' : ev.amount >= 0 ? 'text-slate-800' : 'text-red-600'}`}>
                                                     {ev.type === 'deposit' ? 
-                                                        // 存入事件：主金额显示本金
                                                         formatCurrency(ev.principalAmount, ev.currency) :
-                                                        // 其他事件：主金额显示 P&L (收益或损失)
                                                         (ev.amount >= 0 ? '+' : '-') + formatCurrency(Math.abs(ev.amount), ev.currency)
                                                     }
                                                 </div>
                                                 
-                                                {/* 3. 显示年化收益率 */}
                                                 {ev.yield && (ev.type === 'settlement' || ev.type === 'payout') && (
                                                     <div className="text-[10px] text-slate-500">
                                                         年化: {formatPercent(ev.yield)}
