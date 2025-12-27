@@ -62,7 +62,7 @@ const CalendarView: React.FC<Props> = ({ items }) => {
               }
           }
 
-          // B. Rebate Event (返利) - 单独显示
+          // B. Rebate Event (返利)
           const rebateDate = item.withdrawalDate || item.maturityDate;
           if (item.rebate > 0 && rebateDate) {
               events.push({
@@ -117,13 +117,10 @@ const CalendarView: React.FC<Props> = ({ items }) => {
 
           // D. Settlement Event (结清/到期)
           const endDate = item.withdrawalDate || item.maturityDate;
-          // 只要有到期日/结算日，并且历史有投入本金，就触发结算事件
           const isFullySettled = endDate && item.totalCost > 0;
 
           if (isFullySettled) {
-              // 🔥 核心修正：剩余收益 = 总收益 - 中途派息 - 返利
-              // 必须减去 item.rebate，因为返利已经在上方 "B. Rebate Event" 中单独列出了
-              // 否则会导致日历当天的总收益虚高
+              // 剩余收益 = 总收益 - 中途派息 - 返利 (避免重复计算)
               const residualProfit = metrics.profit - totalNetPayouts - item.rebate;
               
               events.push({
@@ -131,10 +128,10 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                   date: endDate,
                   type: 'settlement',
                   name: item.name,
-                  amount: residualProfit, // P&L (仅包含产品本身收益)
+                  amount: residualProfit, // P&L
                   principalAmount: item.totalCost, // 结算返回的本金
                   currency: item.currency,
-                  yield: metrics.comprehensiveYield, // 保持显示综合年化 (含返利)
+                  yield: metrics.comprehensiveYield,
                   item
               });
           }
@@ -162,7 +159,13 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                       currencyBreakdown[ev.currency].deposit += ev.principalAmount;
                   }
               } else if (ev.type === 'payout' || ev.type === 'settlement' || ev.type === 'rebate') {
-                  // 返利、结算 P&L、派息都计入本月收益
+                  
+                  // 🔥 核心修正：仅当返利已到账时，才计入本月净收益统计
+                  if (ev.type === 'rebate' && !ev.isReceived) {
+                      return; 
+                  }
+
+                  // 结算 P&L、派息、已到账返利 计入本月收益
                   profitTotal += convertCurrency(ev.amount, ev.currency, selectedCurrency, rates);
                   if (currencyBreakdown[ev.currency]) {
                       currencyBreakdown[ev.currency].profit += ev.amount;
@@ -298,7 +301,7 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                 <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 relative overflow-hidden group">
                      <p className="text-sm font-bold text-orange-800/70 uppercase tracking-wider">本月净收益 (Net Profit)</p>
                      <p className={`text-2xl font-bold mt-1 tabular-nums font-mono ${monthlyStats.profitTotal >= 0 ? 'text-orange-700' : 'text-slate-600'}`}>{formatCurrency(monthlyStats.profitTotal, selectedCurrency)}</p>
-                     <p className="text-[10px] text-orange-400 mt-0.5">收益 + 返利 + 派息 - 费用</p>
+                     <p className="text-[10px] text-orange-400 mt-0.5">收益 + 返利(仅已到账) + 派息 - 费用</p>
                      
                      <div className="mt-3 flex gap-3 text-xs text-orange-600/60 font-medium">
                          <span>CNY: {formatCurrency(monthlyStats.currencyBreakdown.CNY.profit, 'CNY')}</span>
