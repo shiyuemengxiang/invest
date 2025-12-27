@@ -11,7 +11,7 @@ import { storageService } from './services/storage';
 import { marketService } from './services/market';
 import { THEMES, migrateInvestmentData } from './utils';
 
-// 确保与 storage.ts 中的 DEFAULT_USER_ID 一致
+// 🔥 1. 确保与 storage.ts 中的 DEFAULT_USER_ID 一致
 const DEFAULT_USER_ID = 'default_owner_v1';
 
 const App: React.FC = () => {
@@ -49,7 +49,7 @@ const App: React.FC = () => {
       return migrated;
   };
 
-  // 🔥 核心修复：串行化初始化逻辑
+  // 🔥 2. 核心修复：串行化初始化逻辑 (防止旧数据覆盖)
   useEffect(() => {
     const initApp = async () => {
         const currentUser = storageService.getLocalUser();
@@ -63,7 +63,7 @@ const App: React.FC = () => {
 
         let currentDisplayItems: Investment[] = [];
 
-        // 1. 先加载本地数据 (为了首屏速度)
+        // 2.1 先加载本地数据 (为了首屏速度)
         if (localData) {
             currentDisplayItems = migrateAndSetItems(localData);
         } else if (!currentUser) {
@@ -77,12 +77,11 @@ const App: React.FC = () => {
         }
         
         if (currentDisplayItems.length > 0) {
-            // 排序本地数据
             currentDisplayItems.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
             migrateAndSetItems(currentDisplayItems);
         }
 
-        // 2. 🔥 强制等待云端同步！这是防止覆盖的关键！
+        // 2.2 强制等待云端同步！这是防止覆盖的关键！
         // 如果已登录，必须等 syncDown 完成，拿到最新数据后，再做后续操作
         // 如果未登录，尝试用默认 ID 同步 (单人模式兼容)
         const targetUserId = currentUser ? currentUser.id : DEFAULT_USER_ID;
@@ -110,8 +109,7 @@ const App: React.FC = () => {
              });
         }
 
-        // 4. 🔥 安全的行情刷新
-        // 使用刚刚确认的 currentDisplayItems，而不是可能过时的 items state
+        // 4. 安全的行情刷新：使用刚刚确认的 currentDisplayItems
         setTimeout(() => {
             const hasAutoQuote = currentDisplayItems.some(i => i.isAutoQuote && !i.withdrawalDate);
             if (hasAutoQuote) {
@@ -167,7 +165,7 @@ const App: React.FC = () => {
       saveItems(updatedList);
   };
   
-  // 🔥 核心修复：支持 itemsOverride 参数，打破闭包
+  // 🔥 3. 核心修复：支持 itemsOverride 参数，打破闭包 + 防覆盖
   const handleRefreshMarketData = async (silent = false, itemsOverride?: Investment[]) => {
       // 1. 如果是手动触发(没有override)，先尝试拉取云端最新数据，防止本地数据过时
       let targetItems = itemsOverride || items;
@@ -175,11 +173,11 @@ const App: React.FC = () => {
       if (!itemsOverride) {
           const targetUserId = user ? user.id : DEFAULT_USER_ID;
           try {
-              console.log("🔄 行情更新前置检查：正在拉取云端数据...");
+              // console.log("🔄 行情更新前置检查：正在拉取云端数据...");
               const cloudData = await storageService.syncDown(targetUserId);
               if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
                   targetItems = migrateAndSetItems(cloudData);
-                  console.log("✅ 已基于云端最新数据进行更新");
+                  // console.log("✅ 已基于云端最新数据进行更新");
               }
           } catch (e) {
               console.warn("前置同步失败，降级使用本地数据");
@@ -216,9 +214,9 @@ const App: React.FC = () => {
                   return item;
               });
               
-              // 只有当数据确实更新时，才执行保存！防止无意义的覆盖
+              // 只有当数据确实更新时，才执行保存
               if (updatedCount > 0) {
-                  console.log(`📈 行情更新完成，保存 ${updatedCount} 条数据`);
+                  // console.log(`📈 行情更新完成，保存 ${updatedCount} 条数据`);
                   saveItems(updatedList);
               }
           }
@@ -290,7 +288,7 @@ const App: React.FC = () => {
       }
   };
 
-  // 🔥 核心修复：切换页面时，自动触发云端同步，防止看到旧数据
+  // 🔥 4. 核心修复：切换页面时，自动触发云端同步，防止看到旧数据
   const handleNav = async (targetView: ViewState) => {
       if (targetView !== view) {
           const targetUserId = user ? user.id : DEFAULT_USER_ID;
@@ -337,7 +335,7 @@ const App: React.FC = () => {
       );
   }
 
-  // --- PC 端侧边栏 ---
+  // --- PC 端侧边栏 (现代化+折叠+皮肤跟随+隐私保护) ---
   const DesktopSidebar = () => {
       const sidebarWidth = isSidebarCollapsed ? 'w-24' : 'w-72';
       

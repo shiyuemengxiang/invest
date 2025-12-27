@@ -62,7 +62,7 @@ const CalendarView: React.FC<Props> = ({ items }) => {
               }
           }
 
-          // B. Rebate Event (返利)
+          // B. Rebate Event (返利) - 单独显示
           const rebateDate = item.withdrawalDate || item.maturityDate;
           if (item.rebate > 0 && rebateDate) {
               events.push({
@@ -117,22 +117,24 @@ const CalendarView: React.FC<Props> = ({ items }) => {
 
           // D. Settlement Event (结清/到期)
           const endDate = item.withdrawalDate || item.maturityDate;
-          // 修正：只要有到期日/结算日，并且历史有投入本金，就触发结算事件 (满足 0 收益也要显示)
+          // 只要有到期日/结算日，并且历史有投入本金，就触发结算事件
           const isFullySettled = endDate && item.totalCost > 0;
 
           if (isFullySettled) {
-              // 核心修正：剩余收益 = 总收益 - 中途派息 - 返利(因为返利已单独作为事件 B 显示) 日历视图到期不能倒扣返利
-              const residualProfit = metrics.profit - totalNetPayouts;
+              // 🔥 核心修正：剩余收益 = 总收益 - 中途派息 - 返利
+              // 必须减去 item.rebate，因为返利已经在上方 "B. Rebate Event" 中单独列出了
+              // 否则会导致日历当天的总收益虚高
+              const residualProfit = metrics.profit - totalNetPayouts - item.rebate;
               
               events.push({
                   id: `${item.id}-end`,
                   date: endDate,
                   type: 'settlement',
                   name: item.name,
-                  amount: residualProfit, // P&L
+                  amount: residualProfit, // P&L (仅包含产品本身收益)
                   principalAmount: item.totalCost, // 结算返回的本金
                   currency: item.currency,
-                  yield: metrics.comprehensiveYield,
+                  yield: metrics.comprehensiveYield, // 保持显示综合年化 (含返利)
                   item
               });
           }
@@ -155,7 +157,7 @@ const CalendarView: React.FC<Props> = ({ items }) => {
           const evDate = new Date(ev.date);
           if (evDate.getFullYear() === year && evDate.getMonth() === month) {
               if (ev.type === 'deposit') {
-                  depositTotal += convertCurrency(ev.principalAmount, ev.currency, selectedCurrency, rates); // 修正：使用 principalAmount
+                  depositTotal += convertCurrency(ev.principalAmount, ev.currency, selectedCurrency, rates); 
                   if (currencyBreakdown[ev.currency]) {
                       currencyBreakdown[ev.currency].deposit += ev.principalAmount;
                   }
@@ -234,7 +236,6 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                 else if (ev.type === 'payout') badgeClass = 'bg-blue-50 border-blue-100 text-blue-700'; 
                 else if (ev.type === 'expense') badgeClass = 'bg-red-50 border-red-100 text-red-700'; 
                 else if (ev.type === 'rebate') {
-                    // 返利：已到账(实心 amber)，未到账(空心 dashed amber)
                     badgeClass = ev.isReceived 
                         ? 'bg-amber-100 border-amber-200 text-amber-800' 
                         : 'bg-amber-50 border-amber-200 text-amber-600 border-dashed';
@@ -374,7 +375,6 @@ const CalendarView: React.FC<Props> = ({ items }) => {
                                                 </div>
                                             </div>
                                             
-                                            {/* 修正后的右侧显示逻辑 */}
                                             <div className="text-right">
                                                 {/* 1. 显示本金 (仅存入和结算时显示) */}
                                                 {(ev.type === 'deposit' || ev.type === 'settlement') && ev.principalAmount > 0 && (

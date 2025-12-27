@@ -57,15 +57,12 @@ export const storageService = {
 
     // --- Cloud Sync Logic ---
 
-    // Save Data: 🔥 恢复逻辑 - 只有登录用户才同步到云端
+    // Save Data: 仅登录用户同步
     async saveData(user: User | null, items: Investment[]) {
-        // 1. 无论是否登录，总是存本地
         this.saveLocalData(items);
         
-        // 2. 只有登录用户，才推送到云端
         if (user && user.id) {
             try {
-                // console.log(`[Sync] Uploading data for user: ${user.id}`);
                 const res = await fetch(`${API_BASE}/sync`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -140,12 +137,9 @@ export const storageService = {
                     if (user.preferences.rates) this.saveRates(user.preferences.rates);
                 }
 
-                // 登录成功后：
-                // 如果是注册或本地有新数据，上传覆盖云端
                 if (isRegister || currentItems.length > 0) {
                     await this.saveData(user, currentItems);
                 } else {
-                    // 否则拉取云端数据
                     await this.syncDown(user.id);
                 }
                 
@@ -159,17 +153,27 @@ export const storageService = {
         }
     },
 
-    // 仅用于登录用户的拉取
+    // 🔥 核心修复：增加时间戳，强制不缓存
     async syncDown(userId: string) {
         try {
-            const res = await fetch(`${API_BASE}/investments?userId=${userId}`);
+            // 添加 timestamp 防止浏览器/CDN 缓存
+            const url = `${API_BASE}/investments?userId=${userId}&t=${Date.now()}`;
+            
+            const res = await fetch(url, {
+                headers: { 
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            });
+
             const contentType = res.headers.get('content-type');
             if (res.ok && contentType && contentType.includes('application/json')) {
                 const json = await res.json();
                 const data = Array.isArray(json) ? json : (json.data || []);
                 if (Array.isArray(data)) {
-                    // console.log('📥 从云端拉取数据成功:', data.length);
-                    this.saveLocalData(data); // 更新本地缓存
+                    console.log('📥 [Anti-Cache] 成功拉取云端最新数据');
+                    this.saveLocalData(data);
                     return data;
                 }
             }
