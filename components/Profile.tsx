@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Currency, ExchangeRates, ThemeOption, User } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Currency, ExchangeRates, ThemeOption, User, Investment } from '../types';
 import { THEMES } from '../utils';
 import { marketService } from '../services/market';
+import { storageService } from '../services/storage';
 import { ToastType } from './Toast';
 
 interface Props {
@@ -13,6 +14,20 @@ interface Props {
     onSaveProfile: (nickname: string, avatar: string) => void;
     onLogout: () => void;
     onNotify: (msg: string, type: ToastType) => void;
+    onImportData: (items: Investment[]) => void;
+}
+
+// 管理员邮箱（Vercel 环境变量 VITE_ADMIN_EMAIL），仅该邮箱登录时显示管理后台入口
+const ADMIN_EMAIL: string = (import.meta as any).env?.VITE_ADMIN_EMAIL || '';
+
+interface AdminUserRow {
+    id: string;
+    email: string;
+    disabled: boolean;
+    created_at: string | null;
+    ledger_count: number;
+    ledger_rev: number;
+    ledger_updated_at: string | null;
 }
 
 // ✨ 全新精选：AI 风格库定义 (用于替换 Dicebear 的选择器 UI)
@@ -96,7 +111,7 @@ const BG_COLORS = [
     'b6e3f4', 'c0aede', 'd1d4f9', 'ffd5dc', 'ffdfbf', 'fdcfaf', 'e6e6e6', 'd4e0ff', 'ffdfd3'
 ];
 
-const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSaveTheme, onSaveProfile, onLogout, onNotify }) => {
+const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSaveTheme, onSaveProfile, onLogout, onNotify, onImportData }) => {
     const [editRates, setEditRates] = useState<ExchangeRates>({...rates});
     const [rateMode, setRateMode] = useState<'auto' | 'manual'>(user?.preferences?.rateMode || 'manual');
     const [loadingRates, setLoadingRates] = useState(false);
@@ -105,6 +120,22 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     const [nickname, setNickname] = useState(user?.preferences?.nickname || '');
     const [avatar, setAvatar] = useState(user?.preferences?.avatar || '');
     const [showAvatarSelector, setShowAvatarSelector] = useState(false);
+
+    // 修改密码
+    const [oldPw, setOldPw] = useState('');
+    const [newPw, setNewPw] = useState('');
+    const [newPw2, setNewPw2] = useState('');
+    const [pwLoading, setPwLoading] = useState(false);
+
+    // 导入
+    const fileRef = useRef<HTMLInputElement>(null);
+
+    // 管理后台
+    const isAdmin = !!user && !!ADMIN_EMAIL && user.email === ADMIN_EMAIL;
+    const [adminKey, setAdminKey] = useState(() => sessionStorage.getItem('sl_admin_key') || '');
+    const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
+    const [adminLoading, setAdminLoading] = useState(false);
+    const [tempPwShown, setTempPwShown] = useState<{ email: string; pw: string } | null>(null);
 
     useEffect(() => {
         if (rateMode === 'auto') {
@@ -188,6 +219,139 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     const handleSaveUserProfile = () => {
         onSaveProfile(nickname, avatar);
         onNotify('个人信息已更新', 'success');
+    };
+
+    // ---- 数据管理：导出 / 导入 ----
+    const handleExport = () => {
+        try {
+            const raw = localStorage.getItem('smart_ledger_data') || '[]';
+            const blob = new Blob([raw], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const d = new Date();
+            const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+            a.href = url;
+            a.download = `smart-ledger-backup-${stamp}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            onNotify('账本已导出为 JSON 文件', 'success');
+        } catch (e) {
+            onNotify('导出失败', 'error');
+        }
+    };
+
+    const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const f = e.target.files?.[0];
+        e.target.value = '';
+        if (!f) return;
+        try {
+            const text = await f.text();
+            const parsed = JSON.parse(text);
+            const arr = Array.isArray(parsed) ? parsed : parsed.data;
+            if (!Array.isArray(arr)) throw new Error('格式错误');
+            if (!window.confirm(`将导入 ${arr.length} 条记录，当前本地数据将被替换，确定继续？`)) return;
+            onImportData(arr);
+            onNotify(`已导入 ${arr.length} 条记录`, 'success');
+        } catch (err) {
+            onNotify('导入失败：文件不是有效的账本 JSON', 'error');
+        }
+    };
+
+    // ---- 修改密码 ----
+    const handleChangePassword = async () => {
+        if (!user) return;
+        if (!oldPw || !newPw || !newPw2) { onNotify('请填写完整', 'error'); return; }
+        if (newPw !== newPw2) { onNotify('两次输入的新密码不一致', 'error'); return; }
+        if (newPw.length < 6) { onNotify('新密码至少 6 位', 'error'); return; }
+        setPwLoading(true);
+        try {
+            const res = await fetch('/api/auth/change-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id, oldPassword: oldPw, newPassword: newPw })
+            });
+            const json = await res.json().catch(() => ({}));
+            if (res.ok) {
+                setOldPw(''); setNewPw(''); setNewPw2('');
+                onNotify('密码修改成功', 'success');
+            } else {
+                onNotify(json.message || json.error || '修改失败', 'error');
+            }
+        } catch (e) {
+            onNotify('网络错误，请稍后重试', 'error');
+        } finally {
+            setPwLoading(false);
+        }
+    };
+
+    // ---- 管理后台 ----
+    const adminHeaders = () => ({
+        'Content-Type': 'application/json',
+        'x-admin-key': adminKey
+    });
+
+    const handleAdminLoad = async () => {
+        if (!adminKey) { onNotify('请先输入管理密钥', 'error'); return; }
+        sessionStorage.setItem('sl_admin_key', adminKey);
+        setAdminLoading(true);
+        setTempPwShown(null);
+        try {
+            const res = await fetch('/api/admin/users', { headers: adminHeaders() });
+            const json = await res.json().catch(() => ({}));
+            if (res.ok && Array.isArray(json)) {
+                setAdminUsers(json);
+            } else {
+                onNotify(json.message || json.error || '加载失败', 'error');
+            }
+        } catch (e) {
+            onNotify('网络错误', 'error');
+        } finally {
+            setAdminLoading(false);
+        }
+    };
+
+    const handleAdminAction = async (action: 'disable' | 'enable' | 'reset-password', row: AdminUserRow) => {
+        const label = action === 'disable' ? `禁用 ${row.email}？` : action === 'enable' ? `启用 ${row.email}？` : `为 ${row.email} 重置密码？将生成一次性临时密码。`;
+        if (!window.confirm(label)) return;
+        try {
+            const res = await fetch('/api/admin/users', {
+                method: 'POST',
+                headers: adminHeaders(),
+                body: JSON.stringify({ action, userId: row.id })
+            });
+            const json = await res.json().catch(() => ({}));
+            if (res.ok) {
+                if (action === 'reset-password' && json.tempPassword) {
+                    setTempPwShown({ email: row.email, pw: json.tempPassword });
+                } else {
+                    onNotify('操作成功', 'success');
+                }
+                handleAdminLoad();
+            } else {
+                onNotify(json.message || json.error || '操作失败', 'error');
+            }
+        } catch (e) {
+            onNotify('网络错误', 'error');
+        }
+    };
+
+    const handleAdminDelete = async (row: AdminUserRow) => {
+        if (!window.confirm(`彻底删除 ${row.email} 及其全部账本数据？此操作不可恢复！`)) return;
+        if (!window.confirm('再次确认：真的要删除吗？')) return;
+        try {
+            const res = await fetch(`/api/admin/users?userId=${encodeURIComponent(row.id)}`, {
+                method: 'DELETE',
+                headers: adminHeaders()
+            });
+            if (res.ok) {
+                onNotify('已删除', 'info');
+                handleAdminLoad();
+            } else {
+                onNotify('删除失败', 'error');
+            }
+        } catch (e) {
+            onNotify('网络错误', 'error');
+        }
     };
 
     return (
@@ -374,6 +538,125 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                     </div>
                 )}
             </div>
+
+            {/* 数据管理：导出 / 导入 */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 mb-2">数据管理</h3>
+                <p className="text-xs text-slate-400 mb-6">定期导出是最便宜的保险。导入会替换当前本地数据并同步到云端。</p>
+                <div className="flex flex-wrap gap-3">
+                    <button
+                        onClick={handleExport}
+                        className="px-5 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition active:scale-95"
+                    >
+                        导出账本 JSON
+                    </button>
+                    <button
+                        onClick={() => fileRef.current?.click()}
+                        className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-50 transition active:scale-95"
+                    >
+                        导入账本 JSON
+                    </button>
+                    <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportFile} />
+                </div>
+            </div>
+
+            {/* 修改密码 */}
+            {user && (
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-bold text-slate-800 mb-6">修改密码</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <input
+                            type="password" value={oldPw} onChange={e => setOldPw(e.target.value)}
+                            placeholder="原密码"
+                            className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-300"
+                        />
+                        <input
+                            type="password" value={newPw} onChange={e => setNewPw(e.target.value)}
+                            placeholder="新密码（至少6位）"
+                            className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-300"
+                        />
+                        <input
+                            type="password" value={newPw2} onChange={e => setNewPw2(e.target.value)}
+                            placeholder="确认新密码"
+                            className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-300"
+                        />
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                        <button
+                            onClick={handleChangePassword} disabled={pwLoading}
+                            className={`px-5 py-2 text-white text-sm font-bold rounded-xl shadow-md transition active:scale-95 disabled:opacity-60 ${THEMES[currentTheme].button}`}
+                        >
+                            {pwLoading ? '提交中...' : '确认修改'}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* 管理后台（仅管理员邮箱可见） */}
+            {isAdmin && (
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-red-100">
+                    <h3 className="text-lg font-bold text-slate-800 mb-2">管理后台 <span className="text-xs font-normal text-red-400">仅管理员可见</span></h3>
+                    <p className="text-xs text-slate-400 mb-6">管理密钥在 Vercel 环境变量 <span className="font-mono">ADMIN_SECRET</span> 中配置，每次会话输入一次（关闭标签页即清除）。</p>
+                    <div className="flex gap-3 mb-6">
+                        <input
+                            type="password" value={adminKey} onChange={e => setAdminKey(e.target.value)}
+                            placeholder="输入管理密钥"
+                            className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-300 font-mono text-sm"
+                        />
+                        <button
+                            onClick={handleAdminLoad} disabled={adminLoading}
+                            className="px-5 py-2 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition active:scale-95 disabled:opacity-60"
+                        >
+                            {adminLoading ? '加载中...' : '加载用户'}
+                        </button>
+                    </div>
+                    {tempPwShown && (
+                        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                            <p className="text-sm font-bold text-amber-800">已为 {tempPwShown.email} 生成临时密码（仅显示一次）：</p>
+                            <p className="font-mono text-lg font-bold text-slate-900 mt-1 select-all">{tempPwShown.pw}</p>
+                            <p className="text-xs text-amber-600 mt-1">请立即告知用户并提醒其登录后修改。</p>
+                        </div>
+                    )}
+                    {adminUsers.length > 0 && (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
+                                        <th className="py-2 pr-4">邮箱</th>
+                                        <th className="py-2 pr-4">账本</th>
+                                        <th className="py-2 pr-4">状态</th>
+                                        <th className="py-2">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {adminUsers.map(u => (
+                                        <tr key={u.id} className="border-b border-slate-50">
+                                            <td className="py-3 pr-4 font-mono text-xs break-all">{u.email}</td>
+                                            <td className="py-3 pr-4 text-slate-500 whitespace-nowrap">{u.ledger_count} 条</td>
+                                            <td className="py-3 pr-4 whitespace-nowrap">
+                                                {u.disabled
+                                                    ? <span className="text-xs font-bold text-red-500">已禁用</span>
+                                                    : <span className="text-xs font-bold text-emerald-500">正常</span>}
+                                            </td>
+                                            <td className="py-3 whitespace-nowrap space-x-2">
+                                                <button onClick={() => handleAdminAction(u.disabled ? 'enable' : 'disable', u)} className="text-xs text-slate-500 hover:text-slate-800 font-medium">
+                                                    {u.disabled ? '启用' : '禁用'}
+                                                </button>
+                                                <button onClick={() => handleAdminAction('reset-password', u)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium">
+                                                    重置密码
+                                                </button>
+                                                <button onClick={() => handleAdminDelete(u)} className="text-xs text-red-400 hover:text-red-600 font-medium">
+                                                    删除
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 };
