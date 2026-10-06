@@ -57,7 +57,12 @@ export default async function handler(request: any, response: any) {
     // ---------- DELETE：删除用户及其全部数据 ----------
     if (request.method === 'DELETE') {
       const userId = request.query?.userId;
+      const callerUserId = request.query?.callerUserId;
       if (!userId) return response.status(400).json({ error: 'Missing userId' });
+      // 禁止删除自己（callerUserId 由管理端如实传递，防误操作）
+      if (callerUserId && callerUserId === userId) {
+        return response.status(400).json({ error: 'CANNOT_SELF', message: '不能删除自己的账号' });
+      }
       await client.query('DELETE FROM ledger_backups WHERE user_id = $1', [userId]);
       await client.query('DELETE FROM ledgers WHERE user_id = $1', [userId]);
       const { rowCount } = await client.query('DELETE FROM users WHERE id = $1', [userId]);
@@ -69,13 +74,17 @@ export default async function handler(request: any, response: any) {
     }
 
     const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
-    const { action, userId } = body || {};
+    const { action, userId, callerUserId } = body || {};
     if (!action || !userId) {
       return response.status(400).json({ error: 'Missing action or userId' });
     }
 
     // ---------- 禁用 / 启用 ----------
     if (action === 'disable' || action === 'enable') {
+      // 禁止禁用自己（否则把自己锁在门外）
+      if (action === 'disable' && callerUserId && callerUserId === userId) {
+        return response.status(400).json({ error: 'CANNOT_SELF', message: '不能禁用自己的账号' });
+      }
       await client.query('UPDATE users SET disabled = $1 WHERE id = $2', [action === 'disable', userId]);
       return response.status(200).json({ success: true, disabled: action === 'disable' });
     }

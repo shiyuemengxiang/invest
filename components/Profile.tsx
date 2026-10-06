@@ -379,7 +379,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
             const res = await fetch('/api/admin/users', {
                 method: 'POST',
                 headers: adminHeaders(),
-                body: JSON.stringify({ action, userId: row.id })
+                body: JSON.stringify({ action, userId: row.id, callerUserId: user?.id })
             });
             const json = await res.json().catch(() => ({}));
             if (res.ok) {
@@ -401,7 +401,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
         if (!window.confirm(`彻底删除 ${row.email} 及其全部账本数据？此操作不可恢复！`)) return;
         if (!window.confirm('再次确认：真的要删除吗？')) return;
         try {
-            const res = await fetch(`/api/admin/users?userId=${encodeURIComponent(row.id)}`, {
+            const res = await fetch(`/api/admin/users?userId=${encodeURIComponent(row.id)}&callerUserId=${encodeURIComponent(user?.id || '')}`, {
                 method: 'DELETE',
                 headers: adminHeaders()
             });
@@ -714,15 +714,21 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                                                     : <span className="text-xs font-bold text-emerald-500">正常</span>}
                                             </td>
                                             <td className="py-3 whitespace-nowrap space-x-2">
-                                                <button onClick={() => handleAdminAction(u.disabled ? 'enable' : 'disable', u)} className="text-xs text-slate-500 hover:text-slate-800 font-medium">
-                                                    {u.disabled ? '启用' : '禁用'}
-                                                </button>
-                                                <button onClick={() => handleAdminAction('reset-password', u)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium">
-                                                    重置密码
-                                                </button>
-                                                <button onClick={() => handleAdminDelete(u)} className="text-xs text-red-400 hover:text-red-600 font-medium">
-                                                    删除
-                                                </button>
+                                                {u.id === user?.id ? (
+                                                    <span className="text-xs text-slate-300">这是你自己</span>
+                                                ) : (
+                                                    <>
+                                                        <button onClick={() => handleAdminAction(u.disabled ? 'enable' : 'disable', u)} className="text-xs text-slate-500 hover:text-slate-800 font-medium">
+                                                            {u.disabled ? '启用' : '禁用'}
+                                                        </button>
+                                                        <button onClick={() => handleAdminAction('reset-password', u)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium">
+                                                            重置密码
+                                                        </button>
+                                                        <button onClick={() => handleAdminDelete(u)} className="text-xs text-red-400 hover:text-red-600 font-medium">
+                                                            删除
+                                                        </button>
+                                                    </>
+                                                )}
                                             </td>
                                         </tr>
                                     ))}
