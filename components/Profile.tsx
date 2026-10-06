@@ -222,19 +222,81 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     };
 
     // ---- 数据管理：导出 / 导入 ----
+    const exportStamp = () => {
+        const d = new Date();
+        return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const downloadBlob = (blob: Blob, filename: string) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    // 导出用扁平化行：一行一条持仓
+    const flattenForExport = (items: Investment[]) => items.map(i => ({
+        '名称': i.name,
+        '分类': i.category,
+        '类型': i.type,
+        '币种': i.currency,
+        '当前本金': i.currentPrincipal,
+        '当前份额': i.currentQuantity ?? '',
+        '累计投入': i.totalCost,
+        '已实现收益': i.totalRealizedProfit,
+        '存入日期': i.depositDate,
+        '到期日期': i.maturityDate,
+        '取出日期': i.withdrawalDate || '',
+        '备注': i.notes || '',
+        '记录ID': i.id,
+    }));
+
     const handleExport = () => {
         try {
             const raw = localStorage.getItem('smart_ledger_data') || '[]';
-            const blob = new Blob([raw], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            const d = new Date();
-            const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-            a.href = url;
-            a.download = `smart-ledger-backup-${stamp}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
+            downloadBlob(new Blob([raw], { type: 'application/json' }), `smart-ledger-backup-${exportStamp()}.json`);
             onNotify('账本已导出为 JSON 文件', 'success');
+        } catch (e) {
+            onNotify('导出失败', 'error');
+        }
+    };
+
+    const handleExportExcel = async () => {
+        try {
+            const items = storageService.getLocalData() || [];
+            if (items.length === 0) { onNotify('暂无数据可导出', 'info'); return; }
+            const XLSX = await import('xlsx'); // 动态导入，不拖慢首屏
+            const ws = XLSX.utils.json_to_sheet(flattenForExport(items));
+            ws['!cols'] = [
+                { wch: 24 }, { wch: 10 }, { wch: 12 }, { wch: 8 }, { wch: 14 },
+                { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 },
+                { wch: 12 }, { wch: 30 }, { wch: 38 },
+            ];
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, '账本');
+            XLSX.writeFile(wb, `smart-ledger-${exportStamp()}.xlsx`);
+            onNotify('已导出 Excel 文件', 'success');
+        } catch (e) {
+            onNotify('导出失败', 'error');
+        }
+    };
+
+    const handleExportCsv = () => {
+        try {
+            const items = storageService.getLocalData() || [];
+            if (items.length === 0) { onNotify('暂无数据可导出', 'info'); return; }
+            const rows = flattenForExport(items);
+            const headers = Object.keys(rows[0]);
+            const esc = (v: any) => {
+                const s = String(v ?? '');
+                return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+            };
+            // BOM 头：让 Excel 正确显示中文
+            const csv = '﻿' + [headers.join(','), ...rows.map(r => headers.map(h => esc((r as any)[h])).join(','))].join('\n');
+            downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `smart-ledger-${exportStamp()}.csv`);
+            onNotify('已导出 CSV 文件', 'success');
         } catch (e) {
             onNotify('导出失败', 'error');
         }
@@ -545,19 +607,32 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                 <p className="text-xs text-slate-400 mb-6">定期导出是最便宜的保险。导入会替换当前本地数据并同步到云端。</p>
                 <div className="flex flex-wrap gap-3">
                     <button
-                        onClick={handleExport}
+                        onClick={handleExportExcel}
                         className="px-5 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition active:scale-95"
                     >
-                        导出账本 JSON
+                        导出 Excel
+                    </button>
+                    <button
+                        onClick={handleExportCsv}
+                        className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-50 transition active:scale-95"
+                    >
+                        导出 CSV
+                    </button>
+                    <button
+                        onClick={handleExport}
+                        className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-50 transition active:scale-95"
+                    >
+                        导出 JSON
                     </button>
                     <button
                         onClick={() => fileRef.current?.click()}
                         className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-50 transition active:scale-95"
                     >
-                        导入账本 JSON
+                        导入 JSON
                     </button>
                     <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportFile} />
                 </div>
+                <p className="text-xs text-slate-400 mt-4">Excel/CSV 为账本明细表（一行一条持仓）；JSON 为完整备份（含交易流水），导入请用 JSON。</p>
             </div>
 
             {/* 修改密码 */}
