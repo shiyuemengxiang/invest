@@ -27,6 +27,19 @@ export default async function handler(request: any, response: any) {
         return response.status(400).json({ error: 'Missing userId' });
     }
 
+    // 账号存活校验（防僵尸会话）：被删除/禁用的用户各端下次请求即被强制登出
+    try {
+        const { rows: urows } = await client.query('SELECT disabled FROM users WHERE id = $1', [userId]);
+        if (urows.length === 0) {
+            return response.status(401).json({ error: 'USER_DELETED', message: '账号已被删除' });
+        }
+        if (urows[0].disabled) {
+            return response.status(403).json({ error: 'ACCOUNT_DISABLED', message: '账号已被禁用' });
+        }
+    } catch (e) {
+        // users 表不存在等极端情况：放行，避免误杀
+    }
+
     // Check if table exists first to avoid errors on fresh deploy
     const { rows: tableCheck } = await client.query(`
         SELECT EXISTS (

@@ -32,6 +32,16 @@ export class SyncConflictError extends Error {
     }
 }
 
+// 账号已被删除/禁用：服务端拒绝请求，客户端应强制退出登录（防僵尸会话）
+export class AccountGoneError extends Error {
+    reason: 'deleted' | 'disabled';
+    constructor(reason: 'deleted' | 'disabled') {
+        super(reason === 'deleted' ? '账号已被删除' : '账号已被禁用');
+        this.name = 'AccountGoneError';
+        this.reason = reason;
+    }
+}
+
 // 登录时云端与本地都有真实数据，需要用户裁决
 export interface LoginConflict {
     localCount: number;
@@ -128,6 +138,15 @@ export const storageService = {
                     })
                 });
                 const json = await res.json().catch(() => ({}));
+                // 账号已被删除/禁用：抛给上层强制登出
+                if (res.status === 401 && json.error === 'USER_DELETED') {
+                    this._setLastSync(false);
+                    throw new AccountGoneError('deleted');
+                }
+                if (res.status === 403 && json.error === 'ACCOUNT_DISABLED') {
+                    this._setLastSync(false);
+                    throw new AccountGoneError('disabled');
+                }
                 if (res.status === 422 && json.error === 'DATA_CLIFF') {
                     this._setLastSync(false);
                     throw new SyncCliffError(json.stored || 0, json.incoming || 0);
@@ -144,7 +163,7 @@ export const storageService = {
                 if (typeof json.rev === 'number') this.setLastRev(json.rev);
                 this._setLastSync(true);
             } catch (e) {
-                if (e instanceof SyncCliffError || e instanceof SyncConflictError) throw e;
+                if (e instanceof AccountGoneError || e instanceof SyncCliffError || e instanceof SyncConflictError) throw e;
                 console.warn("Background sync failed:", e);
                 this._setLastSync(false);
             }
@@ -294,6 +313,18 @@ export const storageService = {
                 }
             });
             const contentType = res.headers.get('content-type');
+            // 账号已被删除/禁用：抛给上层强制登出（先于 res.ok 判断）
+            if (res.status === 401 || res.status === 403) {
+                const errJson = await res.json().catch(() => ({}));
+                if (errJson.error === 'USER_DELETED') {
+                    this._setLastSync(false);
+                    throw new AccountGoneError('deleted');
+                }
+                if (errJson.error === 'ACCOUNT_DISABLED') {
+                    this._setLastSync(false);
+                    throw new AccountGoneError('disabled');
+                }
+            }
             if (res.ok && contentType && contentType.includes('application/json')) {
                 const json = await res.json();
                 const data = Array.isArray(json) ? json : (json.data || []);
@@ -318,6 +349,7 @@ export const storageService = {
                 }
             }
         } catch (e) {
+            if (e instanceof AccountGoneError) throw e;
             console.warn("Could not sync down data:", e);
         }
         return null;

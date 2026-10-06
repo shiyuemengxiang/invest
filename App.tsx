@@ -99,6 +99,9 @@ const App: React.FC = () => {
                  migrateAndSetItems(cloudData);
             }
             refreshSyncInfo();
+        }).catch(e => {
+            isAccountGone(e);
+            refreshSyncInfo();
         });
 
         if (currentUser.preferences?.rateMode === 'auto') {
@@ -133,7 +136,9 @@ const App: React.FC = () => {
       setItems(newItems);
       try {
           await storageService.saveData(user, newItems);
-      } catch (e: any) {          if (e?.name === 'SyncCliffError') {
+      } catch (e: any) {          if (isAccountGone(e)) {
+              // 已强制登出
+          } else if (e?.name === 'SyncCliffError') {
               // 云端数据更多：拦截本次上传，请用户二次确认是否强制覆盖
               setCliffConflict({ stored: e.stored, incoming: e.incoming, pendingItems: newItems });
           } else if (e?.name === 'SyncConflictError') {
@@ -150,7 +155,9 @@ const App: React.FC = () => {
           await storageService.saveData(user, cliffConflict.pendingItems, { forceClear: true });
           showToast('已按确认覆盖云端数据', 'info');
       } catch (e: any) {
-          showToast('覆盖失败：' + (e?.message || '未知错误'), 'error');
+          if (!isAccountGone(e)) {
+              showToast('覆盖失败：' + (e?.message || '未知错误'), 'error');
+          }
       } finally {
           refreshSyncInfo();
           setCliffConflict(null);
@@ -254,6 +261,24 @@ const App: React.FC = () => {
       setSyncInfo(null);
       setView('auth');
       showToast('已安全退出', 'info');
+  };
+
+  // 账号被删除/禁用：服务端拒绝请求，各端强制登出（防僵尸会话）
+  // 本地数据保留，重新注册/启用后可通过正常登录流程恢复上传
+  const handleForceLogout = (reason: 'deleted' | 'disabled') => {
+      storageService.logout();
+      setUser(null);
+      setSyncInfo(null);
+      setView('auth');
+      showToast(reason === 'deleted' ? '账号已被删除，请联系管理员' : '账号已被禁用，请联系管理员', 'error');
+  };
+
+  const isAccountGone = (e: any) => {
+      if (e?.name === 'AccountGoneError') {
+          handleForceLogout(e.reason);
+          return true;
+      }
+      return false;
   };
 
   const handleThemeChange = (newTheme: ThemeOption) => {

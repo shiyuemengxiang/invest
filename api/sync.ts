@@ -70,6 +70,27 @@ function parseBody(request: any) {
   return body || {};
 }
 
+// ---- 账号存活校验（防僵尸会话）----
+// 用户被删除/禁用后，各客户端下次请求即收到 401/403 并被强制登出。
+// users 表不存在等极端情况放行，避免误杀。
+async function checkUserActive(client: any, userId: string): Promise<'ok' | 'deleted' | 'disabled'> {
+  try {
+    const { rows } = await client.query('SELECT disabled FROM users WHERE id = $1', [userId]);
+    if (rows.length === 0) return 'deleted';
+    if (rows[0].disabled) return 'disabled';
+    return 'ok';
+  } catch (e) {
+    return 'ok';
+  }
+}
+
+function userGoneResponse(response: any, status: 'deleted' | 'disabled') {
+  if (status === 'deleted') {
+    return response.status(401).json({ error: 'USER_DELETED', message: '账号已被删除' });
+  }
+  return response.status(403).json({ error: 'ACCOUNT_DISABLED', message: '账号已被禁用' });
+}
+
 export default async function handler(request: any, response: any) {
   const client = await pool.connect();
 
@@ -82,6 +103,8 @@ export default async function handler(request: any, response: any) {
       if (!userId) {
         return response.status(400).json({ error: 'Missing userId' });
       }
+      const active = await checkUserActive(client, userId);
+      if (active !== 'ok') return userGoneResponse(response, active);
       const { rows } = await client.query(
         `SELECT id, rev, reason, created_at,
                 CASE WHEN jsonb_typeof(data) = 'array' THEN jsonb_array_length(data) ELSE 0 END AS count
@@ -101,6 +124,9 @@ export default async function handler(request: any, response: any) {
     if (!userId) {
       return response.status(400).json({ error: 'Missing userId' });
     }
+
+    const active = await checkUserActive(client, userId);
+    if (active !== 'ok') return userGoneResponse(response, active);
 
     // ---------- POST 回滚：{ userId, action: 'restore', backupId } ----------
     if (action === 'restore') {
