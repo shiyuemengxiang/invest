@@ -19,8 +19,35 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel, currentItems }) => {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // 忘记密码流程
+    const [forgotMode, setForgotMode] = useState(false);
+    const [forgotSent, setForgotSent] = useState(false);
     // 登录时云端与本地都有真实数据：等待用户裁决
     const [conflict, setConflict] = useState<PendingConflict | null>(null);
+
+    const handleForgotSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch('/api/auth/forgot-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            const json = await res.json().catch(() => ({}));
+            if (res.status === 429) {
+                setError(json.message || '请求过于频繁，请稍后再试');
+                return;
+            }
+            // 为防枚举：无论邮箱是否存在都显示已发送
+            setForgotSent(true);
+        } catch (err) {
+            setError('网络错误，请稍后重试');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -94,7 +121,64 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel, currentItems }) => {
         const cloudDate = conflict.cloudUpdatedAt
             ? new Date(conflict.cloudUpdatedAt).toLocaleString('zh-CN')
             : '未知时间';
+        // 忘记密码视图（优先于冲突面板）
+        if (forgotMode) {
         return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] animate-fade-in">
+                <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 w-full max-w-md border border-slate-100">
+                    <div className="text-center mb-8">
+                        <div className="w-16 h-16 bg-slate-900 text-white rounded-2xl mx-auto flex items-center justify-center text-2xl font-bold mb-4">SL</div>
+                        <h2 className="text-2xl font-bold text-slate-800">找回密码</h2>
+                        <p className="text-slate-400 text-sm mt-2">输入注册邮箱，我们会发送密码重置链接（30 分钟内有效）</p>
+                    </div>
+
+                    {error && (
+                        <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3">
+                             <p className="text-sm text-red-600 font-medium break-words">{error}</p>
+                        </div>
+                    )}
+
+                    {forgotSent ? (
+                        <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl">
+                            <p className="text-sm text-emerald-700 font-medium">如果该邮箱已注册，重置链接已发送，请查收邮件（含垃圾箱）。</p>
+                        </div>
+                    ) : (
+                        <form onSubmit={handleForgotSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-2">电子邮箱</label>
+                                <input
+                                    type="email"
+                                    required
+                                    value={email}
+                                    onChange={e => setEmail(e.target.value)}
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 outline-none transition"
+                                    placeholder="name@example.com"
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold shadow-lg transition transform active:scale-95 disabled:opacity-70 mt-4"
+                            >
+                                {loading ? '发送中...' : '发送重置链接'}
+                            </button>
+                        </form>
+                    )}
+
+                    <div className="mt-6 text-center">
+                        <button
+                            onClick={() => { setForgotMode(false); setForgotSent(false); setError(null); }}
+                            className="text-sm text-slate-500 hover:text-slate-800 font-medium transition"
+                        >
+                            返回登录
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
             <div className="flex flex-col items-center justify-center min-h-[60vh] animate-fade-in">
                 <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 w-full max-w-md border border-slate-100">
                     <div className="text-center mb-6">
@@ -166,7 +250,18 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel, currentItems }) => {
                         />
                     </div>
                     <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">密码</label>
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="block text-sm font-semibold text-slate-700">密码</label>
+                            {!isRegister && (
+                                <button
+                                    type="button"
+                                    onClick={() => { setForgotMode(true); setForgotSent(false); setError(null); }}
+                                    className="text-xs text-slate-400 hover:text-slate-700 font-medium transition"
+                                >
+                                    忘记密码？
+                                </button>
+                            )}
+                        </div>
                         <input 
                             type="password" 
                             required 
