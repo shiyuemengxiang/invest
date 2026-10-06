@@ -43,7 +43,18 @@ export interface LoginConflict {
 const DOWNLOAD_CLIFF_BASELINE = 15;
 const DOWNLOAD_CLIFF_RATIO = 0.5;
 
+// 同步状态（供 UI 显示"已同步 HH:MM / 同步失败"）
+export interface SyncStatus {
+    at: number;
+    ok: boolean;
+}
+
 export const storageService = {
+    // 最近一次同步状态（内存）
+    _lastSync: null as SyncStatus | null,
+    getLastSync: (): SyncStatus | null => storageService._lastSync,
+    _setLastSync: (ok: boolean) => { storageService._lastSync = { at: Date.now(), ok }; },
+
     // --- Local Storage Helpers (Guest / Cache) ---
     getLocalData: (): Investment[] | null => {
         const saved = localStorage.getItem(STORAGE_KEYS.DATA);
@@ -118,19 +129,24 @@ export const storageService = {
                 });
                 const json = await res.json().catch(() => ({}));
                 if (res.status === 422 && json.error === 'DATA_CLIFF') {
+                    this._setLastSync(false);
                     throw new SyncCliffError(json.stored || 0, json.incoming || 0);
                 }
                 if (res.status === 409 && json.error === 'CONFLICT') {
+                    this._setLastSync(false);
                     throw new SyncConflictError(json.serverRev || 0);
                 }
                 if (!res.ok) {
                     console.error("云端同步失败:", res.status, json);
+                    this._setLastSync(false);
                     return;
                 }
                 if (typeof json.rev === 'number') this.setLastRev(json.rev);
+                this._setLastSync(true);
             } catch (e) {
                 if (e instanceof SyncCliffError || e instanceof SyncConflictError) throw e;
                 console.warn("Background sync failed:", e);
+                this._setLastSync(false);
             }
         }
     },
@@ -290,12 +306,14 @@ export const storageService = {
                             console.error(
                                 `[CRITICAL] syncDown 熔断：本地 ${local.length} 条，云端仅 ${data.length} 条，拒绝覆盖本地`
                             );
+                            this._setLastSync(false);
                             return null;
                         }
                     }
                     this.saveLocalData(data);
                     const revHeader = res.headers.get('X-Ledger-Rev');
                     if (revHeader !== null && revHeader !== '') this.setLastRev(Number(revHeader));
+                    this._setLastSync(true);
                     return data;
                 }
             }

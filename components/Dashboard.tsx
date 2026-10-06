@@ -166,8 +166,14 @@ const TIME_FILTERS: { label: string, value: TimeFilter }[] = [
     { label: '近1年', value: '1y' },
 ];
 
-const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
-  const [selectedCurrency, setSelectedCurrency] = useState<Currency>('CNY');
+// 日期字符串（YYYY-MM-DD）加 N 天
+const addDays = (dateStr: string, n: number): string => {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [selectedCurrency, setSelectedCurrency] = useState<Currency>('CNY');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   
   const [showCustomDate, setShowCustomDate] = useState(false);
@@ -528,6 +534,41 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
 
   return (
     <div className="space-y-6 animate-fade-in pb-12 relative">
+      {/* 到期提醒：7天内到期（含已到期未取出）的持仓 */}
+      {(() => {
+          const now = new Date();
+          const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+          const soon = items
+              .filter(i => !i.withdrawalDate && i.maturityDate && i.maturityDate <= addDays(todayStr, 7))
+              .sort((a, b) => (a.maturityDate || '').localeCompare(b.maturityDate || ''));
+          if (soon.length === 0) return null;
+          return (
+              <div className="bg-amber-50 border border-amber-200 rounded-3xl p-4 md:p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                      <span className="text-amber-500">
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      </span>
+                      <h3 className="font-bold text-amber-800 text-sm">即将到期（{soon.length} 笔）</h3>
+                  </div>
+                  <div className="space-y-2">
+                      {soon.slice(0, 5).map(i => {
+                          const overdue = i.maturityDate! < todayStr;
+                          return (
+                              <div key={i.id} className="flex justify-between items-center text-sm bg-white/70 rounded-xl px-3 py-2">
+                                  <span className="font-medium text-slate-700 truncate">{i.name}</span>
+                                  <span className={`text-xs font-bold whitespace-nowrap ml-2 ${overdue ? 'text-red-500' : 'text-amber-600'}`}>
+                                      {overdue ? `已到期 ${i.maturityDate}` : `${i.maturityDate} 到期`}
+                                  </span>
+                              </div>
+                          );
+                      })}
+                      {soon.length > 5 && (
+                          <p className="text-xs text-amber-600 text-center">还有 {soon.length - 5} 笔，详见日历视图</p>
+                      )}
+                  </div>
+              </div>
+          );
+      })()}
       {/* Controls */}
       <div className="flex flex-col gap-4 bg-white md:bg-white/80 md:backdrop-blur-md p-4 rounded-3xl shadow-sm border border-white/50 relative md:sticky md:top-2 z-20">
          <div className="flex flex-col md:flex-row justify-between items-center gap-4">

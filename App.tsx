@@ -30,6 +30,22 @@ const App: React.FC = () => {
       stored: number; incoming: number; pendingItems: Investment[];
   } | null>(null);
 
+  // 同步状态指示
+  const [syncInfo, setSyncInfo] = useState<{ at: number; ok: boolean } | null>(null);
+  const refreshSyncInfo = () => setSyncInfo(storageService.getLastSync());
+  const formatSyncTime = (at: number) => {
+      const d = new Date(at);
+      const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      return d.toDateString() === new Date().toDateString() ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+  };
+  const syncText = !user
+      ? 'Local Mode'
+      : !syncInfo
+          ? 'Cloud Sync Active'
+          : syncInfo.ok
+              ? `已同步 ${formatSyncTime(syncInfo.at)}`
+              : '同步失败';
+
   // Sidebar Collapse State
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -82,6 +98,7 @@ const App: React.FC = () => {
             if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
                  migrateAndSetItems(cloudData);
             }
+            refreshSyncInfo();
         });
 
         if (currentUser.preferences?.rateMode === 'auto') {
@@ -116,13 +133,14 @@ const App: React.FC = () => {
       setItems(newItems);
       try {
           await storageService.saveData(user, newItems);
-      } catch (e: any) {
-          if (e?.name === 'SyncCliffError') {
+      } catch (e: any) {          if (e?.name === 'SyncCliffError') {
               // 云端数据更多：拦截本次上传，请用户二次确认是否强制覆盖
               setCliffConflict({ stored: e.stored, incoming: e.incoming, pendingItems: newItems });
           } else if (e?.name === 'SyncConflictError') {
               showToast('云端已有其他端更新，为防覆盖请刷新页面后再试', 'error');
           }
+      } finally {
+          refreshSyncInfo();
       }
   };
 
@@ -134,6 +152,7 @@ const App: React.FC = () => {
       } catch (e: any) {
           showToast('覆盖失败：' + (e?.message || '未知错误'), 'error');
       } finally {
+          refreshSyncInfo();
           setCliffConflict(null);
       }
   };
@@ -224,6 +243,7 @@ const App: React.FC = () => {
       const freshData = storageService.getLocalData();
       if (freshData) migrateAndSetItems(freshData);
 
+      refreshSyncInfo();
       setView('dashboard');
       showToast('欢迎回来！数据已同步', 'success');
   };
@@ -231,6 +251,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
       storageService.logout();
       setUser(null);
+      setSyncInfo(null);
       setView('auth');
       showToast('已安全退出', 'info');
   };
@@ -415,6 +436,11 @@ const App: React.FC = () => {
                               {user ? '点击退出' : '登录同步'}
                               <svg className="w-3 h-3 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
                           </button>
+                          {user && syncInfo && (
+                              <p className={`text-[10px] mt-0.5 ${syncInfo.ok ? (isLightTheme ? 'text-slate-400' : 'text-white/40') : 'text-red-400 font-bold'}`}>
+                                  {syncInfo.ok ? `已同步 ${formatSyncTime(syncInfo.at)}` : '同步失败'}
+                              </p>
+                          )}
                       </div>
                   )}
               </div>
@@ -428,7 +454,7 @@ const App: React.FC = () => {
       <div className="md:hidden px-6 pt-10 pb-2 flex justify-between items-end bg-slate-50 sticky top-0 z-40 border-b border-slate-100">
          <div>
              <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Smart Ledger</h1>
-             <p className="text-xs text-slate-400">{user ? 'Cloud Sync Active' : 'Local Mode'}</p>
+             <p className={`text-xs ${user && syncInfo && !syncInfo.ok ? 'text-red-400 font-bold' : 'text-slate-400'}`}>{syncText}</p>
          </div>
          
          {user ? (
@@ -533,7 +559,7 @@ const App: React.FC = () => {
             </div>
 
             {view === 'calendar' && <CalendarView items={items} />}
-            {view === 'profile' && <Profile user={user} rates={rates} currentTheme={theme} onSaveRates={handleRatesChange} onSaveTheme={handleThemeChange} onSaveProfile={handleProfileUpdate} onLogout={handleLogout} onNotify={showToast} />}
+            {view === 'profile' && <Profile user={user} rates={rates} currentTheme={theme} onSaveRates={handleRatesChange} onSaveTheme={handleThemeChange} onSaveProfile={handleProfileUpdate} onLogout={handleLogout} onNotify={showToast} onImportData={(items) => saveItems(items)} />}
          </div>
 
          {/* --- Mobile Bottom Nav --- */}
