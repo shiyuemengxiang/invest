@@ -1,5 +1,5 @@
 
-import { ExchangeRates, Investment, ThemeOption, User, DEFAULT_EXCHANGE_RATES, UserPreferences, LedgerMeta, DcaPlan } from "../types";
+import { ExchangeRates, Investment, ThemeOption, User, DEFAULT_EXCHANGE_RATES, UserPreferences, LedgerMeta } from "../types";
 
 const STORAGE_KEYS = {
     DATA: 'smart_ledger_data',
@@ -7,8 +7,7 @@ const STORAGE_KEYS = {
     RATES: 'smart_ledger_rates',
     THEME: 'smart_ledger_theme',
     REV: 'smart_ledger_rev',
-    TOKEN: 'smart_ledger_token',
-    DCA: 'smart_ledger_dca'
+    TOKEN: 'smart_ledger_token'
 };
 
 const API_BASE = '/api';
@@ -229,41 +228,6 @@ export const storageService = {
             } catch (e) {
                 console.warn("Preference sync failed:", e);
             }
-        }
-    },
-
-    // --- 定投计划（阶段五-4c）：本地优先，登录后随偏好设置同步云端 ---
-    getDcaPlans: (): DcaPlan[] => {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEYS.DCA);
-            const arr = raw ? JSON.parse(raw) : [];
-            return Array.isArray(arr) ? arr : [];
-        } catch { return []; }
-    },
-    saveDcaPlansLocal: (plans: DcaPlan[]) => {
-        localStorage.setItem(STORAGE_KEYS.DCA, JSON.stringify(plans));
-    },
-    async saveDcaPlans(user: User | null, plans: DcaPlan[]) {
-        this.saveDcaPlansLocal(plans);
-        if (user?.id) {
-            try {
-                const prefs: UserPreferences = { ...(user.preferences || {}), dcaPlans: plans };
-                await fetch(`${API_BASE}/market/preferences`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-                    body: JSON.stringify({ userId: user.id, preferences: prefs })
-                });
-                this.saveLocalUser({ ...user, preferences: prefs });
-            } catch (e) {
-                console.warn("DCA plans sync failed:", e);
-            }
-        }
-    },
-    // 登录后：云端偏好里的定投计划覆盖本地（云端为准，与账本下载方向一致）
-    syncDcaPlansFromCloud: (user: User | null) => {
-        const cloud = user?.preferences?.dcaPlans;
-        if (user?.id && Array.isArray(cloud)) {
-            storageService.saveDcaPlansLocal(cloud);
         }
     },
     // conflict 非空表示云端与本地都有真实数据，需要用户裁决 —— 绝不静默覆盖任一边。

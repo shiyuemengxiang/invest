@@ -9,7 +9,6 @@ import Profile from './components/Profile';
 import Toast, { ToastType } from './components/Toast';
 import ConfirmModal from './components/ConfirmModal';
 import ResetPassword from './components/ResetPassword';
-import DcaPlans from './components/DcaPlans';
 import { storageService } from './services/storage';
 import { marketService } from './services/market';
 import { THEMES, migrateInvestmentData } from './utils';
@@ -256,8 +255,6 @@ const App: React.FC = () => {
           if (loggedInUser.preferences.theme) setTheme(loggedInUser.preferences.theme);
           if (loggedInUser.preferences.rates) setRates(loggedInUser.preferences.rates);
       }
-      // 定投计划：云端为准覆盖本地
-      storageService.syncDcaPlansFromCloud(loggedInUser);
       
       const freshData = storageService.getLocalData();
       if (freshData) migrateAndSetItems(freshData);
@@ -437,7 +434,6 @@ const App: React.FC = () => {
                   { id: 'dashboard', label: '总览 Dashboard', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /> },
                   { id: 'list', label: '明细 Assets', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2-2v12a2 2 0 002 2h10a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /> },
                   { id: 'calendar', label: '日历 Calendar', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /> },
-                  { id: 'dca', label: '定投 DCA', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /> },
                   { id: 'profile', label: '设置 Settings', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /> },
               ].map(item => {
                   const isActive = view === item.id;
@@ -550,7 +546,6 @@ const App: React.FC = () => {
               { id: 'list', label: '明细', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2-2v12a2 2 0 002 2h10a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /> },
               { id: 'add', label: '记一笔', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />, isAction: true },
               { id: 'calendar', label: '日历', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /> },
-              { id: 'dca', label: '定投', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /> },
               { id: 'profile', label: '我的', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /> },
           ].map(item => {
               if (item.isAction) {
@@ -624,7 +619,6 @@ const App: React.FC = () => {
             </div>
 
             {view === 'calendar' && <CalendarView items={items} />}
-            {view === 'dca' && <DcaPlans user={user} onNotify={showToast} />}
             {view === 'profile' && <Profile user={user} rates={rates} currentTheme={theme} onSaveRates={handleRatesChange} onSaveTheme={handleThemeChange} onSaveProfile={handleProfileUpdate} onLogout={handleLogout} onNotify={showToast} onImportData={(items) => saveItems(items)} />}
          </div>
 

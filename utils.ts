@@ -1,4 +1,4 @@
-import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, Transaction, DcaPlan } from './types';
+import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, Transaction } from './types';
 
 export const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -815,116 +815,58 @@ const todayStr = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-// 单笔持仓的 XIRR：交易流水 + 未取出则以当前本金为终值
-export function calculateItemXIRR(item: Investment): number | null {
+// ---- 单笔持仓现金流构造（配平的；无法构造返回 null）----
+// 有交易流水：按流水方向；无流水：用存入日本金做单段估算。
+// 终值口径与 Dashboard 一致：持有中 = 本金 + 已计提收益；已完结 = 本金 + 到期利息。
+function buildItemFlows(
+    item: Investment,
+    toAmount: (amount: number, currency: Currency) => number
+): CashFlow[] | null {
     const flows: CashFlow[] = [];
     for (const tx of item.transactions || []) {
         if (tx.type === 'Buy' || tx.type === 'Fee' || tx.type === 'Tax') {
-            flows.push({ date: tx.date, amount: -Math.abs(tx.amount) });
+            flows.push({ date: tx.date, amount: -toAmount(Math.abs(tx.amount), item.currency) });
         } else if (tx.type === 'Sell' || tx.type === 'Dividend' || tx.type === 'Interest') {
-            flows.push({ date: tx.date, amount: Math.abs(tx.amount) });
+            flows.push({ date: tx.date, amount: toAmount(Math.abs(tx.amount), item.currency) });
         }
     }
     if (flows.length === 0) {
-        // 无流水：用存入/到期做单段估算
-        if (item.depositDate && item.currentPrincipal > 0) {
-            flows.push({ date: item.depositDate, amount: -item.currentPrincipal });
-        } else {
-            return null;
+        // 无流水：必须有存入日才能估算，否则该笔跳过（避免只有终值导致失衡）
+        if (!item.depositDate || !(item.currentPrincipal > 0)) return null;
+        flows.push({ date: item.depositDate, amount: -toAmount(item.currentPrincipal, item.currency) });
+        if (item.withdrawalDate) {
+            const m = calculateItemMetrics(item);
+            const terminal = item.currentPrincipal + (m.baseInterest || 0) + (item.rebate || 0);
+            flows.push({ date: item.withdrawalDate, amount: toAmount(Math.max(terminal, 0), item.currency) });
+            return flows;
         }
     }
     if (!item.withdrawalDate && item.currentPrincipal > 0) {
-        flows.push({ date: todayStr(), amount: item.currentPrincipal });
+        const m = calculateItemMetrics(item);
+        const terminal = item.currentPrincipal + (item.currentReturn || m.accruedReturn || 0);
+        flows.push({ date: todayStr(), amount: toAmount(Math.max(terminal, 0), item.currency) });
     }
+    return flows;
+}
+
+// 单笔持仓的 XIRR
+export function calculateItemXIRR(item: Investment): number | null {
+    const flows = buildItemFlows(item, (a) => a);
+    if (!flows) return null;
     return calculateXIRR(flows);
 }
 
-// 组合 XIRR：汇总所有持仓的现金流（多币种按当前汇率折 CNY）
+// 组合 XIRR：汇总所有持仓的现金流（多币种按当前汇率折 CNY；XIRR 对统一直乘的汇率不敏感）
 export function calculatePortfolioXIRR(items: Investment[], rates: ExchangeRates): number | null {
-    const flows: CashFlow[] = [];
     const toCNY = (amount: number, currency: Currency) => {
-        if (currency === 'CNY') return amount;
+        if (!currency || currency === 'CNY') return amount;
         const rate = rates[currency] || 1;
         return amount / rate;
     };
+    const flows: CashFlow[] = [];
     for (const item of items) {
-        for (const tx of item.transactions || []) {
-            const signed = (tx.type === 'Buy' || tx.type === 'Fee' || tx.type === 'Tax')
-                ? -Math.abs(tx.amount) : Math.abs(tx.amount);
-            if (tx.type === 'Buy' || tx.type === 'Sell' || tx.type === 'Dividend' ||
-                tx.type === 'Interest' || tx.type === 'Fee' || tx.type === 'Tax') {
-                flows.push({ date: tx.date, amount: toCNY(signed, item.currency) });
-            }
-        }
-        if (flows.length === 0 && item.depositDate && item.currentPrincipal > 0) {
-            flows.push({ date: item.depositDate, amount: -toCNY(item.currentPrincipal, item.currency) });
-        }
-        if (!item.withdrawalDate && item.currentPrincipal > 0) {
-            flows.push({ date: todayStr(), amount: toCNY(item.currentPrincipal, item.currency) });
-        }
+        const f = buildItemFlows(item, toCNY);
+        if (f) flows.push(...f);
     }
     return calculateXIRR(flows);
-}
-
-// ---- 定投计划日期计算（阶段五-4c）----
-const dcaParse = (s: string): Date => new Date(s + 'T00:00:00');
-const dcaFmt = (d: Date): string =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-// 计算某计划在 fromDate（含）之后的下一期应投日；返回 YYYY-MM-DD，计划未启用返回 null
-export function getDcaNextDue(plan: DcaPlan, fromDateStr?: string): string | null {
-    if (!plan.active) return null;
-    const today = fromDateStr || dcaFmt(new Date());
-    // 基准日：上次执行日或开始日，下一期从基准日之后算
-    let base = dcaParse(plan.lastDoneDate || plan.startDate);
-    if (isNaN(base.getTime())) return null;
-
-    const next = new Date(base);
-    if (plan.frequency === 'weekly') {
-        const targetDow = plan.dayOfWeek ?? base.getDay();
-        // 先挪到基准日之后的第一天，再找下一个目标周几
-        next.setDate(next.getDate() + 1);
-        const diff = (targetDow - next.getDay() + 7) % 7;
-        next.setDate(next.getDate() + diff);
-    } else {
-        const dom = Math.min(plan.dayOfMonth || base.getDate(), 28);
-        // 下一期：基准日的下个月同日
-        next.setDate(1);
-        next.setMonth(next.getMonth() + 1);
-        next.setDate(Math.min(dom, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
-        // 若算出的日期仍 <= 基准日（极端），继续往后推一个月
-        let guard = 0;
-        while (dcaFmt(next) <= dcaFmt(base) && guard++ < 3) {
-            next.setDate(1);
-            next.setMonth(next.getMonth() + 1);
-            next.setDate(Math.min(dom, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
-        }
-    }
-    // 若下一期已过去（漏投），以今天为基准重算最近一期
-    if (dcaFmt(next) < today) {
-        const t = dcaParse(today);
-        if (plan.frequency === 'weekly') {
-            const targetDow = plan.dayOfWeek ?? base.getDay();
-            const diff = (targetDow - t.getDay() + 7) % 7;
-            t.setDate(t.getDate() + diff);
-            return dcaFmt(t);
-        }
-        const dom = Math.min(plan.dayOfMonth || base.getDate(), 28);
-        const thisMonth = new Date(t.getFullYear(), t.getMonth(), Math.min(dom, new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate()));
-        if (dcaFmt(thisMonth) >= today) return dcaFmt(thisMonth);
-        const nextMonth = new Date(t.getFullYear(), t.getMonth() + 1, Math.min(dom, new Date(t.getFullYear(), t.getMonth() + 2, 0).getDate()));
-        return dcaFmt(nextMonth);
-    }
-    return dcaFmt(next);
-}
-
-// 计划状态：due=已到期未投，soon=3天内到期，ok=正常
-export function getDcaStatus(plan: DcaPlan): { key: 'due' | 'soon' | 'ok' | 'off'; nextDue: string | null; daysLeft: number | null } {
-    const nextDue = getDcaNextDue(plan);
-    if (!nextDue) return { key: 'off', nextDue: null, daysLeft: null };
-    const today = dcaFmt(new Date());
-    const daysLeft = Math.round((dcaParse(nextDue).getTime() - dcaParse(today).getTime()) / 86400000);
-    if (daysLeft < 0) return { key: 'due', nextDue, daysLeft };
-    if (daysLeft <= 3) return { key: 'soon', nextDue, daysLeft };
-    return { key: 'ok', nextDue, daysLeft };
 }
