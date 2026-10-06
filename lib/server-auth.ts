@@ -73,6 +73,21 @@ export async function deleteSession(client: any, request: any): Promise<void> {
   await client.query('DELETE FROM sessions WHERE token_hash = $1', [hashToken(token)]).catch(() => {});
 }
 
+// 密码重置 token 表（邮件找回）
+export async function ensureResetTable(client: any) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT UNIQUE NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      used_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_pwd_resets_token ON password_resets(token_hash);`);
+}
+
 // 管理员判定：登录 session 的邮箱等于服务端 ADMIN_EMAIL
 export function isAdminEmail(email: string | undefined | null): boolean {
   const adminEmail = process.env.ADMIN_EMAIL;

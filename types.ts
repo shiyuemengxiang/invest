@@ -21,6 +21,22 @@ export interface UserPreferences {
     rateMode?: 'auto' | 'manual';
     nickname?: string;
     avatar?: string;
+    dcaPlans?: DcaPlan[];
+}
+
+// ---- 定投计划（阶段五-4c）----
+export interface DcaPlan {
+    id: string;
+    name: string;                    // 计划名称，如"沪深300定投"
+    amount: number;                  // 每期金额
+    currency: Currency;
+    frequency: 'weekly' | 'monthly'; // 频率
+    dayOfMonth?: number;             // monthly: 每月几号 (1-28)
+    dayOfWeek?: number;              // weekly: 周几 (0=周日..6=周六)
+    startDate: string;               // YYYY-MM-DD 开始日期
+    active: boolean;                 // 是否启用
+    createdAt: string;
+    lastDoneDate?: string;           // 上次执行日期 YYYY-MM-DD
 }
 
 export interface User {
@@ -131,7 +147,7 @@ export interface InvestmentStats {
   projectedTotalYield: number; 
 }
 
-export type ViewState = 'dashboard' | 'list' | 'add' | 'calendar' | 'profile' | 'auth';
+export type ViewState = 'dashboard' | 'list' | 'add' | 'calendar' | 'dca' | 'profile' | 'auth';
 
 export type TimeFilter = 'all' | '1m' | '3m' | '6m' | '1y' | 'mtd' | 'ytd' | 'custom';
 
