@@ -1,5 +1,6 @@
 
 import pg from 'pg';
+import { ensureSessionsTable, getSessionUser } from '../lib/server-auth';
 
 const { Pool } = pg;
 
@@ -14,31 +15,16 @@ export default async function handler(request: any, response: any) {
   const client = await pool.connect();
   
   try {
-    // Robust query parsing
-    // In some envs query is an object, in others we might need to parse URL
-    let userId = request.query?.userId;
-    
-    if (!userId && request.url.includes('?')) {
-        const searchParams = new URLSearchParams(request.url.split('?')[1]);
-        userId = searchParams.get('userId');
+    // Token 鉴权：userId 一律以 session 为准（忽略客户端传值，防越权）
+    await ensureSessionsTable(client);
+    const authUser = await getSessionUser(client, request);
+    if (!authUser) {
+        return response.status(401).json({ error: 'TOKEN_INVALID', message: '登录已过期，请重新登录' });
     }
-
-    if (!userId) {
-        return response.status(400).json({ error: 'Missing userId' });
+    if (authUser.disabled) {
+        return response.status(403).json({ error: 'ACCOUNT_DISABLED', message: '账号已被禁用' });
     }
-
-    // 账号存活校验（防僵尸会话）：被删除/禁用的用户各端下次请求即被强制登出
-    try {
-        const { rows: urows } = await client.query('SELECT disabled FROM users WHERE id = $1', [userId]);
-        if (urows.length === 0) {
-            return response.status(401).json({ error: 'USER_DELETED', message: '账号已被删除' });
-        }
-        if (urows[0].disabled) {
-            return response.status(403).json({ error: 'ACCOUNT_DISABLED', message: '账号已被禁用' });
-        }
-    } catch (e) {
-        // users 表不存在等极端情况：放行，避免误杀
-    }
+    const userId = authUser.id;
 
     // Check if table exists first to avoid errors on fresh deploy
     const { rows: tableCheck } = await client.query(`

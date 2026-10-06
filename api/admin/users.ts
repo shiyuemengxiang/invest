@@ -1,6 +1,7 @@
 import pg from 'pg';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import { ensureSessionsTable, getSessionUser, isAdminEmail } from '../../lib/server-auth';
 
 const { Pool } = pg;
 
@@ -13,22 +14,21 @@ const pool = new Pool({
 
 const BCRYPT_ROUNDS = 10;
 
-// ---- 极简管理后台（阶段四） ----
-// 鉴权：请求头 x-admin-key 必须等于 Vercel 环境变量 ADMIN_SECRET。
-// 这是 token 鉴权（阶段二-7）落地前的过渡方案：密钥仅管理员知晓，
-// 前端管理页每次会话输入一次，存 sessionStorage（关标签页即清除）。
-function checkAdmin(request: any, response: any): boolean {
-  const secret = process.env.ADMIN_SECRET;
-  if (!secret) {
-    response.status(503).json({ error: 'ADMIN_NOT_CONFIGURED', message: '未配置 ADMIN_SECRET' });
-    return false;
+// ---- 极简管理后台 ----
+// 鉴权：登录 session 的邮箱必须等于服务端环境变量 ADMIN_EMAIL。
+// （此前 x-admin-key 过渡方案已移除，不再需要 ADMIN_SECRET。）
+async function requireAdmin(client: any, request: any, response: any) {
+  await ensureSessionsTable(client);
+  const authUser = await getSessionUser(client, request);
+  if (!authUser) {
+    response.status(401).json({ error: 'TOKEN_INVALID', message: '登录已过期，请重新登录' });
+    return null;
   }
-  const key = request.headers?.['x-admin-key'] || request.headers?.['X-Admin-Key'];
-  if (key !== secret) {
-    response.status(401).json({ error: 'UNAUTHORIZED' });
-    return false;
+  if (!isAdminEmail(authUser.email)) {
+    response.status(403).json({ error: 'FORBIDDEN', message: '无管理权限' });
+    return null;
   }
-  return true;
+  return authUser;
 }
 
 function genTempPassword(): string {
@@ -36,10 +36,11 @@ function genTempPassword(): string {
 }
 
 export default async function handler(request: any, response: any) {
-  if (!checkAdmin(request, response)) return;
-
   const client = await pool.connect();
   try {
+    const admin = await requireAdmin(client, request, response);
+    if (!admin) return;
+
     // ---------- GET：用户列表 ----------
     if (request.method === 'GET') {
       const { rows } = await client.query(`
@@ -57,10 +58,9 @@ export default async function handler(request: any, response: any) {
     // ---------- DELETE：删除用户及其全部数据 ----------
     if (request.method === 'DELETE') {
       const userId = request.query?.userId;
-      const callerUserId = request.query?.callerUserId;
       if (!userId) return response.status(400).json({ error: 'Missing userId' });
-      // 禁止删除自己（callerUserId 由管理端如实传递，防误操作）
-      if (callerUserId && callerUserId === userId) {
+      // 禁止删除自己
+      if (userId === admin.id) {
         return response.status(400).json({ error: 'CANNOT_SELF', message: '不能删除自己的账号' });
       }
       await client.query('DELETE FROM ledger_backups WHERE user_id = $1', [userId]);
@@ -74,7 +74,7 @@ export default async function handler(request: any, response: any) {
     }
 
     const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
-    const { action, userId, callerUserId } = body || {};
+    const { action, userId } = body || {};
     if (!action || !userId) {
       return response.status(400).json({ error: 'Missing action or userId' });
     }
@@ -82,7 +82,7 @@ export default async function handler(request: any, response: any) {
     // ---------- 禁用 / 启用 ----------
     if (action === 'disable' || action === 'enable') {
       // 禁止禁用自己（否则把自己锁在门外）
-      if (action === 'disable' && callerUserId && callerUserId === userId) {
+      if (action === 'disable' && userId === admin.id) {
         return response.status(400).json({ error: 'CANNOT_SELF', message: '不能禁用自己的账号' });
       }
       await client.query('UPDATE users SET disabled = $1 WHERE id = $2', [action === 'disable', userId]);
@@ -95,6 +95,8 @@ export default async function handler(request: any, response: any) {
       const hash = await bcrypt.hash(tempPassword, BCRYPT_ROUNDS);
       const { rowCount } = await client.query('UPDATE users SET password = $1 WHERE id = $2', [hash, userId]);
       if (!rowCount) return response.status(404).json({ error: 'USER_NOT_FOUND' });
+      // 密码变更后踢掉该用户所有 session（强制重登）
+      await client.query('DELETE FROM sessions WHERE user_id = $1', [userId]).catch(() => {});
       return response.status(200).json({ success: true, tempPassword });
     }
 

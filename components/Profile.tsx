@@ -130,9 +130,8 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     // 导入
     const fileRef = useRef<HTMLInputElement>(null);
 
-    // 管理后台
+    // 管理后台（token 鉴权：登录 session 邮箱须等于服务端 ADMIN_EMAIL）
     const isAdmin = !!user && !!ADMIN_EMAIL && user.email === ADMIN_EMAIL;
-    const [adminKey, setAdminKey] = useState(() => sessionStorage.getItem('sl_admin_key') || '');
     const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
     const [adminLoading, setAdminLoading] = useState(false);
     const [tempPwShown, setTempPwShown] = useState<{ email: string; pw: string } | null>(null);
@@ -329,8 +328,8 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
         try {
             const res = await fetch('/api/auth/change-password', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.id, oldPassword: oldPw, newPassword: newPw })
+                headers: { 'Content-Type': 'application/json', ...storageService.authHeaders() },
+                body: JSON.stringify({ oldPassword: oldPw, newPassword: newPw })
             });
             const json = await res.json().catch(() => ({}));
             if (res.ok) {
@@ -349,12 +348,10 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     // ---- 管理后台 ----
     const adminHeaders = () => ({
         'Content-Type': 'application/json',
-        'x-admin-key': adminKey
+        ...storageService.authHeaders()
     });
 
     const handleAdminLoad = async () => {
-        if (!adminKey) { onNotify('请先输入管理密钥', 'error'); return; }
-        sessionStorage.setItem('sl_admin_key', adminKey);
         setAdminLoading(true);
         setTempPwShown(null);
         try {
@@ -379,7 +376,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
             const res = await fetch('/api/admin/users', {
                 method: 'POST',
                 headers: adminHeaders(),
-                body: JSON.stringify({ action, userId: row.id, callerUserId: user?.id })
+                body: JSON.stringify({ action, userId: row.id })
             });
             const json = await res.json().catch(() => ({}));
             if (res.ok) {
@@ -401,7 +398,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
         if (!window.confirm(`彻底删除 ${row.email} 及其全部账本数据？此操作不可恢复！`)) return;
         if (!window.confirm('再次确认：真的要删除吗？')) return;
         try {
-            const res = await fetch(`/api/admin/users?userId=${encodeURIComponent(row.id)}&callerUserId=${encodeURIComponent(user?.id || '')}`, {
+            const res = await fetch(`/api/admin/users?userId=${encodeURIComponent(row.id)}`, {
                 method: 'DELETE',
                 headers: adminHeaders()
             });
@@ -671,18 +668,13 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
             {isAdmin && (
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-red-100">
                     <h3 className="text-lg font-bold text-slate-800 mb-2">管理后台 <span className="text-xs font-normal text-red-400">仅管理员可见</span></h3>
-                    <p className="text-xs text-slate-400 mb-6">管理密钥在 Vercel 环境变量 <span className="font-mono">ADMIN_SECRET</span> 中配置，每次会话输入一次（关闭标签页即清除）。</p>
+                    <p className="text-xs text-slate-400 mb-6">使用登录身份鉴权（服务端校验邮箱），无需额外密钥。</p>
                     <div className="flex gap-3 mb-6">
-                        <input
-                            type="password" value={adminKey} onChange={e => setAdminKey(e.target.value)}
-                            placeholder="输入管理密钥"
-                            className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-300 font-mono text-sm"
-                        />
                         <button
                             onClick={handleAdminLoad} disabled={adminLoading}
                             className="px-5 py-2 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition active:scale-95 disabled:opacity-60"
                         >
-                            {adminLoading ? '加载中...' : '加载用户'}
+                            {adminLoading ? '加载中...' : (adminUsers.length > 0 ? '刷新用户' : '加载用户')}
                         </button>
                     </div>
                     {tempPwShown && (

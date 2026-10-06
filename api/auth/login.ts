@@ -1,6 +1,7 @@
 import pg from 'pg';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import { ensureSessionsTable, createSession } from '../../lib/server-auth';
 
 const { Pool } = pg;
 
@@ -45,6 +46,7 @@ async function ensureTables(client: any) {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  await ensureSessionsTable(client);
 }
 
 function getIp(request: any): string {
@@ -158,7 +160,8 @@ export default async function handler(request: any, response: any) {
            [id, emailNorm, hash, '{}']
          );
          await recordRegister(client, ip);
-         return response.status(200).json({ id, email: emailNorm, preferences: {}, ledgerMeta: null });
+         const token = await createSession(client, id);
+         return response.status(200).json({ id, email: emailNorm, preferences: {}, ledgerMeta: null, token });
        } catch (e: any) {
          if (e.code === '23505') { // Unique violation
             return response.status(400).json({ error: 'EMAIL_EXISTS' });
@@ -219,7 +222,8 @@ export default async function handler(request: any, response: any) {
            id: user.id,
            email: user.email,
            preferences: user.preferences || {},
-           ledgerMeta: await getLedgerMeta(client, user.id)
+           ledgerMeta: await getLedgerMeta(client, user.id),
+           token: await createSession(client, user.id)
        });
     }
   } catch (error: any) {

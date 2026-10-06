@@ -6,7 +6,8 @@ const STORAGE_KEYS = {
     USER: 'smart_ledger_user',
     RATES: 'smart_ledger_rates',
     THEME: 'smart_ledger_theme',
-    REV: 'smart_ledger_rev'
+    REV: 'smart_ledger_rev',
+    TOKEN: 'smart_ledger_token'
 };
 
 const API_BASE = '/api';
@@ -42,6 +43,14 @@ export class AccountGoneError extends Error {
     }
 }
 
+// 登录态过期/无效：token 校验失败，客户端应强制重新登录
+export class SessionExpiredError extends Error {
+    constructor() {
+        super('登录已过期，请重新登录');
+        this.name = 'SessionExpiredError';
+    }
+}
+
 // 登录时云端与本地都有真实数据，需要用户裁决
 export interface LoginConflict {
     localCount: number;
@@ -64,6 +73,30 @@ export const storageService = {
     _lastSync: null as SyncStatus | null,
     getLastSync: (): SyncStatus | null => storageService._lastSync,
     _setLastSync: (ok: boolean) => { storageService._lastSync = { at: Date.now(), ok }; },
+
+    // --- Token 会话 ---
+    getToken: (): string | null => localStorage.getItem(STORAGE_KEYS.TOKEN),
+    saveToken: (token: string) => { localStorage.setItem(STORAGE_KEYS.TOKEN, token); },
+    clearToken: () => { localStorage.removeItem(STORAGE_KEYS.TOKEN); },
+    authHeaders: (): Record<string, string> => {
+        const t = storageService.getToken();
+        return t ? { 'Authorization': `Bearer ${t}` } : {};
+    },
+    // 统一处理鉴权类错误：token 失效 -> SessionExpiredError；账号删除/禁用 -> AccountGoneError
+    throwIfAuthError: (res: Response, json: any) => {
+        if (res.status === 401 && json.error === 'TOKEN_INVALID') {
+            storageService._setLastSync(false);
+            throw new SessionExpiredError();
+        }
+        if (res.status === 401 && json.error === 'USER_DELETED') {
+            storageService._setLastSync(false);
+            throw new AccountGoneError('deleted');
+        }
+        if (res.status === 403 && json.error === 'ACCOUNT_DISABLED') {
+            storageService._setLastSync(false);
+            throw new AccountGoneError('disabled');
+        }
+    },
 
     // --- Local Storage Helpers (Guest / Cache) ---
     getLocalData: (): Investment[] | null => {
@@ -129,7 +162,7 @@ export const storageService = {
                 const baseRev = this.getLastRev();
                 const res = await fetch(`${API_BASE}/sync`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
                     body: JSON.stringify({
                         userId: user.id,
                         data: clean,
@@ -138,15 +171,8 @@ export const storageService = {
                     })
                 });
                 const json = await res.json().catch(() => ({}));
-                // 账号已被删除/禁用：抛给上层强制登出
-                if (res.status === 401 && json.error === 'USER_DELETED') {
-                    this._setLastSync(false);
-                    throw new AccountGoneError('deleted');
-                }
-                if (res.status === 403 && json.error === 'ACCOUNT_DISABLED') {
-                    this._setLastSync(false);
-                    throw new AccountGoneError('disabled');
-                }
+                // 鉴权类错误：token 失效 / 账号删除 / 禁用 -> 抛给上层强制登出
+                this.throwIfAuthError(res, json);
                 if (res.status === 422 && json.error === 'DATA_CLIFF') {
                     this._setLastSync(false);
                     throw new SyncCliffError(json.stored || 0, json.incoming || 0);
@@ -163,7 +189,7 @@ export const storageService = {
                 if (typeof json.rev === 'number') this.setLastRev(json.rev);
                 this._setLastSync(true);
             } catch (e) {
-                if (e instanceof AccountGoneError || e instanceof SyncCliffError || e instanceof SyncConflictError) throw e;
+                if (e instanceof SessionExpiredError || e instanceof AccountGoneError || e instanceof SyncCliffError || e instanceof SyncConflictError) throw e;
                 console.warn("Background sync failed:", e);
                 this._setLastSync(false);
             }
@@ -192,7 +218,7 @@ export const storageService = {
                 
                 await fetch(`${API_BASE}/market/preferences`, { // NOTE: Verify API path in your setup, assumed /api/market/preferences based on previous context
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
                     body: JSON.stringify({ userId: user.id, preferences: prefs })
                 });
                 
@@ -232,6 +258,7 @@ export const storageService = {
             if (res.ok) {
                 const user = data as User;
                 this.saveLocalUser(user);
+                if (data.token) this.saveToken(data.token);
                 
                 // Apply User Preferences if available
                 if (user.preferences) {
@@ -309,21 +336,15 @@ export const storageService = {
                 headers: {
                     'Cache-Control': 'no-cache, no-store, must-revalidate',
                     'Pragma': 'no-cache',
-                    'Expires': '0'
+                    'Expires': '0',
+                    ...this.authHeaders()
                 }
             });
             const contentType = res.headers.get('content-type');
-            // 账号已被删除/禁用：抛给上层强制登出（先于 res.ok 判断）
+            // 鉴权类错误：token 失效 / 账号删除 / 禁用 -> 抛给上层强制登出（先于 res.ok 判断）
             if (res.status === 401 || res.status === 403) {
                 const errJson = await res.json().catch(() => ({}));
-                if (errJson.error === 'USER_DELETED') {
-                    this._setLastSync(false);
-                    throw new AccountGoneError('deleted');
-                }
-                if (errJson.error === 'ACCOUNT_DISABLED') {
-                    this._setLastSync(false);
-                    throw new AccountGoneError('disabled');
-                }
+                this.throwIfAuthError(res, errJson);
             }
             if (res.ok && contentType && contentType.includes('application/json')) {
                 const json = await res.json();
@@ -349,14 +370,23 @@ export const storageService = {
                 }
             }
         } catch (e) {
-            if (e instanceof AccountGoneError) throw e;
+            if (e instanceof SessionExpiredError || e instanceof AccountGoneError) throw e;
             console.warn("Could not sync down data:", e);
         }
         return null;
     },
 
     logout() {
+        const token = this.getToken();
+        // 通知服务端删除 session（尽力而为，不阻塞）
+        if (token) {
+            fetch(`${API_BASE}/auth/logout`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            }).catch(() => {});
+        }
         this.saveLocalUser(null);
+        this.clearToken();
         // 版本号按账号隔离：退出时清除，防止旧账号的 rev 污染新账号（曾导致重注册后误报 409）
         localStorage.removeItem(STORAGE_KEYS.REV);
     }

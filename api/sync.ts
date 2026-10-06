@@ -1,5 +1,7 @@
 import pg from 'pg';
 
+import { ensureSessionsTable, getSessionUser } from '../lib/server-auth';
+
 const { Pool } = pg;
 
 const pool = new Pool({
@@ -70,25 +72,20 @@ function parseBody(request: any) {
   return body || {};
 }
 
-// ---- 账号存活校验（防僵尸会话）----
-// 用户被删除/禁用后，各客户端下次请求即收到 401/403 并被强制登出。
-// users 表不存在等极端情况放行，避免误杀。
-async function checkUserActive(client: any, userId: string): Promise<'ok' | 'deleted' | 'disabled'> {
-  try {
-    const { rows } = await client.query('SELECT disabled FROM users WHERE id = $1', [userId]);
-    if (rows.length === 0) return 'deleted';
-    if (rows[0].disabled) return 'disabled';
-    return 'ok';
-  } catch (e) {
-    return 'ok';
+// ---- 账号鉴权（阶段二-7 Token）----
+// 所有写操作以 session 中的 userId 为准，不再信任客户端传的 userId。
+async function requireAuth(client: any, request: any, response: any) {
+  await ensureSessionsTable(client);
+  const authUser = await getSessionUser(client, request);
+  if (!authUser) {
+    response.status(401).json({ error: 'TOKEN_INVALID', message: '登录已过期，请重新登录' });
+    return null;
   }
-}
-
-function userGoneResponse(response: any, status: 'deleted' | 'disabled') {
-  if (status === 'deleted') {
-    return response.status(401).json({ error: 'USER_DELETED', message: '账号已被删除' });
+  if (authUser.disabled) {
+    response.status(403).json({ error: 'ACCOUNT_DISABLED', message: '账号已被禁用' });
+    return null;
   }
-  return response.status(403).json({ error: 'ACCOUNT_DISABLED', message: '账号已被禁用' });
+  return authUser;
 }
 
 export default async function handler(request: any, response: any) {
@@ -97,14 +94,11 @@ export default async function handler(request: any, response: any) {
   try {
     await ensureTables(client);
 
-    // ---------- GET /api/sync?userId=... : 备份列表 ----------
+    // ---------- GET /api/sync : 备份列表 ----------
     if (request.method === 'GET') {
-      const userId = request.query?.userId;
-      if (!userId) {
-        return response.status(400).json({ error: 'Missing userId' });
-      }
-      const active = await checkUserActive(client, userId);
-      if (active !== 'ok') return userGoneResponse(response, active);
+      const authUser = await requireAuth(client, request, response);
+      if (!authUser) return;
+      const userId = authUser.id;
       const { rows } = await client.query(
         `SELECT id, rev, reason, created_at,
                 CASE WHEN jsonb_typeof(data) = 'array' THEN jsonb_array_length(data) ELSE 0 END AS count
@@ -119,14 +113,11 @@ export default async function handler(request: any, response: any) {
     }
 
     const body = parseBody(request);
-    const { userId, data, baseRev, forceClear, action, backupId } = body;
-
-    if (!userId) {
-      return response.status(400).json({ error: 'Missing userId' });
-    }
-
-    const active = await checkUserActive(client, userId);
-    if (active !== 'ok') return userGoneResponse(response, active);
+    const { data, baseRev, forceClear, action, backupId } = body;
+    // userId 一律以 session 为准（忽略客户端传值，防越权）
+    const authUser = await requireAuth(client, request, response);
+    if (!authUser) return;
+    const userId = authUser.id;
 
     // ---------- POST 回滚：{ userId, action: 'restore', backupId } ----------
     if (action === 'restore') {

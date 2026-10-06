@@ -1,5 +1,6 @@
 
 import pg from 'pg';
+import { ensureSessionsTable, getSessionUser } from '../../lib/server-auth';
 
 const { Pool } = pg;
 
@@ -27,6 +28,16 @@ export default async function handler(request: any, response: any) {
     
     if (!userId || !preferences) {
         return response.status(400).json({ error: 'Missing userId or preferences' });
+    }
+
+    // Token 鉴权：只能改自己的偏好设置
+    await ensureSessionsTable(client);
+    const authUser = await getSessionUser(client, request);
+    if (!authUser) {
+        return response.status(401).json({ error: 'TOKEN_INVALID', message: '登录已过期，请重新登录' });
+    }
+    if (authUser.id !== userId) {
+        return response.status(403).json({ error: 'FORBIDDEN' });
     }
 
     // Update preferences column

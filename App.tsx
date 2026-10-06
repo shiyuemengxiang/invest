@@ -263,19 +263,28 @@ const App: React.FC = () => {
       showToast('已安全退出', 'info');
   };
 
-  // 账号被删除/禁用：服务端拒绝请求，各端强制登出（防僵尸会话）
-  // 本地数据保留，重新注册/启用后可通过正常登录流程恢复上传
-  const handleForceLogout = (reason: 'deleted' | 'disabled') => {
+  // 账号被删除/禁用/登录过期：服务端拒绝请求，各端强制登出（防僵尸会话）
+  // 本地数据保留，重新登录后可通过正常流程恢复上传
+  const handleForceLogout = (reason: 'deleted' | 'disabled' | 'expired') => {
       storageService.logout();
       setUser(null);
       setSyncInfo(null);
       setView('auth');
-      showToast(reason === 'deleted' ? '账号已被删除，请联系管理员' : '账号已被禁用，请联系管理员', 'error');
+      showToast(
+          reason === 'deleted' ? '账号已被删除，请联系管理员'
+          : reason === 'disabled' ? '账号已被禁用，请联系管理员'
+          : '登录已过期，请重新登录',
+          'error'
+      );
   };
 
   const isAccountGone = (e: any) => {
       if (e?.name === 'AccountGoneError') {
           handleForceLogout(e.reason);
+          return true;
+      }
+      if (e?.name === 'SessionExpiredError') {
+          handleForceLogout('expired');
           return true;
       }
       return false;
