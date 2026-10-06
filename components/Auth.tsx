@@ -39,10 +39,12 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel, currentItems }) => {
             let msg = err.message;
 
             // Translate backend error codes to Chinese
-            if (msg === 'USER_NOT_FOUND') {
-                msg = '账号不存在，请先注册';
-            } else if (msg === 'INVALID_PASSWORD') {
+            if (msg === 'USER_NOT_FOUND' || msg === 'INVALID_PASSWORD' || msg === 'INVALID_CREDENTIALS') {
                 msg = '账号或密码错误';
+            } else if (msg === 'TOO_MANY_ATTEMPTS') {
+                msg = '尝试次数过多，请稍后再试';
+            } else if (msg === 'ACCOUNT_DISABLED') {
+                msg = '账号已被禁用，请联系管理员';
             } else if (msg === 'EMAIL_EXISTS' || msg === 'This email is already registered.') {
                 msg = '该邮箱已被注册，请直接登录';
             } else if (!msg || msg === 'Authentication failed') {
