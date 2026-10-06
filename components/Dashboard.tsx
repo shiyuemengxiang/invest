@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, CATEGORY_LABELS } from '../types';
 import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, calculateDailyReturn, formatDate, MS_PER_DAY } from '../utils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from 'recharts';
-import { getAIAnalysis } from '../services/geminiService';
 
 interface Props {
   items: Investment[];
@@ -184,9 +183,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
   
   const [rebateModalType, setRebateModalType] = useState<'received' | 'pending' | null>(null);
   const [infoModal, setInfoModal] = useState<{ title: string; content: React.ReactNode } | null>(null);
-  
-  const [aiInsight, setAiInsight] = useState<string | null>(null);
-  const [loadingAi, setLoadingAi] = useState(false);
 
   const themeConfig = THEMES[theme];
 
@@ -439,13 +435,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
 
       return { realizedBreakdownList: list, realizedCategoryData: chart };
   }, [currencyItems, stats, timeFilter, customStart, customEnd]);
-
-  const handleAIAnalysis = async () => {
-    setLoadingAi(true);
-    const result = await getAIAnalysis(currencyItems); 
-    setAiInsight(result);
-    setLoadingAi(false);
-  };
 
   const pieDataStatus = [
     { name: '在途本金', value: stats.activePrincipal },

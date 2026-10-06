@@ -9,7 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "*",
     "@hello-pangea/dnd": "^16.5.0",
     "bcryptjs": "^2.4.3",
     "pg": "^8.11.3",
