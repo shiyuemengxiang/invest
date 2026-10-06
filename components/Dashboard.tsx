@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, CATEGORY_LABELS } from '../types';
-import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, calculateDailyReturn, formatDate, MS_PER_DAY } from '../utils';
+import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, calculateDailyReturn, formatDate, MS_PER_DAY, calculatePortfolioXIRR } from '../utils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from 'recharts';
 
 interface Props {
@@ -210,6 +210,9 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
           totalCapitalWACC: periodStats.totalCapitalWACC
       };
   }, [currencyItems, timeFilter, customStart, customEnd]);
+
+  // --- 组合 XIRR（阶段五-4b）：全部持仓现金流的内部收益率 ---
+  const portfolioXIRR = useMemo(() => calculatePortfolioXIRR(currencyItems, rates), [currencyItems, rates]);
 
   // --- Breakdown Data Calculation ---
 
@@ -688,6 +691,30 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
             })}
             themeConfig={themeConfig}
         />
+
+        {/* 6. XIRR（内部收益率）：按实际现金流日期折现的年化，更精确反映多笔出入的真实回报 */}
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition-all relative overflow-hidden h-[260px] flex flex-col">
+            <div className="flex justify-between items-start mb-2 shrink-0 relative z-10">
+                <div className="p-2.5 bg-purple-50 rounded-xl text-purple-600 cursor-pointer hover:scale-105 transition-transform" onClick={() => setInfoModal({
+                    title: "内部收益率 (XIRR)",
+                    content: <div className="text-sm text-slate-600 space-y-2">
+                        <p>XIRR 是按每笔现金流实际发生日期折现求解的年化收益率，是衡量多笔出入资金真实回报的行业标准。</p>
+                        <p className="font-bold text-purple-600">解方程: Σ 金额ᵢ / (1+r)^((日期ᵢ - 首日)/365) = 0</p>
+                        <p className="text-xs text-slate-400">投入记为负（流出），收回记为正（流入）；持有中的本金按今日可赎回计入终值。</p>
+                        {portfolioXIRR === null && <p className="text-xs text-amber-500">当前现金流不足，无法计算（至少需要一笔投入和一笔收回）。</p>}
+                    </div>
+                })}>
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+            </div>
+            <div className="text-sm font-medium text-slate-500 mb-1">组合 XIRR</div>
+            <div className="text-3xl font-bold text-slate-800 mb-4">
+                {portfolioXIRR === null ? <span className="text-slate-300">—</span> : formatPercent(portfolioXIRR)}
+            </div>
+            <div className="text-xs text-slate-400 mt-auto">
+                {portfolioXIRR === null ? '现金流不足，暂无法计算' : '按全部持仓实际现金流折现'}
+            </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
