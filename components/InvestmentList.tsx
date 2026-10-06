@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import { Investment, CATEGORY_LABELS, Currency, InvestmentCategory, FilterType, ProductTypeFilter, CurrencyFilter, CategoryFilter, SortType } from '../types';
-import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn } from '../utils';
+import { calculateItemMetrics, formatCurrency, formatDate, formatPercent, filterInvestmentsByTime, calculateDailyReturn, calculateItemXIRR } from '../utils';
 import ConfirmModal from './ConfirmModal';
 import { DragDropContext, Droppable, Draggable, DropResult, DroppableProps } from '@hello-pangea/dnd';
 
@@ -300,6 +300,8 @@ const InvestmentList: React.FC<Props> = ({
                 >
                     {filteredItems.map((item, index) => {
                         const metrics = calculateItemMetrics(item);
+                        // 单笔 XIRR（阶段五-4b）：有交易流水时可算
+                        const itemXIRR = calculateItemXIRR(item);
                         
                         let displayYield = 'N/A';
                         let displayYieldLabel = '收益率';
@@ -560,6 +562,11 @@ const InvestmentList: React.FC<Props> = ({
                                                     <span className="text-[10px] text-slate-400">
                                                         {metrics.isCompleted ? '实测年化' : displayYieldLabel}
                                                     </span>
+                                                    {itemXIRR !== null && (
+                                                        <span className="text-[10px] text-slate-400" title="按实际现金流日期折现的内部收益率">
+                                                            XIRR {formatPercent(itemXIRR)}
+                                                        </span>
+                                                    )}
                                                     
                                                     {/* Tooltip for COMPLETED Yield explanation */}
                                                     {metrics.isCompleted && (
