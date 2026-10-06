@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { storageService } from '../services/storage';
+import { storageService, LoginConflict } from '../services/storage';
 import { User, Investment } from '../types';
 
 interface Props {
@@ -9,12 +9,18 @@ interface Props {
     currentItems: Investment[];
 }
 
+interface PendingConflict extends LoginConflict {
+    user: User;
+}
+
 const Auth: React.FC<Props> = ({ onLogin, onCancel, currentItems }) => {
     const [isRegister, setIsRegister] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // 登录时云端与本地都有真实数据：等待用户裁决
+    const [conflict, setConflict] = useState<PendingConflict | null>(null);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -22,9 +28,13 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel, currentItems }) => {
         setError(null);
         
         try {
-            // Pass currentItems to login to handle "Guest -> Cloud" data migration
-            const user = await storageService.login(email, password, isRegister, currentItems);
-            onLogin(user);
+            const result = await storageService.login(email, password, isRegister, currentItems);
+            if (result.conflict) {
+                // 双方都有数据：请用户选择，不静默覆盖任一边
+                setConflict({ user: result.user, ...result.conflict });
+                return;
+            }
+            onLogin(result.user);
         } catch (err: any) {
             let msg = err.message;
 
@@ -45,6 +55,84 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel, currentItems }) => {
         }
     };
 
+    const handleUseCloud = async () => {
+        if (!conflict) return;
+        setLoading(true);
+        try {
+            await storageService.resolveLoginConflict(conflict.user, 'cloud', currentItems);
+            onLogin(conflict.user);
+        } catch (err: any) {
+            setError('下载云端数据失败：' + (err?.message || '未知错误'));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleUseLocal = async () => {
+        if (!conflict) return;
+        setLoading(true);
+        try {
+            await storageService.resolveLoginConflict(conflict.user, 'local', currentItems);
+            onLogin(conflict.user);
+        } catch (err: any) {
+            setError('上传本地数据失败：' + (err?.message || '未知错误'));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleCancelConflict = () => {
+        // 取消登录：清除已存的登录态，停留在登录页
+        storageService.logout();
+        setConflict(null);
+    };
+
+    // 冲突裁决面板
+    if (conflict) {
+        const cloudDate = conflict.cloudUpdatedAt
+            ? new Date(conflict.cloudUpdatedAt).toLocaleString('zh-CN')
+            : '未知时间';
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] animate-fade-in">
+                <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 w-full max-w-md border border-slate-100">
+                    <div className="text-center mb-6">
+                        <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-2xl mx-auto flex items-center justify-center text-2xl font-bold mb-4">!</div>
+                        <h2 className="text-xl font-bold text-slate-800">检测到两边都有数据</h2>
+                        <p className="text-slate-500 text-sm mt-3 leading-relaxed">
+                            云端有 <span className="font-bold text-slate-700">{conflict.cloudCount}</span> 条记录
+                            （{cloudDate}更新），
+                            本机有 <span className="font-bold text-slate-700">{conflict.localCount}</span> 条记录。
+                            请选择保留哪一边，另一边将被覆盖。
+                        </p>
+                    </div>
+                    <div className="space-y-3">
+                        <button
+                            onClick={handleUseCloud}
+                            disabled={loading}
+                            className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold shadow-lg transition active:scale-95 disabled:opacity-70"
+                        >
+                            {loading ? '处理中...' : `使用云端数据（${conflict.cloudCount} 条）`}
+                        </button>
+                        <button
+                            onClick={handleUseLocal}
+                            disabled={loading}
+                            className="w-full py-3 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl font-bold transition active:scale-95 disabled:opacity-70"
+                        >
+                            {loading ? '处理中...' : `上传本地数据（${conflict.localCount} 条，会覆盖云端）`}
+                        </button>
+                        <button
+                            onClick={handleCancelConflict}
+                            disabled={loading}
+                            className="w-full py-2 text-sm text-slate-400 hover:text-slate-600 transition"
+                        >
+                            取消登录
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="flex flex-col items-center justify-center min-h-[60vh] animate-fade-in">
             <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 w-full max-w-md border border-slate-100">
@@ -52,7 +140,7 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel, currentItems }) => {
                     <div className="w-16 h-16 bg-slate-900 text-white rounded-2xl mx-auto flex items-center justify-center text-2xl font-bold mb-4">SL</div>
                     <h2 className="text-2xl font-bold text-slate-800">{isRegister ? '注册账户' : '登录账户'}</h2>
                     <p className="text-slate-400 text-sm mt-2">
-                        {isRegister ? '注册后，您当前的账本将同步至云端' : '登录后，将从云端拉取您的数据'}
+                        {isRegister ? '注册后，您当前的账本将同步至云端' : '登录后将比对云端与本机数据，如两边都有记录会请您选择'}
                     </p>
                 </div>
 

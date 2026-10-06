@@ -7,6 +7,7 @@ import CalendarView from './components/CalendarView';
 import Auth from './components/Auth';
 import Profile from './components/Profile';
 import Toast, { ToastType } from './components/Toast';
+import ConfirmModal from './components/ConfirmModal';
 import { storageService } from './services/storage';
 import { marketService } from './services/market';
 import { THEMES, migrateInvestmentData } from './utils';
@@ -23,6 +24,11 @@ const App: React.FC = () => {
   const [theme, setTheme] = useState<ThemeOption>('slate');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
+
+  // 云端骤降拦截后的二次确认状态
+  const [cliffConflict, setCliffConflict] = useState<{
+      stored: number; incoming: number; pendingItems: Investment[];
+  } | null>(null);
 
   // Sidebar Collapse State
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -60,9 +66,9 @@ const App: React.FC = () => {
         loadedItems = localData;
     } else if (!currentUser) {
         const seed: Investment[] = [
-            { id: '1', name: '新手专享理财', category: 'Fixed', type: 'Fixed', currency: 'CNY', depositDate: '2023-10-01', maturityDate: '2023-11-01', withdrawalDate: '2023-11-02', principal: 50000, expectedRate: 3.5, realizedReturn: 145, rebate: 100, isRebateReceived: true, notes: '新人福利', transactions: [], currentPrincipal: 50000, totalCost: 50000, totalRealizedProfit: 145 },
-            { id: '2', name: '稳健季季红', category: 'Deposit', type: 'Fixed', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期', transactions: [], currentPrincipal: 100000, totalCost: 100000, totalRealizedProfit: 0 },
-            { id: '3', name: '科技ETF基金', category: 'Fund', type: 'Floating', currency: 'CNY', depositDate: '2024-03-01', maturityDate: '', withdrawalDate: null, principal: 20000, expectedRate: undefined, currentReturn: 850, rebate: 0, isRebateReceived: false, notes: '长期持有', transactions: [], currentPrincipal: 20000, totalCost: 20000, totalRealizedProfit: 0 },
+            { id: '1', isSeed: true, name: '新手专享理财', category: 'Fixed', type: 'Fixed', currency: 'CNY', depositDate: '2023-10-01', maturityDate: '2023-11-01', withdrawalDate: '2023-11-02', principal: 50000, expectedRate: 3.5, realizedReturn: 145, rebate: 100, isRebateReceived: true, notes: '新人福利', transactions: [], currentPrincipal: 50000, totalCost: 50000, totalRealizedProfit: 145 },
+            { id: '2', isSeed: true, name: '稳健季季红', category: 'Deposit', type: 'Fixed', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期', transactions: [], currentPrincipal: 100000, totalCost: 100000, totalRealizedProfit: 0 },
+            { id: '3', isSeed: true, name: '科技ETF基金', category: 'Fund', type: 'Floating', currency: 'CNY', depositDate: '2024-03-01', maturityDate: '', withdrawalDate: null, principal: 20000, expectedRate: undefined, currentReturn: 850, rebate: 0, isRebateReceived: false, notes: '长期持有', transactions: [], currentPrincipal: 20000, totalCost: 20000, totalRealizedProfit: 0 },
         ];
         loadedItems = seed;
     }
@@ -72,7 +78,8 @@ const App: React.FC = () => {
 
     if (currentUser) {
         storageService.syncDown(currentUser.id).then(cloudData => {
-            if (cloudData && Array.isArray(cloudData)) {
+            // 空云端不覆盖本地（登录/初始化时由 login() 的方向裁决负责）
+            if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
                  migrateAndSetItems(cloudData);
             }
         });
@@ -105,9 +112,30 @@ const App: React.FC = () => {
       }
   }, [items.length]); 
 
-  const saveItems = (newItems: Investment[]) => {
+  const saveItems = async (newItems: Investment[]) => {
       setItems(newItems);
-      storageService.saveData(user, newItems);
+      try {
+          await storageService.saveData(user, newItems);
+      } catch (e: any) {
+          if (e?.name === 'SyncCliffError') {
+              // 云端数据更多：拦截本次上传，请用户二次确认是否强制覆盖
+              setCliffConflict({ stored: e.stored, incoming: e.incoming, pendingItems: newItems });
+          } else if (e?.name === 'SyncConflictError') {
+              showToast('云端已有其他端更新，为防覆盖请刷新页面后再试', 'error');
+          }
+      }
+  };
+
+  const handleConfirmCliffOverwrite = async () => {
+      if (!cliffConflict) return;
+      try {
+          await storageService.saveData(user, cliffConflict.pendingItems, { forceClear: true });
+          showToast('已按确认覆盖云端数据', 'info');
+      } catch (e: any) {
+          showToast('覆盖失败：' + (e?.message || '未知错误'), 'error');
+      } finally {
+          setCliffConflict(null);
+      }
   };
 
   const handleSaveItem = (item: Investment) => {
@@ -463,6 +491,16 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans overflow-hidden md:overflow-visible">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      <ConfirmModal
+          isOpen={!!cliffConflict}
+          title="同步被拦截"
+          message={`云端有 ${cliffConflict?.stored ?? 0} 条记录，本次要上传的只有 ${cliffConflict?.incoming ?? 0} 条。为防止误删，云端未被覆盖。如果确认要覆盖云端，请点确认。`}
+          confirmText="确认覆盖云端"
+          cancelText="取消"
+          isDanger
+          onConfirm={handleConfirmCliffOverwrite}
+          onCancel={() => setCliffConflict(null)}
+      />
       
       {/* --- Desktop Sidebar --- */}
       <DesktopSidebar />
