@@ -12,6 +12,28 @@ const pool = new Pool({
   }
 });
 
+// 读取用户账本基线（条数/rev/更新时间），供客户端登录时裁决同步方向。
+// 失败时返回 null（例如 ledgers 表尚未创建），不阻塞登录。
+async function getLedgerMeta(client: any, userId: string) {
+  try {
+    const { rows } = await client.query(
+      `SELECT
+         CASE WHEN jsonb_typeof(data) = 'array' THEN jsonb_array_length(data) ELSE 0 END AS count,
+         rev, updated_at
+       FROM ledgers WHERE user_id = $1`,
+      [userId]
+    );
+    if (rows.length === 0) return null;
+    return {
+      count: Number(rows[0].count) || 0,
+      rev: rows[0].rev || 0,
+      updatedAt: rows[0].updated_at || null
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 export default async function handler(request: any, response: any) {
   const client = await pool.connect();
   
@@ -44,7 +66,7 @@ export default async function handler(request: any, response: any) {
            'INSERT INTO users (id, email, password, preferences) VALUES ($1, $2, $3, $4)',
            [id, email, password, '{}']
          );
-         return response.status(200).json({ id, email, preferences: {} });
+         return response.status(200).json({ id, email, preferences: {}, ledgerMeta: null });
        } catch (e: any) {
          if (e.code === '23505') { // Unique violation
             return response.status(400).json({ error: 'EMAIL_EXISTS' });
@@ -73,7 +95,8 @@ export default async function handler(request: any, response: any) {
        return response.status(200).json({ 
            id: user.id, 
            email: user.email,
-           preferences: user.preferences || {} 
+           preferences: user.preferences || {},
+           ledgerMeta: await getLedgerMeta(client, user.id)
        });
     }
   } catch (error: any) {

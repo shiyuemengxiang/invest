@@ -40,14 +40,19 @@ export default async function handler(request: any, response: any) {
         return response.status(200).json([]);
     }
 
+    // rev 列兼容（老表可能没有；sync 接口也会建，这里兜底）
+    await client.query(`ALTER TABLE ledgers ADD COLUMN IF NOT EXISTS rev INTEGER NOT NULL DEFAULT 0;`);
+
     const { rows } = await client.query(
-        'SELECT data FROM ledgers WHERE user_id=$1', 
+        'SELECT data, rev FROM ledgers WHERE user_id=$1', 
         [userId]
     );
     
     if (rows.length > 0) {
         // PG driver automatically parses JSONB columns
         const result = rows[0].data;
+        // 版本号走响应头：body 保持裸数组，兼容旧客户端
+        response.setHeader('X-Ledger-Rev', String(rows[0].rev || 0));
         return response.status(200).json(result || []);
     } else {
         return response.status(200).json([]);
