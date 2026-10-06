@@ -168,7 +168,8 @@ export default async function handler(request: any, response: any) {
     const storedRev = stored ? (stored.rev || 0) : 0;
 
     // 1) 版本冲突：客户端基于过期版本上传时拒绝，由 UI 提示用户裁决
-    if (baseRev !== undefined && baseRev !== null && Number(baseRev) !== storedRev) {
+    //    注意：云端尚无账本行（首次上传）时跳过比较，否则重注册/新账号会因浏览器残留旧版本号而误报 409
+    if (stored && baseRev !== undefined && baseRev !== null && Number(baseRev) !== storedRev) {
       return response.status(409).json({
         error: 'CONFLICT',
         serverRev: storedRev,

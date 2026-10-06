@@ -357,5 +357,7 @@ export const storageService = {
 
     logout() {
         this.saveLocalUser(null);
+        // 版本号按账号隔离：退出时清除，防止旧账号的 rev 污染新账号（曾导致重注册后误报 409）
+        localStorage.removeItem(STORAGE_KEYS.REV);
     }
 };
