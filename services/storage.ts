@@ -1,14 +1,47 @@
 
-import { ExchangeRates, Investment, ThemeOption, User, DEFAULT_EXCHANGE_RATES, UserPreferences } from "../types";
+import { ExchangeRates, Investment, ThemeOption, User, DEFAULT_EXCHANGE_RATES, UserPreferences, LedgerMeta } from "../types";
 
 const STORAGE_KEYS = {
     DATA: 'smart_ledger_data',
     USER: 'smart_ledger_user',
     RATES: 'smart_ledger_rates',
-    THEME: 'smart_ledger_theme'
+    THEME: 'smart_ledger_theme',
+    REV: 'smart_ledger_rev'
 };
 
 const API_BASE = '/api';
+
+// --- 同步安全错误类型 ---
+export class SyncCliffError extends Error {
+    stored: number;
+    incoming: number;
+    constructor(stored: number, incoming: number) {
+        super(`云端有 ${stored} 条，本次仅 ${incoming} 条，已拦截覆盖`);
+        this.name = 'SyncCliffError';
+        this.stored = stored;
+        this.incoming = incoming;
+    }
+}
+
+export class SyncConflictError extends Error {
+    serverRev: number;
+    constructor(serverRev: number) {
+        super('云端数据已被其他端更新，请先同步后再试');
+        this.name = 'SyncConflictError';
+        this.serverRev = serverRev;
+    }
+}
+
+// 登录时云端与本地都有真实数据，需要用户裁决
+export interface LoginConflict {
+    localCount: number;
+    cloudCount: number;
+    cloudUpdatedAt: string | null;
+}
+
+// 下载熔断阈值：本地>=15条 且 云端<50% 时拒绝覆盖本地
+const DOWNLOAD_CLIFF_BASELINE = 15;
+const DOWNLOAD_CLIFF_RATIO = 0.5;
 
 export const storageService = {
     // --- Local Storage Helpers (Guest / Cache) ---
@@ -48,19 +81,55 @@ export const storageService = {
         localStorage.setItem(STORAGE_KEYS.THEME, theme);
     },
 
-    // --- Cloud Sync Logic ---
+    // --- Cloud Sync Logic（阶段一：防覆盖加固）---
 
-    // Save Data: Uploads to Vercel PG if logged in, always saves to LocalStorage
-    async saveData(user: User | null, items: Investment[]) {
+    // --- seed 标记：演示数据只用于未登录展示，永不上传云端 ---
+    isSeedItem: (item: Investment): boolean => !!item?.isSeed,
+    stripSeed: (items: Investment[]): Investment[] => (items || []).filter(i => !i?.isSeed),
+    hasRealData: (items: Investment[]): boolean => (items || []).some(i => !i?.isSeed),
+
+    // --- rev 版本号（多端并发保护，存 localStorage） ---
+    getLastRev: (): number | null => {
+        const v = localStorage.getItem(STORAGE_KEYS.REV);
+        return v === null ? null : Number(v);
+    },
+    setLastRev: (rev: number) => {
+        localStorage.setItem(STORAGE_KEYS.REV, String(rev));
+    },
+
+    // Save Data: 本地全量保存；登录用户上传云端（去 seed、防骤降、防并发覆盖）
+    // 服务端 422/409 会抛 SyncCliffError / SyncConflictError，由调用方 UI 处理
+    async saveData(user: User | null, items: Investment[], opts?: { forceClear?: boolean }) {
         this.saveLocalData(items);
-        if (user) {
+        if (user && user.id) {
             try {
-                await fetch(`${API_BASE}/sync`, {
+                // 演示数据永不上传
+                const clean = this.stripSeed(items);
+                const baseRev = this.getLastRev();
+                const res = await fetch(`${API_BASE}/sync`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: user.id, data: items })
+                    body: JSON.stringify({
+                        userId: user.id,
+                        data: clean,
+                        ...(baseRev !== null ? { baseRev } : {}),
+                        ...(opts?.forceClear ? { forceClear: true } : {})
+                    })
                 });
+                const json = await res.json().catch(() => ({}));
+                if (res.status === 422 && json.error === 'DATA_CLIFF') {
+                    throw new SyncCliffError(json.stored || 0, json.incoming || 0);
+                }
+                if (res.status === 409 && json.error === 'CONFLICT') {
+                    throw new SyncConflictError(json.serverRev || 0);
+                }
+                if (!res.ok) {
+                    console.error("云端同步失败:", res.status, json);
+                    return;
+                }
+                if (typeof json.rev === 'number') this.setLastRev(json.rev);
             } catch (e) {
+                if (e instanceof SyncCliffError || e instanceof SyncConflictError) throw e;
                 console.warn("Background sync failed:", e);
             }
         }
@@ -101,8 +170,11 @@ export const storageService = {
         }
     },
 
-    // Login: Tries Vercel API
-    async login(email: string, password: string, isRegister: boolean, currentItems: Investment[]): Promise<User> {
+    // Login: 登录/注册。返回 { user, conflict }。
+    // conflict 非空表示云端与本地都有真实数据，需要用户裁决 —— 绝不静默覆盖任一边。
+    async login(
+        email: string, password: string, isRegister: boolean, currentItems: Investment[]
+    ): Promise<{ user: User; conflict: LoginConflict | null }> {
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 15000); 
@@ -131,16 +203,48 @@ export const storageService = {
                     if (user.preferences.theme) this.saveTheme(user.preferences.theme);
                     if (user.preferences.rates) this.saveRates(user.preferences.rates);
                 }
-
-                if (isRegister && currentItems.length > 0) {
-                    await this.saveData(user, currentItems);
-                    // Also save current theme/rates as default for new user
-                    await this.savePreferences(user, this.getTheme(), this.getRates());
-                } else {
-                    await this.syncDown(user.id);
+                if (user.ledgerMeta && typeof user.ledgerMeta.rev === 'number') {
+                    this.setLastRev(user.ledgerMeta.rev);
                 }
-                
-                return user;
+
+                const hasRealLocal = this.hasRealData(currentItems);
+
+                if (isRegister) {
+                    // 注册：新账号。本地有真实数据则上传（游客迁移），否则下载（一般为空）
+                    if (hasRealLocal) {
+                        await this.saveData(user, currentItems);
+                        // Also save current theme/rates as default for new user
+                        await this.savePreferences(user, this.getTheme(), this.getRates());
+                    } else {
+                        await this.syncDown(user.id);
+                    }
+                    return { user, conflict: null };
+                }
+
+                // 登录：按云端基线裁决同步方向
+                const meta: LedgerMeta | null | undefined = user.ledgerMeta;
+                const cloudCount = meta?.count || 0;
+
+                if (cloudCount === 0) {
+                    // 云端无数据：上传本地真实数据（游客迁移）；本地也无则下载（空）
+                    if (hasRealLocal) await this.saveData(user, currentItems);
+                    else await this.syncDown(user.id);
+                    return { user, conflict: null };
+                }
+                if (!hasRealLocal) {
+                    // 本地只有 seed/空：下载云端
+                    await this.syncDown(user.id);
+                    return { user, conflict: null };
+                }
+                // 双方都有真实数据：交给用户裁决，绝不静默覆盖
+                return {
+                    user,
+                    conflict: {
+                        localCount: this.stripSeed(currentItems).length,
+                        cloudCount,
+                        cloudUpdatedAt: meta?.updatedAt || null
+                    }
+                };
             } else {
                 throw new Error(data.error || 'Authentication failed');
             }
@@ -150,15 +254,48 @@ export const storageService = {
         }
     },
 
-    async syncDown(userId: string) {
+    // 用户在登录冲突弹窗中做出选择后调用
+    async resolveLoginConflict(user: User, choice: 'cloud' | 'local', currentItems: Investment[]) {
+        if (choice === 'cloud') {
+            await this.syncDown(user.id, { force: true });
+        } else {
+            // 用户已二次确认：用本地覆盖云端
+            await this.saveData(user, currentItems, { forceClear: true });
+        }
+    },
+
+    // syncDown: 下载云端并覆盖本地（带熔断 + 防缓存）。
+    // 返回下载的数据；熔断/失败时返回 null（本地不动）。
+    async syncDown(userId: string, opts?: { force?: boolean }): Promise<Investment[] | null> {
         try {
-            const res = await fetch(`${API_BASE}/investments?userId=${userId}`);
+            // 时间戳 + no-cache 头：防止浏览器/CDN 缓存旧数据
+            const url = `${API_BASE}/investments?userId=${userId}&t=${Date.now()}`;
+            const res = await fetch(url, {
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            });
             const contentType = res.headers.get('content-type');
             if (res.ok && contentType && contentType.includes('application/json')) {
                 const json = await res.json();
                 const data = Array.isArray(json) ? json : (json.data || []);
                 if (Array.isArray(data)) {
+                    // 下载熔断：云端数据骤降时拒绝覆盖本地
+                    if (!opts?.force) {
+                        const local = this.getLocalData();
+                        if (local && local.length >= DOWNLOAD_CLIFF_BASELINE
+                            && data.length < local.length * DOWNLOAD_CLIFF_RATIO) {
+                            console.error(
+                                `[CRITICAL] syncDown 熔断：本地 ${local.length} 条，云端仅 ${data.length} 条，拒绝覆盖本地`
+                            );
+                            return null;
+                        }
+                    }
                     this.saveLocalData(data);
+                    const revHeader = res.headers.get('X-Ledger-Rev');
+                    if (revHeader !== null && revHeader !== '') this.setLastRev(Number(revHeader));
                     return data;
                 }
             }
