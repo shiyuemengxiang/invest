@@ -116,13 +116,8 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel, currentItems }) => {
         setConflict(null);
     };
 
-    // 冲突裁决面板
-    if (conflict) {
-        const cloudDate = conflict.cloudUpdatedAt
-            ? new Date(conflict.cloudUpdatedAt).toLocaleString('zh-CN')
-            : '未知时间';
-        // 忘记密码视图（优先于冲突面板）
-        if (forgotMode) {
+    // 忘记密码视图（优先于登录表单和冲突面板）
+    if (forgotMode) {
         return (
             <div className="flex flex-col items-center justify-center min-h-[60vh] animate-fade-in">
                 <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 w-full max-w-md border border-slate-100">
@@ -177,6 +172,12 @@ const Auth: React.FC<Props> = ({ onLogin, onCancel, currentItems }) => {
             </div>
         );
     }
+
+    // 冲突裁决面板
+    if (conflict) {
+        const cloudDate = conflict.cloudUpdatedAt
+            ? new Date(conflict.cloudUpdatedAt).toLocaleString('zh-CN')
+            : '未知时间';
 
     return (
             <div className="flex flex-col items-center justify-center min-h-[60vh] animate-fade-in">

@@ -772,9 +772,16 @@ export interface CashFlow {
     amount: number; // 正=流入，负=流出
 }
 
+// 解析现金流日期：兼容 YYYY-MM-DD 和带时间的格式（含 T/Z）
+function parseFlowDate(s: string): number {
+    if (!s) return NaN;
+    const t = new Date(s.length <= 10 ? s + 'T00:00:00' : s).getTime();
+    return t;
+}
+
 export function calculateXIRR(cashflows: CashFlow[]): number | null {
     const flows = cashflows
-        .map(f => ({ t: new Date(f.date + 'T00:00:00').getTime(), amount: f.amount }))
+        .map(f => ({ t: parseFlowDate(f.date), amount: f.amount }))
         .filter(f => !isNaN(f.t) && f.amount !== 0)
         .sort((a, b) => a.t - b.t);
     if (flows.length < 2) return null;
