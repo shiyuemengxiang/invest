@@ -570,7 +570,7 @@ const InvestmentList: React.FC<Props> = ({
                                                     
                                                     {/* Tooltip for COMPLETED Yield explanation */}
                                                     {metrics.isCompleted && (
-                                                        <div className="absolute right-0 bottom-full mb-2 w-max max-w-xs p-2 bg-slate-800 text-white text-[10px] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-20 whitespace-normal">
+                                                        <div className="absolute right-0 bottom-full mb-2 w-max max-w-[calc(100vw-3rem)] p-2 bg-slate-800 text-white text-[10px] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-20 whitespace-normal break-words">
                                                             实测年化 = (到期收益 + 已到账返利) / 本金 * ({Number(item.interestBasis) || 365} / {metrics.realDurationDays} 天)
                                                         </div>
                                                     )}
