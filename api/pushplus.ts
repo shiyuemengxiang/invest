@@ -72,7 +72,11 @@ async function handleCron(client: any, response: any) {
   `);
   const today = todayStr();
   for (const user of users) {
-    const prefs = user.preferences || {};
+    let prefs: any = user.preferences || {};
+    // 防御：确保是对象不是字符串（避免双重编码导致 token 丢失）
+    if (typeof prefs === 'string') {
+      try { prefs = JSON.parse(prefs); } catch { prefs = {}; }
+    }
     const token = prefs.pushplus_token;
     if (!token) continue;
     // 开关关闭则跳过
@@ -135,7 +139,10 @@ export default async function handler(request: any, response: any) {
 
     if (request.method === 'GET') {
       const { rows } = await client.query(`SELECT preferences FROM users WHERE id = $1`, [user.id]);
-      const prefs = rows[0]?.preferences || {};
+      let prefs: any = rows[0]?.preferences || {};
+      if (typeof prefs === 'string') {
+        try { prefs = JSON.parse(prefs); } catch { prefs = {}; }
+      }
       return response.status(200).json({
         configured: !!prefs.pushplus_token,
         enabled: prefs.pushplus_enabled !== false, // 默认开启
@@ -148,7 +155,10 @@ export default async function handler(request: any, response: any) {
       const token = (body?.token || '').trim();
       const enabled = body?.enabled; // 可选：开关
       const { rows } = await client.query(`SELECT preferences FROM users WHERE id = $1`, [user.id]);
-      const prefs = rows[0]?.preferences || {};
+      let prefs: any = rows[0]?.preferences || {};
+      if (typeof prefs === 'string') {
+        try { prefs = JSON.parse(prefs); } catch { prefs = {}; }
+      }
       const oldToken = prefs.pushplus_token || '';
       if (token) prefs.pushplus_token = token;
       else if (body?.token === '') delete prefs.pushplus_token; // 显式空字符串=清除
