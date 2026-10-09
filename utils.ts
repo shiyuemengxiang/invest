@@ -845,13 +845,23 @@ function buildItemFlows(
     }
     if (item.withdrawalDate) {
         // 已完结：补上终值。无流水时终值=本金+全部收益；有流水时 Sell 只记了本金，
-        // Fixed 的利息是按利率另算的（不在流水里），需补上；Floating 盈亏已在流水中。
+        // Fixed 的利息是按利率另算的（不在流水里），直接按公式补上，避免依赖 totalRealizedProfit
+        //（恢复数据该字段可能不一致）；Floating 盈亏已在流水中。
         const m = calculateItemMetrics(item);
         if (txs.length === 0) {
             const terminal = item.currentPrincipal + (m.baseInterest || 0) + (item.rebate || 0);
             flows.push({ date: item.withdrawalDate, amount: toAmount(Math.max(terminal, 0), item.currency) });
         } else if (item.type === 'Fixed') {
-            const extraInterest = (m.baseInterest || 0) - (item.totalRealizedProfit || 0);
+            const rate = Number(item.expectedRate) || 0;
+            const basis = Number(item.interestBasis) || 365;
+            const buySum = txs.filter(t => t.type === 'Buy').reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
+            const cost = item.totalCost > 0 ? item.totalCost : buySum;
+            const days = getDaysDiff(item.depositDate, item.maturityDate || item.withdrawalDate);
+            const computedInterest = cost * (rate / 100) * (days / basis);
+            // 减掉用户手动记的利息流水（Dividend/Interest），避免重复
+            const manualInterest = txs.filter(t => t.type === 'Dividend' || t.type === 'Interest')
+                .reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
+            const extraInterest = computedInterest - manualInterest;
             if (extraInterest > 0.005) {
                 flows.push({ date: item.withdrawalDate, amount: toAmount(extraInterest, item.currency) });
             }
