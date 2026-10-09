@@ -109,8 +109,11 @@ async function handleCron(client: any, response: any) {
       `<p>以下项目即将到期，请及时处理：</p><p>${lines.join('<br>')}</p><p style="color:#999;font-size:12px;">来自 Smart Ledger 到期提醒</p>`);
     if (ok) {
       for (const it of maturing) notified[it.id] = today;
-      prefs.pushplus_notified = notified;
-      await client.query(`UPDATE users SET preferences = $1 WHERE id = $2`, [JSON.stringify(prefs), user.id]);
+      // 用 jsonb_set 只更新 pushplus_notified，不动其他字段（避免覆盖 token）
+      await client.query(
+        `UPDATE users SET preferences = jsonb_set(COALESCE(preferences, '{}'::jsonb), '{pushplus_notified}', $1::jsonb) WHERE id = $2`,
+        [JSON.stringify(notified), user.id]
+      );
     }
     results.push({ user: user.email, sent: ok ? maturing.length : 0, ok });
   }
