@@ -1,5 +1,5 @@
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, Transaction } from './types';
-    
+                   
 export const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 interface ThemeConfig {
