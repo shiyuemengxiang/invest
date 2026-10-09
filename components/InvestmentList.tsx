@@ -564,7 +564,7 @@ const InvestmentList: React.FC<Props> = ({
                                                     </span>
                                                     {itemXIRR !== null && (
                                                         <span className="text-[10px] text-slate-400" title="按实际现金流日期折现的内部收益率">
-                                                            XIRR {formatPercent(itemXIRR)}
+                                                            XIRR {formatPercent(itemXIRR * 100)}
                                                         </span>
                                                     )}
                                                     
