@@ -102,6 +102,16 @@ const App: React.FC = () => {
     migrateAndSetItems(loadedItems);
 
     if (currentUser) {
+        // 同步最新偏好设置（昵称/头像多端一致）
+        fetch('/api/market/preferences', { headers: { ...storageService.authHeaders() } })
+            .then(r => r.ok ? r.json() : null)
+            .then(j => {
+                if (j?.preferences) {
+                    const updated = { ...currentUser, preferences: { ...currentUser.preferences, ...j.preferences } };
+                    storageService.saveLocalUser(updated);
+                    setUser(updated);
+                }
+            }).catch(() => {});
         storageService.syncDown(currentUser.id).then(cloudData => {
             // 空云端不覆盖本地（登录/初始化时由 login() 的方向裁决负责）
             if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {

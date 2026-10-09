@@ -97,13 +97,28 @@ const pool = new Pool({
 });
 
 export default async function handler(request: any, response: any) {
-  if (request.method !== 'POST') {
-      return response.status(405).json({ error: 'Method not allowed' });
-  }
-
   const client = await pool.connect();
 
   try {
+    await ensureSessionsTable(client);
+    const authUser = await getSessionUser(client, request);
+    if (!authUser) {
+        return response.status(401).json({ error: 'TOKEN_INVALID', message: '登录已过期，请重新登录' });
+    }
+
+    // GET: 获取当前用户的最新偏好设置（用于多端同步昵称/头像）
+    if (request.method === 'GET') {
+        const { rows } = await client.query(
+            'SELECT preferences FROM users WHERE id = $1',
+            [authUser.id]
+        );
+        return response.status(200).json({ preferences: rows[0]?.preferences || {} });
+    }
+
+    if (request.method !== 'POST') {
+        return response.status(405).json({ error: 'Method not allowed' });
+    }
+
     let body = request.body;
     if (typeof body === 'string') {
         try { body = JSON.parse(body); } catch (e) {}
@@ -116,11 +131,6 @@ export default async function handler(request: any, response: any) {
     }
 
     // Token 鉴权：只能改自己的偏好设置
-    await ensureSessionsTable(client);
-    const authUser = await getSessionUser(client, request);
-    if (!authUser) {
-        return response.status(401).json({ error: 'TOKEN_INVALID', message: '登录已过期，请重新登录' });
-    }
     if (authUser.id !== userId) {
         return response.status(403).json({ error: 'FORBIDDEN' });
     }
