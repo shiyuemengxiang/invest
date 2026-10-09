@@ -157,17 +157,37 @@ export default async function handler(request: any, response: any) {
       const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
       const token = (body?.token || '').trim();
       const enabled = body?.enabled; // 可选：开关
+
+      // 用 jsonb_set 做 surgical 更新，避免全量覆盖导致 token 丢失
+      if (token) {
+        // 保存 token
+        await client.query(
+          `UPDATE users SET preferences = jsonb_set(COALESCE(preferences, '{}'::jsonb), '{pushplus_token}', $1::jsonb) WHERE id = $2`,
+          [JSON.stringify(token), user.id]
+        );
+        // token 变更时清除已发送标记
+        await client.query(
+          `UPDATE users SET preferences = preferences - 'pushplus_notified' WHERE id = $1`,
+          [user.id]
+        );
+      } else if (body?.token === '') {
+        // 显式空字符串=清除 token
+        await client.query(`UPDATE users SET preferences = preferences - 'pushplus_token' WHERE id = $1`, [user.id]);
+        await client.query(`UPDATE users SET preferences = preferences - 'pushplus_notified' WHERE id = $1`, [user.id]);
+      }
+      if (typeof enabled === 'boolean') {
+        await client.query(
+          `UPDATE users SET preferences = jsonb_set(COALESCE(preferences, '{}'::jsonb), '{pushplus_enabled}', $1::jsonb) WHERE id = $2`,
+          [JSON.stringify(enabled), user.id]
+        );
+      }
+
+      // 返回最新状态
       const { rows } = await client.query(`SELECT preferences FROM users WHERE id = $1`, [user.id]);
       let prefs: any = rows[0]?.preferences || {};
       if (typeof prefs === 'string') {
         try { prefs = JSON.parse(prefs); } catch { prefs = {}; }
       }
-      const oldToken = prefs.pushplus_token || '';
-      if (token) prefs.pushplus_token = token;
-      else if (body?.token === '') delete prefs.pushplus_token; // 显式空字符串=清除
-      if (typeof enabled === 'boolean') prefs.pushplus_enabled = enabled;
-      if (token !== oldToken) delete prefs.pushplus_notified;
-      await client.query(`UPDATE users SET preferences = $1 WHERE id = $2`, [JSON.stringify(prefs), user.id]);
       return response.status(200).json({ ok: true, configured: !!prefs.pushplus_token, enabled: prefs.pushplus_enabled !== false });
     }
 
