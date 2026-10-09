@@ -895,3 +895,5 @@ export function calculatePortfolioXIRR(items: Investment[], rates: ExchangeRates
     }
     return calculateXIRR(flows);
 }
+
+// 强制触发Vercel重新构建
