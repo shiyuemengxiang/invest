@@ -1,1 +1,1 @@
-{"buildCommand":"npm run build","crons":[{"path":"/api/cron/maturity","schedule":"0 0 * * *"}],"framework":"vite","outputDirectory":"dist"}
+{"buildCommand":"npm run build","crons":[{"path":"/api/pushplus?cron=1","schedule":"0 0 * * *"}],"framework":"vite","outputDirectory":"dist"}

@@ -139,7 +139,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     useEffect(() => {
         // 加载 pushplus 配置状态
         if (!user) return;
-        fetch('/api/user/pushplus', { headers: { ...storageService.authHeaders() } })
+        fetch('/api/pushplus', { headers: { ...storageService.authHeaders() } })
             .then(r => r.json()).then(j => {
                 setPpConfigured(!!j.configured);
                 setPpMasked(j.masked || null);
@@ -366,7 +366,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
         if (!ppToken.trim()) { onNotify('请先输入 pushplus token', 'error'); return; }
         setPpLoading(true);
         try {
-            const res = await fetch('/api/user/pushplus', {
+            const res = await fetch('/api/pushplus', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...storageService.authHeaders() },
                 body: JSON.stringify({ token: ppToken.trim() })
@@ -377,7 +377,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                 setPpConfigured(true);
                 onNotify('推送 token 已保存，每天 8 点自动检查到期提醒', 'success');
                 // 刷新脱敏显示
-                fetch('/api/user/pushplus', { headers: { ...storageService.authHeaders() } })
+                fetch('/api/pushplus', { headers: { ...storageService.authHeaders() } })
                     .then(r => r.json()).then(j => setPpMasked(j.masked || null)).catch(() => {});
             } else {
                 onNotify(json.error || '保存失败', 'error');
@@ -392,7 +392,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     const handleClearPushplus = async () => {
         setPpLoading(true);
         try {
-            const res = await fetch('/api/user/pushplus', {
+            const res = await fetch('/api/pushplus', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...storageService.authHeaders() },
                 body: JSON.stringify({ token: '' })
