@@ -844,28 +844,28 @@ function buildItemFlows(
         flows.push({ date: item.depositDate, amount: -toAmount(item.currentPrincipal, item.currency) });
     }
     if (item.withdrawalDate) {
-        // 已完结：补上终值。无流水时终值=本金+全部收益；有流水时 Sell 只记了本金，
-        // Fixed 的利息是按利率另算的（不在流水里），直接按公式补上，避免依赖 totalRealizedProfit
-        //（恢复数据该字段可能不一致）；Floating 盈亏已在流水中。
+        // 已完结：用存入/取出日期重建干净现金流。
+        // 原因：恢复数据的流水与利息字段存在各种不一致（Sell 只记本金、totalRealizedProfit 可能已含利息等），
+        // 逐项推断容易错。不如直接用 UI 显示的口径：投入=买入总额，收回=投入+到期收益(+返利)。
+        // Floating 的多笔交易时点对 XIRR 有意义，保留流水；Fixed 通常只有一买一卖，重建更准。
         const m = calculateItemMetrics(item);
-        if (txs.length === 0) {
+        if (item.type === 'Fixed') {
+            const buySum = txs.filter(t => t.type === 'Buy').reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
+            const invested = buySum > 0 ? buySum : (item.totalCost > 0 ? item.totalCost : item.currentPrincipal);
+            const profit = (m.baseInterest || 0) + (item.rebate || 0);
+            flows.length = 0;
+            if (invested > 0 && item.depositDate) {
+                flows.push({ date: item.depositDate, amount: -toAmount(invested, item.currency) });
+                flows.push({ date: item.withdrawalDate, amount: toAmount(Math.max(invested + profit, 0), item.currency) });
+            }
+        } else if (txs.length === 0) {
+            // Floating 无流水：用本金估算
+            if (!item.depositDate || !(item.currentPrincipal > 0)) return null;
+            flows.push({ date: item.depositDate, amount: -toAmount(item.currentPrincipal, item.currency) });
             const terminal = item.currentPrincipal + (m.baseInterest || 0) + (item.rebate || 0);
             flows.push({ date: item.withdrawalDate, amount: toAmount(Math.max(terminal, 0), item.currency) });
-        } else if (item.type === 'Fixed') {
-            const rate = Number(item.expectedRate) || 0;
-            const basis = Number(item.interestBasis) || 365;
-            const buySum = txs.filter(t => t.type === 'Buy').reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
-            const cost = item.totalCost > 0 ? item.totalCost : buySum;
-            const days = getDaysDiff(item.depositDate, item.maturityDate || item.withdrawalDate);
-            const computedInterest = cost * (rate / 100) * (days / basis);
-            // 减掉用户手动记的利息流水（Dividend/Interest），避免重复
-            const manualInterest = txs.filter(t => t.type === 'Dividend' || t.type === 'Interest')
-                .reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
-            const extraInterest = computedInterest - manualInterest;
-            if (extraInterest > 0.005) {
-                flows.push({ date: item.withdrawalDate, amount: toAmount(extraInterest, item.currency) });
-            }
         }
+        // Floating 有流水：保留流水时点，盈亏已在 Sell 金额中，不需额外终值
     } else if (!item.withdrawalDate && item.currentPrincipal > 0) {
         const m = calculateItemMetrics(item);
         const terminal = item.currentPrincipal + (item.currentReturn || m.accruedReturn || 0);
