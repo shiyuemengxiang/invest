@@ -830,7 +830,8 @@ function buildItemFlows(
     toAmount: (amount: number, currency: Currency) => number
 ): CashFlow[] | null {
     const flows: CashFlow[] = [];
-    for (const tx of item.transactions || []) {
+    const txs = item.transactions || [];
+    for (const tx of txs) {
         if (tx.type === 'Buy' || tx.type === 'Fee' || tx.type === 'Tax') {
             flows.push({ date: tx.date, amount: -toAmount(Math.abs(tx.amount), item.currency) });
         } else if (tx.type === 'Sell' || tx.type === 'Dividend' || tx.type === 'Interest') {
@@ -841,14 +842,21 @@ function buildItemFlows(
         // 无流水：必须有存入日才能估算，否则该笔跳过（避免只有终值导致失衡）
         if (!item.depositDate || !(item.currentPrincipal > 0)) return null;
         flows.push({ date: item.depositDate, amount: -toAmount(item.currentPrincipal, item.currency) });
-        if (item.withdrawalDate) {
-            const m = calculateItemMetrics(item);
+    }
+    if (item.withdrawalDate) {
+        // 已完结：补上终值。无流水时终值=本金+全部收益；有流水时 Sell 只记了本金，
+        // Fixed 的利息是按利率另算的（不在流水里），需补上；Floating 盈亏已在流水中。
+        const m = calculateItemMetrics(item);
+        if (txs.length === 0) {
             const terminal = item.currentPrincipal + (m.baseInterest || 0) + (item.rebate || 0);
             flows.push({ date: item.withdrawalDate, amount: toAmount(Math.max(terminal, 0), item.currency) });
-            return flows;
+        } else if (item.type === 'Fixed') {
+            const extraInterest = (m.baseInterest || 0) - (item.totalRealizedProfit || 0);
+            if (extraInterest > 0.005) {
+                flows.push({ date: item.withdrawalDate, amount: toAmount(extraInterest, item.currency) });
+            }
         }
-    }
-    if (!item.withdrawalDate && item.currentPrincipal > 0) {
+    } else if (!item.withdrawalDate && item.currentPrincipal > 0) {
         const m = calculateItemMetrics(item);
         const terminal = item.currentPrincipal + (item.currentReturn || m.accruedReturn || 0);
         flows.push({ date: todayStr(), amount: toAmount(Math.max(terminal, 0), item.currency) });
