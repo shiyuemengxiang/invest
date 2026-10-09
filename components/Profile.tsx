@@ -130,6 +130,22 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     // 导入
     const fileRef = useRef<HTMLInputElement>(null);
 
+    // 推送提醒（pushplus）
+    const [ppToken, setPpToken] = useState('');
+    const [ppConfigured, setPpConfigured] = useState(false);
+    const [ppMasked, setPpMasked] = useState<string | null>(null);
+    const [ppLoading, setPpLoading] = useState(false);
+
+    useEffect(() => {
+        // 加载 pushplus 配置状态
+        if (!user) return;
+        fetch('/api/user/pushplus', { headers: { ...storageService.authHeaders() } })
+            .then(r => r.json()).then(j => {
+                setPpConfigured(!!j.configured);
+                setPpMasked(j.masked || null);
+            }).catch(() => {});
+    }, [user]);
+
     // 管理后台（token 鉴权：登录 session 邮箱须等于服务端 ADMIN_EMAIL）
     const isAdmin = !!user && !!ADMIN_EMAIL && user.email === ADMIN_EMAIL;
     const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
@@ -342,6 +358,54 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
             onNotify('网络错误，请稍后重试', 'error');
         } finally {
             setPwLoading(false);
+        }
+    };
+
+    // ---- 推送提醒（pushplus）----
+    const handleSavePushplus = async () => {
+        if (!ppToken.trim()) { onNotify('请先输入 pushplus token', 'error'); return; }
+        setPpLoading(true);
+        try {
+            const res = await fetch('/api/user/pushplus', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...storageService.authHeaders() },
+                body: JSON.stringify({ token: ppToken.trim() })
+            });
+            const json = await res.json().catch(() => ({}));
+            if (res.ok) {
+                setPpToken('');
+                setPpConfigured(true);
+                onNotify('推送 token 已保存，每天 8 点自动检查到期提醒', 'success');
+                // 刷新脱敏显示
+                fetch('/api/user/pushplus', { headers: { ...storageService.authHeaders() } })
+                    .then(r => r.json()).then(j => setPpMasked(j.masked || null)).catch(() => {});
+            } else {
+                onNotify(json.error || '保存失败', 'error');
+            }
+        } catch (e) {
+            onNotify('网络错误，请稍后重试', 'error');
+        } finally {
+            setPpLoading(false);
+        }
+    };
+
+    const handleClearPushplus = async () => {
+        setPpLoading(true);
+        try {
+            const res = await fetch('/api/user/pushplus', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...storageService.authHeaders() },
+                body: JSON.stringify({ token: '' })
+            });
+            if (res.ok) {
+                setPpConfigured(false);
+                setPpMasked(null);
+                onNotify('已关闭推送提醒', 'success');
+            }
+        } catch (e) {
+            onNotify('网络错误', 'error');
+        } finally {
+            setPpLoading(false);
         }
     };
 
@@ -631,6 +695,66 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                 </div>
                 <p className="text-xs text-slate-400 mt-4">Excel/CSV 为账本明细表（一行一条持仓）；JSON 为完整备份（含交易流水），导入请用 JSON。</p>
             </div>
+
+            {/* 推送提醒（pushplus） */}
+            {user && (
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-bold text-slate-800 mb-2">到期推送提醒</h3>
+                    <p className="text-xs text-slate-400 mb-6">
+                        配置后，每天早上 8 点自动检查 7 天内到期的项目，通过微信推送提醒你（网站没打开也能收到）。
+                        去 <a href="https://www.pushplus.plus" target="_blank" rel="noreferrer" className="text-blue-500 underline">pushplus.plus</a> 免费获取 token。
+                    </p>
+                    {ppConfigured ? (
+                        <div>
+                            <p className="text-sm text-slate-600 mb-4">
+                                当前 token：<span className="font-mono bg-slate-100 px-2 py-1 rounded">{ppMasked || '已配置'}</span>
+                                <span className="ml-2 text-xs text-emerald-600">● 推送已开启</span>
+                            </p>
+                            <div className="flex flex-wrap gap-3">
+                                <input
+                                    type="text"
+                                    value={ppToken}
+                                    onChange={e => setPpToken(e.target.value)}
+                                    placeholder="输入新的 token 可更换"
+                                    className="flex-1 min-w-[200px] p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-slate-300 font-mono"
+                                />
+                                <button
+                                    onClick={handleSavePushplus}
+                                    disabled={ppLoading}
+                                    className="px-5 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition active:scale-95 disabled:opacity-50"
+                                >
+                                    {ppLoading ? '保存中…' : '更换'}
+                                </button>
+                                <button
+                                    onClick={handleClearPushplus}
+                                    disabled={ppLoading}
+                                    className="px-5 py-2.5 bg-white border border-red-200 text-red-600 text-sm font-bold rounded-xl hover:bg-red-50 transition active:scale-95 disabled:opacity-50"
+                                >
+                                    关闭推送
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap gap-3">
+                            <input
+                                type="text"
+                                value={ppToken}
+                                onChange={e => setPpToken(e.target.value)}
+                                placeholder="粘贴 pushplus token"
+                                className="flex-1 min-w-[200px] p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-slate-300 font-mono"
+                            />
+                            <button
+                                onClick={handleSavePushplus}
+                                disabled={ppLoading}
+                                className="px-5 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition active:scale-95 disabled:opacity-50"
+                            >
+                                {ppLoading ? '保存中…' : '开启推送'}
+                            </button>
+                        </div>
+                    )}
+                    <p className="text-xs text-slate-400 mt-4">同一项目同一天只推送一次，避免打扰。token 仅用于给你发到期提醒，不会用于其他用途。</p>
+                </div>
+            )}
 
             {/* 修改密码 */}
             {user && (

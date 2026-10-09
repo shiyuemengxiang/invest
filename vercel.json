@@ -1,0 +1,1 @@
+{"crons":[{"path":"/api/cron/maturity","schedule":"0 0 * * *"}]}
