@@ -138,15 +138,18 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     const [ppLoading, setPpLoading] = useState(false);
 
     useEffect(() => {
-        // 加载 pushplus 配置状态
-        if (!user) return;
+        // 加载 pushplus 配置状态（只在用户ID变化时请求，避免重复）
+        if (!user?.id) return;
+        let cancelled = false;
         fetch('/api/pushplus', { headers: { ...storageService.authHeaders() } })
             .then(r => r.json()).then(j => {
+                if (cancelled) return;
                 setPpConfigured(!!j.configured);
                 setPpEnabled(j.enabled !== false);
                 setPpMasked(j.masked || null);
             }).catch(() => {});
-    }, [user]);
+        return () => { cancelled = true; };
+    }, [user?.id]);
 
     // 管理后台（token 鉴权：登录 session 邮箱须等于服务端 ADMIN_EMAIL）
     const isAdmin = !!user && !!ADMIN_EMAIL && user.email === ADMIN_EMAIL;
