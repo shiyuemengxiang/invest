@@ -75,6 +75,11 @@ async function handleCron(client: any, response: any) {
     const prefs = user.preferences || {};
     const token = prefs.pushplus_token;
     if (!token) continue;
+    // 开关关闭则跳过
+    if (prefs.pushplus_enabled === false) {
+      results.push({ user: user.email, sent: 0, skipped: 'disabled' });
+      continue;
+    }
     const notified: Record<string, string> = prefs.pushplus_notified || {};
     const { rows: ledgers } = await client.query(`SELECT data FROM ledgers WHERE user_id = $1`, [user.id]);
     if (ledgers.length === 0) continue;
@@ -133,6 +138,7 @@ export default async function handler(request: any, response: any) {
       const prefs = rows[0]?.preferences || {};
       return response.status(200).json({
         configured: !!prefs.pushplus_token,
+        enabled: prefs.pushplus_enabled !== false, // 默认开启
         masked: prefs.pushplus_token ? prefs.pushplus_token.slice(0, 4) + '****' + prefs.pushplus_token.slice(-4) : null,
       });
     }
@@ -140,14 +146,16 @@ export default async function handler(request: any, response: any) {
     if (request.method === 'POST') {
       const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
       const token = (body?.token || '').trim();
+      const enabled = body?.enabled; // 可选：开关
       const { rows } = await client.query(`SELECT preferences FROM users WHERE id = $1`, [user.id]);
       const prefs = rows[0]?.preferences || {};
       const oldToken = prefs.pushplus_token || '';
       if (token) prefs.pushplus_token = token;
-      else delete prefs.pushplus_token;
+      else if (body?.token === '') delete prefs.pushplus_token; // 显式空字符串=清除
+      if (typeof enabled === 'boolean') prefs.pushplus_enabled = enabled;
       if (token !== oldToken) delete prefs.pushplus_notified;
       await client.query(`UPDATE users SET preferences = $1 WHERE id = $2`, [JSON.stringify(prefs), user.id]);
-      return response.status(200).json({ ok: true, configured: !!token });
+      return response.status(200).json({ ok: true, configured: !!prefs.pushplus_token, enabled: prefs.pushplus_enabled !== false });
     }
 
     return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });

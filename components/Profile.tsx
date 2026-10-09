@@ -133,6 +133,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     // 推送提醒（pushplus）
     const [ppToken, setPpToken] = useState('');
     const [ppConfigured, setPpConfigured] = useState(false);
+    const [ppEnabled, setPpEnabled] = useState(true);
     const [ppMasked, setPpMasked] = useState<string | null>(null);
     const [ppLoading, setPpLoading] = useState(false);
 
@@ -142,6 +143,7 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
         fetch('/api/pushplus', { headers: { ...storageService.authHeaders() } })
             .then(r => r.json()).then(j => {
                 setPpConfigured(!!j.configured);
+                setPpEnabled(j.enabled !== false);
                 setPpMasked(j.masked || null);
             }).catch(() => {});
     }, [user]);
@@ -401,6 +403,26 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                 setPpConfigured(false);
                 setPpMasked(null);
                 onNotify('已关闭推送提醒', 'success');
+            }
+        } catch (e) {
+            onNotify('网络错误', 'error');
+        } finally {
+            setPpLoading(false);
+        }
+    };
+
+    const handleTogglePushplus = async () => {
+        const newEnabled = !ppEnabled;
+        setPpLoading(true);
+        try {
+            const res = await fetch('/api/pushplus', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...storageService.authHeaders() },
+                body: JSON.stringify({ enabled: newEnabled })
+            });
+            if (res.ok) {
+                setPpEnabled(newEnabled);
+                onNotify(newEnabled ? '推送提醒已开启' : '推送提醒已暂停', 'success');
             }
         } catch (e) {
             onNotify('网络错误', 'error');
@@ -706,9 +728,22 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                     </p>
                     {ppConfigured ? (
                         <div>
-                            <p className="text-sm text-slate-600 mb-4">
-                                当前 token：<span className="font-mono bg-slate-100 px-2 py-1 rounded">{ppMasked || '已配置'}</span>
-                                <span className="ml-2 text-xs text-emerald-600">● 推送已开启</span>
+                            <div className="flex items-center justify-between mb-4">
+                                <p className="text-sm text-slate-600">
+                                    当前 token：<span className="font-mono bg-slate-100 px-2 py-1 rounded">{ppMasked || '已配置'}</span>
+                                </p>
+                                {/* 推送开关 */}
+                                <button
+                                    onClick={handleTogglePushplus}
+                                    disabled={ppLoading}
+                                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${ppEnabled ? 'bg-emerald-500' : 'bg-slate-300'} disabled:opacity-50`}
+                                    title={ppEnabled ? '点击暂停推送' : '点击开启推送'}
+                                >
+                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${ppEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                            </div>
+                            <p className="text-xs mb-4 ${ppEnabled ? 'text-emerald-600' : 'text-slate-400'}">
+                                {ppEnabled ? '● 推送已开启，每天 8 点自动检查' : '○ 推送已暂停，不会收到提醒'}
                             </p>
                             <div className="flex flex-wrap gap-3">
                                 <input
