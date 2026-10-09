@@ -65,26 +65,20 @@ function daysUntil(dateStr: string): number | null {
 async function handleCron(client: any, response: any) {
   const results: any[] = [];
   const { rows: users } = await client.query(`
-    SELECT id, email, preferences FROM users
-    WHERE preferences->>'pushplus_token' IS NOT NULL
-      AND preferences->>'pushplus_token' != ''
-      AND (disabled IS NULL OR disabled = FALSE)
+    SELECT s.user_id AS id, u.email, s.token, s.enabled, s.notified
+    FROM pushplus_settings s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.token IS NOT NULL AND s.token != ''
+      AND s.enabled = TRUE
+      AND (u.disabled IS NULL OR u.disabled = FALSE)
   `);
   const today = todayStr();
   for (const user of users) {
-    let prefs: any = user.preferences || {};
-    // 防御：确保是对象不是字符串（避免双重编码导致 token 丢失）
-    if (typeof prefs === 'string') {
-      try { prefs = JSON.parse(prefs); } catch { prefs = {}; }
-    }
-    const token = prefs.pushplus_token;
-    if (!token) continue;
-    // 开关关闭则跳过
-    if (prefs.pushplus_enabled === false) {
-      results.push({ user: user.email, sent: 0, skipped: 'disabled' });
-      continue;
-    }
-    const notified: Record<string, string> = prefs.pushplus_notified || {};
+    const token = user.token;
+    let notified: Record<string, string> = {};
+    try {
+      notified = typeof user.notified === 'string' ? JSON.parse(user.notified) : (user.notified || {});
+    } catch { notified = {}; }
     const { rows: ledgers } = await client.query(`SELECT data FROM ledgers WHERE user_id = $1`, [user.id]);
     if (ledgers.length === 0) continue;
     const items = Array.isArray(ledgers[0].data) ? ledgers[0].data : [];
@@ -109,9 +103,8 @@ async function handleCron(client: any, response: any) {
       `<p>以下项目即将到期，请及时处理：</p><p>${lines.join('<br>')}</p><p style="color:#999;font-size:12px;">来自 Smart Ledger 到期提醒</p>`);
     if (ok) {
       for (const it of maturing) notified[it.id] = today;
-      // 用 jsonb_set 只更新 pushplus_notified，不动其他字段（避免覆盖 token）
       await client.query(
-        `UPDATE users SET preferences = jsonb_set(COALESCE(preferences, '{}'::jsonb), '{pushplus_notified}', $1::jsonb) WHERE id = $2`,
+        `UPDATE pushplus_settings SET notified = $1::jsonb, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
         [JSON.stringify(notified), user.id]
       );
     }
@@ -124,7 +117,16 @@ export default async function handler(request: any, response: any) {
   const client = getClient();
   try {
     await client.connect();
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS preferences JSONB;`);
+    // 独立表：避免 JSONB 各种坑
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pushplus_settings (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        token TEXT NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        notified JSONB DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
     // Cron 模式：?cron=1 + CRON_SECRET
     const url = new URL(request.url || '', 'http://localhost');
@@ -141,54 +143,41 @@ export default async function handler(request: any, response: any) {
     if (!user) return response.status(401).json({ error: 'UNAUTHORIZED' });
 
     if (request.method === 'GET') {
-      const { rows } = await client.query(`SELECT preferences FROM users WHERE id = $1`, [user.id]);
-      let prefs: any = rows[0]?.preferences || {};
-      if (typeof prefs === 'string') {
-        try { prefs = JSON.parse(prefs); } catch { prefs = {}; }
-      }
+      const { rows } = await client.query(`SELECT token, enabled FROM pushplus_settings WHERE user_id = $1`, [user.id]);
+      const row = rows[0];
       return response.status(200).json({
-        configured: !!prefs.pushplus_token,
-        enabled: prefs.pushplus_enabled !== false, // 默认开启
-        masked: prefs.pushplus_token ? prefs.pushplus_token.slice(0, 4) + '****' + prefs.pushplus_token.slice(-4) : null,
+        configured: !!row?.token,
+        enabled: row ? !!row.enabled : true,
+        masked: row?.token ? row.token.slice(0, 4) + '****' + row.token.slice(-4) : null,
       });
     }
 
     if (request.method === 'POST') {
       const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
       const token = (body?.token || '').trim();
-      const enabled = body?.enabled; // 可选：开关
+      const enabled = body?.enabled;
 
-      // 用 jsonb_set 做 surgical 更新，避免全量覆盖导致 token 丢失
       if (token) {
-        // 保存 token
-        await client.query(
-          `UPDATE users SET preferences = jsonb_set(COALESCE(preferences, '{}'::jsonb), '{pushplus_token}', $1::jsonb) WHERE id = $2`,
-          [JSON.stringify(token), user.id]
-        );
-        // token 变更时清除已发送标记
-        await client.query(
-          `UPDATE users SET preferences = preferences - 'pushplus_notified' WHERE id = $1`,
-          [user.id]
-        );
+        // 保存 token（upsert）
+        await client.query(`
+          INSERT INTO pushplus_settings (user_id, token, enabled)
+          VALUES ($1, $2, TRUE)
+          ON CONFLICT (user_id) DO UPDATE SET token = $2, notified = '{}'::jsonb, updated_at = CURRENT_TIMESTAMP
+        `, [user.id, token]);
       } else if (body?.token === '') {
-        // 显式空字符串=清除 token
-        await client.query(`UPDATE users SET preferences = preferences - 'pushplus_token' WHERE id = $1`, [user.id]);
-        await client.query(`UPDATE users SET preferences = preferences - 'pushplus_notified' WHERE id = $1`, [user.id]);
+        // 显式清空=删除整行
+        await client.query(`DELETE FROM pushplus_settings WHERE user_id = $1`, [user.id]);
       }
       if (typeof enabled === 'boolean') {
         await client.query(
-          `UPDATE users SET preferences = jsonb_set(COALESCE(preferences, '{}'::jsonb), '{pushplus_enabled}', $1::jsonb) WHERE id = $2`,
-          [JSON.stringify(enabled), user.id]
+          `UPDATE pushplus_settings SET enabled = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
+          [enabled, user.id]
         );
       }
 
-      // 返回最新状态
-      const { rows } = await client.query(`SELECT preferences FROM users WHERE id = $1`, [user.id]);
-      let prefs: any = rows[0]?.preferences || {};
-      if (typeof prefs === 'string') {
-        try { prefs = JSON.parse(prefs); } catch { prefs = {}; }
-      }
-      return response.status(200).json({ ok: true, configured: !!prefs.pushplus_token, enabled: prefs.pushplus_enabled !== false });
+      const { rows } = await client.query(`SELECT token, enabled FROM pushplus_settings WHERE user_id = $1`, [user.id]);
+      const row = rows[0];
+      return response.status(200).json({ ok: true, configured: !!row?.token, enabled: row ? !!row.enabled : true });
     }
 
     return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
