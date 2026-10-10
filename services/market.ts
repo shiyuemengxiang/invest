@@ -72,6 +72,32 @@ export const marketService = {
 
     async fetchClientSideQuotes(symbols: string[]): Promise<Record<string, MarketData>> {
         const result: Record<string, MarketData> = {};
+
+        // 优先走服务端 API（已加浏览器请求头，可绕过东财反爬）
+        try {
+            const token = localStorage.getItem('smart_ledger_token');
+            const res = await fetch(`${API_BASE}/quotes`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ symbols }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                for (const [sym, q] of Object.entries(data)) {
+                    const quote = q as any;
+                    if (quote && typeof quote.price === 'number') {
+                        result[sym] = { price: quote.price, change: quote.change, time: quote.time };
+                    }
+                }
+                // 服务端返回了有效数据，直接用
+                if (Object.keys(result).length > 0) return result;
+            }
+        } catch (e) {
+            console.warn('[MarketService] Server quotes API failed, falling back to allorigins', e);
+        }
         
         const promises = symbols.map(async (symbol) => {
             // A. CN Stocks (EastMoney): sh, sz, bj
