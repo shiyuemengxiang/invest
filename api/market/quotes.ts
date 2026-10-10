@@ -191,7 +191,12 @@ export default async function handler(request: any, response: any) {
                 else if (prefix === 'bj') market = '0'; 
                 
                 const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${code}&fields=f43,f170`;
-                const res = await fetch(url, { headers: { 'Referer': 'https://eastmoney.com/' } });
+                const res = await fetch(url, { headers: {
+                    'Referer': 'https://quote.eastmoney.com/',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                } });
                 const json = await res.json();
                 if (json && json.data && json.data.f43) {
                     return { price: json.data.f43 / 100, change: json.data.f170 ? json.data.f170 / 100 : 0, time: new Date().toISOString() };
@@ -204,7 +209,12 @@ export default async function handler(request: any, response: any) {
         if (/^\d{6}$/.test(symbol)) {
             try {
                 const url = `https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`;
-                const res = await fetch(url, { headers: { 'Referer': 'https://fund.eastmoney.com/' } });
+                const res = await fetch(url, { headers: {
+                    'Referer': 'https://fund.eastmoney.com/',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': '*/*',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                } });
                 const text = await res.text();
                 const match = text.match(/jsonpgz\((.*?)\)/);
                 if (match && match[1]) {
