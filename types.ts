@@ -28,6 +28,15 @@ export interface User {
     email: string;
     name?: string;
     preferences?: UserPreferences;
+    // 登录时服务端返回的账本基线，供客户端裁决同步方向；注册/无账本时为 null
+    ledgerMeta?: LedgerMeta | null;
+}
+
+// 云端账本基线
+export interface LedgerMeta {
+    count: number;
+    rev: number;
+    updatedAt: string | null;
 }
 
 export type ExchangeRates = Record<Currency, number>;
@@ -104,6 +113,9 @@ export interface Investment {
   realizedReturn?: number; // @deprecated: Use totalRealizedProfit
   rebate: number; 
   isRebateReceived: boolean;
+
+  // 演示数据标记：seed 数据只用于未登录时的展示，永不上传云端
+  isSeed?: boolean;
 }
 
 export interface InvestmentStats {

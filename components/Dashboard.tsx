@@ -612,7 +612,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
       </div>
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         
         {/* 1. Active Principal / Capital At Risk (New Card) */}
         <MetricCard 
@@ -709,7 +709,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
             </div>
             <div className="text-sm font-medium text-slate-500 mb-1">组合 XIRR</div>
             <div className="text-3xl font-bold text-slate-800 mb-4">
-                {portfolioXIRR === null ? <span className="text-slate-300">—</span> : formatPercent(portfolioXIRR)}
+                {portfolioXIRR === null ? <span className="text-slate-300">—</span> : formatPercent(portfolioXIRR * 100)}
             </div>
             <div className="text-xs text-slate-400 mt-auto">
                 {portfolioXIRR === null ? '现金流不足，暂无法计算' : '按全部持仓实际现金流折现'}

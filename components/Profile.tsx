@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Currency, ExchangeRates, ThemeOption, User } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Currency, ExchangeRates, ThemeOption, User, Investment } from '../types';
 import { THEMES } from '../utils';
 import { marketService } from '../services/market';
+import { storageService } from '../services/storage';
 import { ToastType } from './Toast';
 
 interface Props {
@@ -13,6 +14,20 @@ interface Props {
     onSaveProfile: (nickname: string, avatar: string) => void;
     onLogout: () => void;
     onNotify: (msg: string, type: ToastType) => void;
+    onImportData: (items: Investment[]) => void;
+}
+
+// 管理员邮箱（Vercel 环境变量 VITE_ADMIN_EMAIL），仅该邮箱登录时显示管理后台入口
+const ADMIN_EMAIL: string = (import.meta as any).env?.VITE_ADMIN_EMAIL || '';
+
+interface AdminUserRow {
+    id: string;
+    email: string;
+    disabled: boolean;
+    created_at: string | null;
+    ledger_count: number;
+    ledger_rev: number;
+    ledger_updated_at: string | null;
 }
 
 // ✨ 全新精选：AI 风格库定义 (用于替换 Dicebear 的选择器 UI)
@@ -96,7 +111,7 @@ const BG_COLORS = [
     'b6e3f4', 'c0aede', 'd1d4f9', 'ffd5dc', 'ffdfbf', 'fdcfaf', 'e6e6e6', 'd4e0ff', 'ffdfd3'
 ];
 
-const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSaveTheme, onSaveProfile, onLogout, onNotify }) => {
+const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSaveTheme, onSaveProfile, onLogout, onNotify, onImportData }) => {
     const [editRates, setEditRates] = useState<ExchangeRates>({...rates});
     const [rateMode, setRateMode] = useState<'auto' | 'manual'>(user?.preferences?.rateMode || 'manual');
     const [loadingRates, setLoadingRates] = useState(false);
@@ -105,6 +120,42 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     const [nickname, setNickname] = useState(user?.preferences?.nickname || '');
     const [avatar, setAvatar] = useState(user?.preferences?.avatar || '');
     const [showAvatarSelector, setShowAvatarSelector] = useState(false);
+
+    // 修改密码
+    const [oldPw, setOldPw] = useState('');
+    const [newPw, setNewPw] = useState('');
+    const [newPw2, setNewPw2] = useState('');
+    const [pwLoading, setPwLoading] = useState(false);
+
+    // 导入
+    const fileRef = useRef<HTMLInputElement>(null);
+
+    // 推送提醒（pushplus）
+    const [ppToken, setPpToken] = useState('');
+    const [ppConfigured, setPpConfigured] = useState(false);
+    const [ppEnabled, setPpEnabled] = useState(true);
+    const [ppMasked, setPpMasked] = useState<string | null>(null);
+    const [ppLoading, setPpLoading] = useState(false);
+
+    useEffect(() => {
+        // 加载 pushplus 配置状态（只在用户ID变化时请求，避免重复）
+        if (!user?.id) return;
+        let cancelled = false;
+        fetch('/api/pushplus', { headers: { ...storageService.authHeaders() } })
+            .then(r => r.json()).then(j => {
+                if (cancelled) return;
+                setPpConfigured(!!j.configured);
+                setPpEnabled(j.enabled !== false);
+                setPpMasked(j.masked || null);
+            }).catch(() => {});
+        return () => { cancelled = true; };
+    }, [user?.id]);
+
+    // 管理后台（token 鉴权：登录 session 邮箱须等于服务端 ADMIN_EMAIL）
+    const isAdmin = !!user && !!ADMIN_EMAIL && user.email === ADMIN_EMAIL;
+    const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
+    const [adminLoading, setAdminLoading] = useState(false);
+    const [tempPwShown, setTempPwShown] = useState<{ email: string; pw: string } | null>(null);
 
     useEffect(() => {
         if (rateMode === 'auto') {
@@ -188,6 +239,267 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
     const handleSaveUserProfile = () => {
         onSaveProfile(nickname, avatar);
         onNotify('个人信息已更新', 'success');
+    };
+
+    // ---- 数据管理：导出 / 导入 ----
+    const exportStamp = () => {
+        const d = new Date();
+        return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const downloadBlob = (blob: Blob, filename: string) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    // 导出用扁平化行：一行一条持仓
+    const flattenForExport = (items: Investment[]) => items.map(i => ({
+        '名称': i.name,
+        '分类': i.category,
+        '类型': i.type,
+        '币种': i.currency,
+        '当前本金': i.currentPrincipal,
+        '当前份额': i.currentQuantity ?? '',
+        '累计投入': i.totalCost,
+        '已实现收益': i.totalRealizedProfit,
+        '存入日期': i.depositDate,
+        '到期日期': i.maturityDate,
+        '取出日期': i.withdrawalDate || '',
+        '备注': i.notes || '',
+        '记录ID': i.id,
+    }));
+
+    const handleExport = () => {
+        try {
+            const raw = localStorage.getItem('smart_ledger_data') || '[]';
+            downloadBlob(new Blob([raw], { type: 'application/json' }), `smart-ledger-backup-${exportStamp()}.json`);
+            onNotify('账本已导出为 JSON 文件', 'success');
+        } catch (e) {
+            onNotify('导出失败', 'error');
+        }
+    };
+
+    const handleExportExcel = async () => {
+        try {
+            const items = storageService.getLocalData() || [];
+            if (items.length === 0) { onNotify('暂无数据可导出', 'info'); return; }
+            const XLSX = await import('xlsx'); // 动态导入，不拖慢首屏
+            const ws = XLSX.utils.json_to_sheet(flattenForExport(items));
+            ws['!cols'] = [
+                { wch: 24 }, { wch: 10 }, { wch: 12 }, { wch: 8 }, { wch: 14 },
+                { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 },
+                { wch: 12 }, { wch: 30 }, { wch: 38 },
+            ];
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, '账本');
+            XLSX.writeFile(wb, `smart-ledger-${exportStamp()}.xlsx`);
+            onNotify('已导出 Excel 文件', 'success');
+        } catch (e) {
+            onNotify('导出失败', 'error');
+        }
+    };
+
+    const handleExportCsv = () => {
+        try {
+            const items = storageService.getLocalData() || [];
+            if (items.length === 0) { onNotify('暂无数据可导出', 'info'); return; }
+            const rows = flattenForExport(items);
+            const headers = Object.keys(rows[0]);
+            const esc = (v: any) => {
+                const s = String(v ?? '');
+                return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+            };
+            // BOM 头：让 Excel 正确显示中文
+            const csv = '﻿' + [headers.join(','), ...rows.map(r => headers.map(h => esc((r as any)[h])).join(','))].join('\n');
+            downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `smart-ledger-${exportStamp()}.csv`);
+            onNotify('已导出 CSV 文件', 'success');
+        } catch (e) {
+            onNotify('导出失败', 'error');
+        }
+    };
+
+    const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const f = e.target.files?.[0];
+        e.target.value = '';
+        if (!f) return;
+        try {
+            const text = await f.text();
+            const parsed = JSON.parse(text);
+            const arr = Array.isArray(parsed) ? parsed : parsed.data;
+            if (!Array.isArray(arr)) throw new Error('格式错误');
+            if (!window.confirm(`将导入 ${arr.length} 条记录，当前本地数据将被替换，确定继续？`)) return;
+            onImportData(arr);
+            onNotify(`已导入 ${arr.length} 条记录`, 'success');
+        } catch (err) {
+            onNotify('导入失败：文件不是有效的账本 JSON', 'error');
+        }
+    };
+
+    // ---- 修改密码 ----
+    const handleChangePassword = async () => {
+        if (!user) return;
+        if (!oldPw || !newPw || !newPw2) { onNotify('请填写完整', 'error'); return; }
+        if (newPw !== newPw2) { onNotify('两次输入的新密码不一致', 'error'); return; }
+        if (newPw.length < 6) { onNotify('新密码至少 6 位', 'error'); return; }
+        setPwLoading(true);
+        try {
+            const res = await fetch('/api/auth/change-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...storageService.authHeaders() },
+                body: JSON.stringify({ oldPassword: oldPw, newPassword: newPw })
+            });
+            const json = await res.json().catch(() => ({}));
+            if (res.ok) {
+                setOldPw(''); setNewPw(''); setNewPw2('');
+                onNotify('密码修改成功', 'success');
+            } else {
+                onNotify(json.message || json.error || '修改失败', 'error');
+            }
+        } catch (e) {
+            onNotify('网络错误，请稍后重试', 'error');
+        } finally {
+            setPwLoading(false);
+        }
+    };
+
+    // ---- 推送提醒（pushplus）----
+    const handleSavePushplus = async () => {
+        if (!ppToken.trim()) { onNotify('请先输入 pushplus token', 'error'); return; }
+        setPpLoading(true);
+        try {
+            const res = await fetch('/api/pushplus', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...storageService.authHeaders() },
+                body: JSON.stringify({ token: ppToken.trim() })
+            });
+            const json = await res.json().catch(() => ({}));
+            if (res.ok) {
+                setPpToken('');
+                setPpConfigured(true);
+                onNotify('推送 token 已保存，每天 8 点自动检查到期提醒', 'success');
+                // 刷新脱敏显示
+                fetch('/api/pushplus', { headers: { ...storageService.authHeaders() } })
+                    .then(r => r.json()).then(j => setPpMasked(j.masked || null)).catch(() => {});
+            } else {
+                onNotify(json.error || '保存失败', 'error');
+            }
+        } catch (e) {
+            onNotify('网络错误，请稍后重试', 'error');
+        } finally {
+            setPpLoading(false);
+        }
+    };
+
+    const handleClearPushplus = async () => {
+        setPpLoading(true);
+        try {
+            const res = await fetch('/api/pushplus', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...storageService.authHeaders() },
+                body: JSON.stringify({ token: '' })
+            });
+            if (res.ok) {
+                setPpConfigured(false);
+                setPpMasked(null);
+                onNotify('已关闭推送提醒', 'success');
+            }
+        } catch (e) {
+            onNotify('网络错误', 'error');
+        } finally {
+            setPpLoading(false);
+        }
+    };
+
+    const handleTogglePushplus = async () => {
+        const newEnabled = !ppEnabled;
+        setPpLoading(true);
+        try {
+            const res = await fetch('/api/pushplus', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...storageService.authHeaders() },
+                body: JSON.stringify({ enabled: newEnabled })
+            });
+            if (res.ok) {
+                setPpEnabled(newEnabled);
+                onNotify(newEnabled ? '推送提醒已开启' : '推送提醒已暂停', 'success');
+            }
+        } catch (e) {
+            onNotify('网络错误', 'error');
+        } finally {
+            setPpLoading(false);
+        }
+    };
+
+    // ---- 管理后台 ----
+    const adminHeaders = () => ({
+        'Content-Type': 'application/json',
+        ...storageService.authHeaders()
+    });
+
+    const handleAdminLoad = async () => {
+        setAdminLoading(true);
+        setTempPwShown(null);
+        try {
+            const res = await fetch('/api/admin/users', { headers: adminHeaders() });
+            const json = await res.json().catch(() => ({}));
+            if (res.ok && Array.isArray(json)) {
+                setAdminUsers(json);
+            } else {
+                onNotify(json.message || json.error || '加载失败', 'error');
+            }
+        } catch (e) {
+            onNotify('网络错误', 'error');
+        } finally {
+            setAdminLoading(false);
+        }
+    };
+
+    const handleAdminAction = async (action: 'disable' | 'enable' | 'reset-password', row: AdminUserRow) => {
+        const label = action === 'disable' ? `禁用 ${row.email}？` : action === 'enable' ? `启用 ${row.email}？` : `为 ${row.email} 重置密码？将生成一次性临时密码。`;
+        if (!window.confirm(label)) return;
+        try {
+            const res = await fetch('/api/admin/users', {
+                method: 'POST',
+                headers: adminHeaders(),
+                body: JSON.stringify({ action, userId: row.id })
+            });
+            const json = await res.json().catch(() => ({}));
+            if (res.ok) {
+                if (action === 'reset-password' && json.tempPassword) {
+                    setTempPwShown({ email: row.email, pw: json.tempPassword });
+                } else {
+                    onNotify('操作成功', 'success');
+                }
+                handleAdminLoad();
+            } else {
+                onNotify(json.message || json.error || '操作失败', 'error');
+            }
+        } catch (e) {
+            onNotify('网络错误', 'error');
+        }
+    };
+
+    const handleAdminDelete = async (row: AdminUserRow) => {
+        if (!window.confirm(`彻底删除 ${row.email} 及其全部账本数据？此操作不可恢复！`)) return;
+        if (!window.confirm('再次确认：真的要删除吗？')) return;
+        try {
+            const res = await fetch(`/api/admin/users?userId=${encodeURIComponent(row.id)}`, {
+                method: 'DELETE',
+                headers: adminHeaders()
+            });
+            if (res.ok) {
+                onNotify('已删除', 'info');
+                handleAdminLoad();
+            } else {
+                onNotify('删除失败', 'error');
+            }
+        } catch (e) {
+            onNotify('网络错误', 'error');
+        }
     };
 
     return (
@@ -374,6 +686,212 @@ const Profile: React.FC<Props> = ({ user, rates, currentTheme, onSaveRates, onSa
                     </div>
                 )}
             </div>
+
+            {/* 数据管理：导出 / 导入 */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 mb-2">数据管理</h3>
+                <p className="text-xs text-slate-400 mb-6">定期导出是最便宜的保险。导入会替换当前本地数据并同步到云端。</p>
+                <div className="flex flex-wrap gap-3">
+                    <button
+                        onClick={handleExportExcel}
+                        className="px-5 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition active:scale-95"
+                    >
+                        导出 Excel
+                    </button>
+                    <button
+                        onClick={handleExportCsv}
+                        className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-50 transition active:scale-95"
+                    >
+                        导出 CSV
+                    </button>
+                    <button
+                        onClick={handleExport}
+                        className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-50 transition active:scale-95"
+                    >
+                        导出 JSON
+                    </button>
+                    <button
+                        onClick={() => fileRef.current?.click()}
+                        className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-50 transition active:scale-95"
+                    >
+                        导入 JSON
+                    </button>
+                    <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportFile} />
+                </div>
+                <p className="text-xs text-slate-400 mt-4">Excel/CSV 为账本明细表（一行一条持仓）；JSON 为完整备份（含交易流水），导入请用 JSON。</p>
+            </div>
+
+            {/* 推送提醒（pushplus） */}
+            {user && (
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-bold text-slate-800 mb-2">到期推送提醒</h3>
+                    <p className="text-xs text-slate-400 mb-6">
+                        配置后，每天早上 8 点自动检查 7 天内到期的项目，通过微信推送提醒你（网站没打开也能收到）。
+                        去 <a href="https://www.pushplus.plus" target="_blank" rel="noreferrer" className="text-blue-500 underline">pushplus.plus</a> 免费获取 token。
+                    </p>
+                    {ppConfigured ? (
+                        <div>
+                            <div className="flex items-center justify-between mb-4">
+                                <p className="text-sm text-slate-600">
+                                    当前 token：<span className="font-mono bg-slate-100 px-2 py-1 rounded">{ppMasked || '已配置'}</span>
+                                </p>
+                                {/* 推送开关 */}
+                                <button
+                                    onClick={handleTogglePushplus}
+                                    disabled={ppLoading}
+                                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${ppEnabled ? 'bg-emerald-500' : 'bg-slate-300'} disabled:opacity-50`}
+                                    title={ppEnabled ? '点击暂停推送' : '点击开启推送'}
+                                >
+                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${ppEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                            </div>
+                            <p className="text-xs mb-4 ${ppEnabled ? 'text-emerald-600' : 'text-slate-400'}">
+                                {ppEnabled ? '● 推送已开启，每天 8 点自动检查' : '○ 推送已暂停，不会收到提醒'}
+                            </p>
+                            <div className="flex flex-wrap gap-3">
+                                <input
+                                    type="text"
+                                    value={ppToken}
+                                    onChange={e => setPpToken(e.target.value)}
+                                    placeholder="输入新的 token 可更换"
+                                    className="flex-1 min-w-[200px] p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-slate-300 font-mono"
+                                />
+                                <button
+                                    onClick={handleSavePushplus}
+                                    disabled={ppLoading}
+                                    className="px-5 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition active:scale-95 disabled:opacity-50"
+                                >
+                                    {ppLoading ? '保存中…' : '更换'}
+                                </button>
+                                <button
+                                    onClick={handleClearPushplus}
+                                    disabled={ppLoading}
+                                    className="px-5 py-2.5 bg-white border border-red-200 text-red-600 text-sm font-bold rounded-xl hover:bg-red-50 transition active:scale-95 disabled:opacity-50"
+                                >
+                                    关闭推送
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap gap-3">
+                            <input
+                                type="text"
+                                value={ppToken}
+                                onChange={e => setPpToken(e.target.value)}
+                                placeholder="粘贴 pushplus token"
+                                className="flex-1 min-w-[200px] p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-slate-300 font-mono"
+                            />
+                            <button
+                                onClick={handleSavePushplus}
+                                disabled={ppLoading}
+                                className="px-5 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition active:scale-95 disabled:opacity-50"
+                            >
+                                {ppLoading ? '保存中…' : '开启推送'}
+                            </button>
+                        </div>
+                    )}
+                    <p className="text-xs text-slate-400 mt-4">同一项目同一天只推送一次，避免打扰。token 仅用于给你发到期提醒，不会用于其他用途。</p>
+                </div>
+            )}
+
+            {/* 修改密码 */}
+            {user && (
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-bold text-slate-800 mb-6">修改密码</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <input
+                            type="password" value={oldPw} onChange={e => setOldPw(e.target.value)}
+                            placeholder="原密码"
+                            className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-300"
+                        />
+                        <input
+                            type="password" value={newPw} onChange={e => setNewPw(e.target.value)}
+                            placeholder="新密码（至少6位）"
+                            className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-300"
+                        />
+                        <input
+                            type="password" value={newPw2} onChange={e => setNewPw2(e.target.value)}
+                            placeholder="确认新密码"
+                            className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-300"
+                        />
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                        <button
+                            onClick={handleChangePassword} disabled={pwLoading}
+                            className={`px-5 py-2 text-white text-sm font-bold rounded-xl shadow-md transition active:scale-95 disabled:opacity-60 ${THEMES[currentTheme].button}`}
+                        >
+                            {pwLoading ? '提交中...' : '确认修改'}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* 管理后台（仅管理员邮箱可见） */}
+            {isAdmin && (
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-red-100">
+                    <h3 className="text-lg font-bold text-slate-800 mb-2">管理后台 <span className="text-xs font-normal text-red-400">仅管理员可见</span></h3>
+                    <p className="text-xs text-slate-400 mb-6">使用登录身份鉴权（服务端校验邮箱），无需额外密钥。</p>
+                    <div className="flex gap-3 mb-6">
+                        <button
+                            onClick={handleAdminLoad} disabled={adminLoading}
+                            className="px-5 py-2 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition active:scale-95 disabled:opacity-60"
+                        >
+                            {adminLoading ? '加载中...' : (adminUsers.length > 0 ? '刷新用户' : '加载用户')}
+                        </button>
+                    </div>
+                    {tempPwShown && (
+                        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                            <p className="text-sm font-bold text-amber-800">已为 {tempPwShown.email} 生成临时密码（仅显示一次）：</p>
+                            <p className="font-mono text-lg font-bold text-slate-900 mt-1 select-all">{tempPwShown.pw}</p>
+                            <p className="text-xs text-amber-600 mt-1">请立即告知用户并提醒其登录后修改。</p>
+                        </div>
+                    )}
+                    {adminUsers.length > 0 && (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
+                                        <th className="py-2 pr-4">邮箱</th>
+                                        <th className="py-2 pr-4">账本</th>
+                                        <th className="py-2 pr-4">状态</th>
+                                        <th className="py-2">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {adminUsers.map(u => (
+                                        <tr key={u.id} className="border-b border-slate-50">
+                                            <td className="py-3 pr-4 font-mono text-xs break-all">{u.email}</td>
+                                            <td className="py-3 pr-4 text-slate-500 whitespace-nowrap">{u.ledger_count} 条</td>
+                                            <td className="py-3 pr-4 whitespace-nowrap">
+                                                {u.disabled
+                                                    ? <span className="text-xs font-bold text-red-500">已禁用</span>
+                                                    : <span className="text-xs font-bold text-emerald-500">正常</span>}
+                                            </td>
+                                            <td className="py-3 whitespace-nowrap space-x-2">
+                                                {u.id === user?.id ? (
+                                                    <span className="text-xs text-slate-300">这是你自己</span>
+                                                ) : (
+                                                    <>
+                                                        <button onClick={() => handleAdminAction(u.disabled ? 'enable' : 'disable', u)} className="text-xs text-slate-500 hover:text-slate-800 font-medium">
+                                                            {u.disabled ? '启用' : '禁用'}
+                                                        </button>
+                                                        <button onClick={() => handleAdminAction('reset-password', u)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium">
+                                                            重置密码
+                                                        </button>
+                                                        <button onClick={() => handleAdminDelete(u)} className="text-xs text-red-400 hover:text-red-600 font-medium">
+                                                            删除
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 };

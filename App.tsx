@@ -7,16 +7,23 @@ import CalendarView from './components/CalendarView';
 import Auth from './components/Auth';
 import Profile from './components/Profile';
 import Toast, { ToastType } from './components/Toast';
+import ConfirmModal from './components/ConfirmModal';
+import ResetPassword from './components/ResetPassword';
 import { storageService } from './services/storage';
 import { marketService } from './services/market';
 import { THEMES, migrateInvestmentData } from './utils';
 
-// 🔥 1. 确保与 storage.ts 中的 DEFAULT_USER_ID 一致
-const DEFAULT_USER_ID = 'default_owner_v1';
-
 const App: React.FC = () => {
   const [items, setItems] = useState<Investment[]>([]);
   const [view, setView] = useState<ViewState>('dashboard');
+  // 邮件重置密码 token（URL ?reset_token=）
+  const [resetToken, setResetToken] = useState<string | null>(() => {
+      try {
+          return new URLSearchParams(window.location.search).get('reset_token');
+      } catch {
+          return null;
+      }
+  });
   const [editingItem, setEditingItem] = useState<Investment | null>(null);
   
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -26,6 +33,27 @@ const App: React.FC = () => {
   const [theme, setTheme] = useState<ThemeOption>('slate');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
+
+  // 云端骤降拦截后的二次确认状态
+  const [cliffConflict, setCliffConflict] = useState<{
+      stored: number; incoming: number; pendingItems: Investment[];
+  } | null>(null);
+
+  // 同步状态指示
+  const [syncInfo, setSyncInfo] = useState<{ at: number; ok: boolean } | null>(null);
+  const refreshSyncInfo = () => setSyncInfo(storageService.getLastSync());
+  const formatSyncTime = (at: number) => {
+      const d = new Date(at);
+      const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      return d.toDateString() === new Date().toDateString() ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+  };
+  const syncText = !user
+      ? 'Local Mode'
+      : !syncInfo
+          ? 'Cloud Sync Active'
+          : syncInfo.ok
+              ? `已同步 ${formatSyncTime(syncInfo.at)}`
+              : '同步失败';
 
   // Sidebar Collapse State
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -46,61 +74,56 @@ const App: React.FC = () => {
   const migrateAndSetItems = (rawItems: Investment[]) => {
       const migrated = rawItems.map(migrateInvestmentData);
       setItems(migrated);
-      return migrated;
   };
 
-  // 🔥 2. 核心修复：串行化初始化逻辑 (防止旧数据覆盖)
   useEffect(() => {
-    const initApp = async () => {
-        const currentUser = storageService.getLocalUser();
-        const currentTheme = storageService.getTheme();
-        const currentRates = storageService.getRates();
-        const localData = storageService.getLocalData();
-        
-        setUser(currentUser);
-        setTheme(currentTheme);
-        setRates(currentRates);
+    const currentUser = storageService.getLocalUser();
+    const currentTheme = storageService.getTheme();
+    const currentRates = storageService.getRates();
+    const localData = storageService.getLocalData();
+    
+    setUser(currentUser);
+    setTheme(currentTheme);
+    setRates(currentRates);
 
-        let currentDisplayItems: Investment[] = [];
+    let loadedItems: Investment[] = [];
+    if (localData) {
+        loadedItems = localData;
+    } else if (!currentUser) {
+        const seed: Investment[] = [
+            { id: '1', isSeed: true, name: '新手专享理财', category: 'Fixed', type: 'Fixed', currency: 'CNY', depositDate: '2023-10-01', maturityDate: '2023-11-01', withdrawalDate: '2023-11-02', principal: 50000, expectedRate: 3.5, realizedReturn: 145, rebate: 100, isRebateReceived: true, notes: '新人福利', transactions: [], currentPrincipal: 50000, totalCost: 50000, totalRealizedProfit: 145 },
+            { id: '2', isSeed: true, name: '稳健季季红', category: 'Deposit', type: 'Fixed', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期', transactions: [], currentPrincipal: 100000, totalCost: 100000, totalRealizedProfit: 0 },
+            { id: '3', isSeed: true, name: '科技ETF基金', category: 'Fund', type: 'Floating', currency: 'CNY', depositDate: '2024-03-01', maturityDate: '', withdrawalDate: null, principal: 20000, expectedRate: undefined, currentReturn: 850, rebate: 0, isRebateReceived: false, notes: '长期持有', transactions: [], currentPrincipal: 20000, totalCost: 20000, totalRealizedProfit: 0 },
+        ];
+        loadedItems = seed;
+    }
+    
+    loadedItems.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
+    migrateAndSetItems(loadedItems);
 
-        // 2.1 先加载本地数据 (为了首屏速度)
-        if (localData) {
-            currentDisplayItems = migrateAndSetItems(localData);
-        } else if (!currentUser) {
-            // 只有未登录且无本地数据时，才加载 Seed
-            const seed: Investment[] = [
-                { id: '1', name: '新手专享理财', category: 'Fixed', type: 'Fixed', currency: 'CNY', depositDate: '2023-10-01', maturityDate: '2023-11-01', withdrawalDate: '2023-11-02', principal: 50000, expectedRate: 3.5, realizedReturn: 145, rebate: 100, isRebateReceived: true, notes: '新人福利', transactions: [], currentPrincipal: 50000, totalCost: 50000, totalRealizedProfit: 145 },
-                { id: '2', name: '稳健季季红', category: 'Deposit', type: 'Fixed', currency: 'CNY', depositDate: '2024-01-15', maturityDate: '2024-04-15', withdrawalDate: null, principal: 100000, expectedRate: 3.2, rebate: 200, isRebateReceived: false, notes: '银行定期', transactions: [], currentPrincipal: 100000, totalCost: 100000, totalRealizedProfit: 0 },
-                { id: '3', name: '科技ETF基金', category: 'Fund', type: 'Floating', currency: 'CNY', depositDate: '2024-03-01', maturityDate: '', withdrawalDate: null, principal: 20000, expectedRate: undefined, currentReturn: 850, rebate: 0, isRebateReceived: false, notes: '长期持有', transactions: [], currentPrincipal: 20000, totalCost: 20000, totalRealizedProfit: 0 },
-            ];
-            currentDisplayItems = migrateAndSetItems(seed);
-        }
-        
-        if (currentDisplayItems.length > 0) {
-            currentDisplayItems.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
-            migrateAndSetItems(currentDisplayItems);
-        }
-
-        // 2.2 强制等待云端同步！这是防止覆盖的关键！
-        // 如果已登录，必须等 syncDown 完成，拿到最新数据后，再做后续操作
-        // 如果未登录，尝试用默认 ID 同步 (单人模式兼容)
-        const targetUserId = currentUser ? currentUser.id : DEFAULT_USER_ID;
-        
-        try {
-            // await 是关键，必须等拿到最新数据
-            const cloudData = await storageService.syncDown(targetUserId);
-            
+    if (currentUser) {
+        // 同步最新偏好设置（昵称/头像多端一致）
+        fetch('/api/market/preferences', { headers: { ...storageService.authHeaders() } })
+            .then(r => r.ok ? r.json() : null)
+            .then(j => {
+                if (j?.preferences) {
+                    const updated = { ...currentUser, preferences: { ...currentUser.preferences, ...j.preferences } };
+                    storageService.saveLocalUser(updated);
+                    setUser(updated);
+                }
+            }).catch(() => {});
+        storageService.syncDown(currentUser.id).then(cloudData => {
+            // 空云端不覆盖本地（登录/初始化时由 login() 的方向裁决负责）
             if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
-                console.log("☁️ 初始化：已同步云端最新数据，覆盖本地旧缓存");
-                // 再次更新状态，确保使用的是云端数据作为基准
-                currentDisplayItems = migrateAndSetItems(cloudData);
+                 migrateAndSetItems(cloudData);
             }
-        } catch (e) {
-            console.warn("云端同步失败，使用本地数据继续", e);
-        }
+            refreshSyncInfo();
+        }).catch(e => {
+            isAccountGone(e);
+            refreshSyncInfo();
+        });
 
-        // 3. 更新汇率
-        if (currentUser?.preferences?.rateMode === 'auto') {
+        if (currentUser.preferences?.rateMode === 'auto') {
              marketService.getRates().then(newRates => {
                  if (newRates) {
                      setRates(newRates);
@@ -108,25 +131,56 @@ const App: React.FC = () => {
                  }
              });
         }
+    }
+    
+    setTimeout(() => {
+        const hasAutoQuote = loadedItems.some(i => i.isAutoQuote && !i.withdrawalDate);
+        if (hasAutoQuote) {
+            handleRefreshMarketData(true); 
+        }
+    }, 1000);
 
-        // 4. 安全的行情刷新：使用刚刚确认的 currentDisplayItems
-        setTimeout(() => {
-            const hasAutoQuote = currentDisplayItems.some(i => i.isAutoQuote && !i.withdrawalDate);
-            if (hasAutoQuote) {
-                console.log("📈 启动自动行情刷新...");
-                handleRefreshMarketData(true, currentDisplayItems); // 传入最新数据
-            }
-        }, 1000);
-    };
-
-    initApp();
-  }, []); // 仅挂载时执行一次
+  }, []);
   
-  // 移除原来的 useEffect([items.length])，因为它会导致循环保存和竞态条件
+  useEffect(() => {
+      if (items.length > 0) {
+          const shouldRefresh = items.some(i => i.isAutoQuote && !i.withdrawalDate && (!i.lastUpdate || (new Date().getTime() - new Date(i.lastUpdate).getTime() > 3600000))); 
+          if (shouldRefresh) {
+              handleRefreshMarketData(true); 
+          }
+      }
+  }, [items.length]); 
 
-  const saveItems = (newItems: Investment[]) => {
+  const saveItems = async (newItems: Investment[]) => {
       setItems(newItems);
-      storageService.saveData(user, newItems);
+      try {
+          await storageService.saveData(user, newItems);
+      } catch (e: any) {          if (isAccountGone(e)) {
+              // 已强制登出
+          } else if (e?.name === 'SyncCliffError') {
+              // 云端数据更多：拦截本次上传，请用户二次确认是否强制覆盖
+              setCliffConflict({ stored: e.stored, incoming: e.incoming, pendingItems: newItems });
+          } else if (e?.name === 'SyncConflictError') {
+              showToast('云端已有其他端更新，为防覆盖请刷新页面后再试', 'error');
+          }
+      } finally {
+          refreshSyncInfo();
+      }
+  };
+
+  const handleConfirmCliffOverwrite = async () => {
+      if (!cliffConflict) return;
+      try {
+          await storageService.saveData(user, cliffConflict.pendingItems, { forceClear: true });
+          showToast('已按确认覆盖云端数据', 'info');
+      } catch (e: any) {
+          if (!isAccountGone(e)) {
+              showToast('覆盖失败：' + (e?.message || '未知错误'), 'error');
+          }
+      } finally {
+          refreshSyncInfo();
+          setCliffConflict(null);
+      }
   };
 
   const handleSaveItem = (item: Investment) => {
@@ -165,72 +219,44 @@ const App: React.FC = () => {
       saveItems(updatedList);
   };
   
-  // 🔥 3. 核心修复：支持 itemsOverride 参数，打破闭包 + 防覆盖
-  const handleRefreshMarketData = async (silent = false, itemsOverride?: Investment[]) => {
-      // 1. 如果是手动触发(没有override)，先尝试拉取云端最新数据，防止本地数据过时
-      let targetItems = itemsOverride || items;
-      
-      if (!itemsOverride) {
-          const targetUserId = user ? user.id : DEFAULT_USER_ID;
-          try {
-              // console.log("🔄 行情更新前置检查：正在拉取云端数据...");
-              const cloudData = await storageService.syncDown(targetUserId);
-              if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
-                  targetItems = migrateAndSetItems(cloudData);
-                  // console.log("✅ 已基于云端最新数据进行更新");
-              }
-          } catch (e) {
-              console.warn("前置同步失败，降级使用本地数据");
-          }
-      }
-
-      const itemsToUpdate = targetItems.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
+  const handleRefreshMarketData = async (silent = false) => {
+      const itemsToUpdate = items.filter(i => i.isAutoQuote && i.symbol && !i.withdrawalDate);
       if (itemsToUpdate.length === 0) {
           return;
       }
       const symbols = itemsToUpdate.map(i => i.symbol as string);
       
-      try {
-          const quotes = await marketService.getQuotes(symbols);
-          
-          let updatedCount = 0;
-          if (quotes) {
-              const updatedList = targetItems.map(item => {
-                  if (item.isAutoQuote && item.symbol && quotes[item.symbol] && item.quantity) {
-                      const marketData = quotes[item.symbol];
-                      const newPrice = marketData.price;
-                      const qty = item.currentQuantity || item.quantity || 0;
-                      const currentVal = newPrice * qty;
-                      const newReturn = currentVal - item.currentPrincipal; 
-                      updatedCount++;
-                      
-                      return { 
-                          ...item, 
-                          currentReturn: newReturn,
-                          estGrowth: marketData.change, 
-                          lastUpdate: new Date().toISOString()
-                      };
-                  }
-                  return item;
-              });
-              
-              // 只有当数据确实更新时，才执行保存
-              if (updatedCount > 0) {
-                  // console.log(`📈 行情更新完成，保存 ${updatedCount} 条数据`);
-                  saveItems(updatedList);
+      const quotes = await marketService.getQuotes(symbols);
+      
+      let updatedCount = 0;
+      if (quotes) {
+          const updatedList = items.map(item => {
+              if (item.isAutoQuote && item.symbol && quotes[item.symbol] && item.quantity) {
+                  const marketData = quotes[item.symbol];
+                  const newPrice = marketData.price;
+                  const qty = item.currentQuantity || item.quantity || 0;
+                  const currentVal = newPrice * qty;
+                  const newReturn = currentVal - item.currentPrincipal; 
+                  updatedCount++;
+                  
+                  return { 
+                      ...item, 
+                      currentReturn: newReturn,
+                      estGrowth: marketData.change, 
+                      lastUpdate: new Date().toISOString()
+                  };
               }
-          }
-          
-          if (user?.preferences?.rateMode === 'auto') {
-               const newRates = await marketService.getRates();
-               if (newRates) handleRatesChange(newRates, 'auto');
-          }
-          
-          if (!silent && updatedCount > 0) showToast(`行情更新成功！已更新 ${updatedCount} 个资产`, 'success');
-      } catch (error) {
-          console.error("行情刷新失败:", error);
-          if (!silent) showToast("行情刷新失败，请检查网络", "error");
+              return item;
+          });
+          saveItems(updatedList);
       }
+      
+      if (user?.preferences?.rateMode === 'auto') {
+           const newRates = await marketService.getRates();
+           if (newRates) handleRatesChange(newRates, 'auto');
+      }
+      
+      if (!silent && updatedCount > 0) showToast(`行情更新成功！已更新 ${updatedCount} 个资产`, 'success');
   };
 
   const handleLogin = (loggedInUser: User) => {
@@ -240,16 +266,10 @@ const App: React.FC = () => {
           if (loggedInUser.preferences.rates) setRates(loggedInUser.preferences.rates);
       }
       
-      // 登录后立刻拉取云端数据，并刷新界面
-      storageService.syncDown(loggedInUser.id).then(cloudData => {
-          if (cloudData && Array.isArray(cloudData)) {
-              migrateAndSetItems(cloudData);
-          } else {
-              const freshData = storageService.getLocalData();
-              if (freshData) migrateAndSetItems(freshData);
-          }
-      });
+      const freshData = storageService.getLocalData();
+      if (freshData) migrateAndSetItems(freshData);
 
+      refreshSyncInfo();
       setView('dashboard');
       showToast('欢迎回来！数据已同步', 'success');
   };
@@ -257,8 +277,36 @@ const App: React.FC = () => {
   const handleLogout = () => {
       storageService.logout();
       setUser(null);
+      setSyncInfo(null);
       setView('auth');
       showToast('已安全退出', 'info');
+  };
+
+  // 账号被删除/禁用/登录过期：服务端拒绝请求，各端强制登出（防僵尸会话）
+  // 本地数据保留，重新登录后可通过正常流程恢复上传
+  const handleForceLogout = (reason: 'deleted' | 'disabled' | 'expired') => {
+      storageService.logout();
+      setUser(null);
+      setSyncInfo(null);
+      setView('auth');
+      showToast(
+          reason === 'deleted' ? '账号已被删除，请联系管理员'
+          : reason === 'disabled' ? '账号已被禁用，请联系管理员'
+          : '登录已过期，请重新登录',
+          'error'
+      );
+  };
+
+  const isAccountGone = (e: any) => {
+      if (e?.name === 'AccountGoneError') {
+          handleForceLogout(e.reason);
+          return true;
+      }
+      if (e?.name === 'SessionExpiredError') {
+          handleForceLogout('expired');
+          return true;
+      }
+      return false;
   };
 
   const handleThemeChange = (newTheme: ThemeOption) => {
@@ -288,18 +336,7 @@ const App: React.FC = () => {
       }
   };
 
-  // 🔥 4. 核心修复：切换页面时，自动触发云端同步，防止看到旧数据
-  const handleNav = async (targetView: ViewState) => {
-      if (targetView !== view) {
-          const targetUserId = user ? user.id : DEFAULT_USER_ID;
-          // 静默拉取最新数据，防止页面切换时看到旧缓存
-          storageService.syncDown(targetUserId).then(cloudData => {
-              if (cloudData && Array.isArray(cloudData)) {
-                  migrateAndSetItems(cloudData);
-              }
-          });
-      }
-
+  const handleNav = (targetView: ViewState) => {
       if (targetView === 'list' && view !== 'list') {
           setTimeout(() => handleRefreshMarketData(true), 500); 
       }
@@ -331,6 +368,23 @@ const App: React.FC = () => {
         <>
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
             <Auth onLogin={handleLogin} onCancel={() => setView('dashboard')} currentItems={items} />
+        </>
+      );
+  }
+
+  // 邮件重置密码落地：/?reset_token=xxx
+  if (resetToken) {
+      return (
+        <>
+            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+            <ResetPassword
+                token={resetToken}
+                onDone={() => {
+                    setResetToken(null);
+                    try { window.history.replaceState({}, '', window.location.pathname); } catch {}
+                    setView('auth');
+                }}
+            />
         </>
       );
   }
@@ -452,6 +506,11 @@ const App: React.FC = () => {
                               {user ? '点击退出' : '登录同步'}
                               <svg className="w-3 h-3 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
                           </button>
+                          {user && syncInfo && (
+                              <p className={`text-[10px] mt-0.5 ${syncInfo.ok ? (isLightTheme ? 'text-slate-400' : 'text-white/40') : 'text-red-400 font-bold'}`}>
+                                  {syncInfo.ok ? `已同步 ${formatSyncTime(syncInfo.at)}` : '同步失败'}
+                              </p>
+                          )}
                       </div>
                   )}
               </div>
@@ -465,7 +524,7 @@ const App: React.FC = () => {
       <div className="md:hidden px-6 pt-10 pb-2 flex justify-between items-end bg-slate-50 sticky top-0 z-40 border-b border-slate-100">
          <div>
              <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Smart Ledger</h1>
-             <p className="text-xs text-slate-400">{user ? 'Cloud Sync Active' : 'Local Mode'}</p>
+             <p className={`text-xs ${user && syncInfo && !syncInfo.ok ? 'text-red-400 font-bold' : 'text-slate-400'}`}>{syncText}</p>
          </div>
          
          {user ? (
@@ -528,6 +587,16 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans overflow-hidden md:overflow-visible">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      <ConfirmModal
+          isOpen={!!cliffConflict}
+          title="同步被拦截"
+          message={`云端有 ${cliffConflict?.stored ?? 0} 条记录，本次要上传的只有 ${cliffConflict?.incoming ?? 0} 条。为防止误删，云端未被覆盖。如果确认要覆盖云端，请点确认。`}
+          confirmText="确认覆盖云端"
+          cancelText="取消"
+          isDanger
+          onConfirm={handleConfirmCliffOverwrite}
+          onCancel={() => setCliffConflict(null)}
+      />
       
       {/* --- Desktop Sidebar --- */}
       <DesktopSidebar />
@@ -560,7 +629,7 @@ const App: React.FC = () => {
             </div>
 
             {view === 'calendar' && <CalendarView items={items} />}
-            {view === 'profile' && <Profile user={user} rates={rates} currentTheme={theme} onSaveRates={handleRatesChange} onSaveTheme={handleThemeChange} onSaveProfile={handleProfileUpdate} onLogout={handleLogout} onNotify={showToast} />}
+            {view === 'profile' && <Profile user={user} rates={rates} currentTheme={theme} onSaveRates={handleRatesChange} onSaveTheme={handleThemeChange} onSaveProfile={handleProfileUpdate} onLogout={handleLogout} onNotify={showToast} onImportData={(items) => saveItems(items)} />}
          </div>
 
          {/* --- Mobile Bottom Nav --- */}
