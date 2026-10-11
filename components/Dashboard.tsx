@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Currency, ExchangeRates, Investment, TimeFilter, ThemeOption, CATEGORY_LABELS } from '../types';
-import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, calculateDailyReturn, formatDate, MS_PER_DAY } from '../utils';
+import { calculateItemMetrics, calculatePortfolioStats, calculatePeriodStats, calculateTotalValuation, getTimeFilterRange, formatCurrency, formatPercent, THEMES, calculateDailyReturn, formatDate, MS_PER_DAY, calculatePortfolioXIRR } from '../utils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from 'recharts';
-import { getAIAnalysis } from '../services/geminiService';
 
 interface Props {
   items: Investment[];
@@ -21,34 +20,9 @@ interface MetricCardProps {
     categoryData: { name: string; value: number }[];
     infoAction?: () => void;
     themeConfig: any;
-    colorTheme: 'indigo' | 'blue' | 'orange' | 'amber' | 'purple' | 'red'; 
+    colorTheme: 'indigo' | 'blue' | 'orange' | 'amber' | 'purple' | 'red'; // Added 'red' for risk card
     waccValue?: number;
 }
-
-// ✨ 简易 Markdown 渲染组件
-const SimpleMarkdown = ({ text }: { text: string }) => {
-    if (!text) return null;
-    const lines = text.split('\n');
-    return (
-        <div className="space-y-2 text-sm leading-relaxed text-indigo-50/90">
-            {lines.map((line, index) => {
-                if (line.startsWith('### ')) return <h4 key={index} className="text-base font-bold text-white mt-4 mb-1">{line.replace('### ', '')}</h4>;
-                if (line.trim().startsWith('- ')) return (
-                    <div key={index} className="flex gap-2 pl-1">
-                        <span className="text-indigo-300">•</span>
-                        <span dangerouslySetInnerHTML={{ __html: parseBold(line.replace('- ', '')) }}></span>
-                    </div>
-                );
-                if (!line.trim()) return <div key={index} className="h-1"></div>;
-                return <p key={index} dangerouslySetInnerHTML={{ __html: parseBold(line) }}></p>;
-            })}
-        </div>
-    );
-};
-
-const parseBold = (text: string) => {
-    return text.replace(/\*\*(.*?)\*\*/g, '<b class="text-white font-bold">$1</b>');
-};
 
 const MetricCard: React.FC<MetricCardProps> = ({ 
     title, mainValue, subValue, currency, breakdownList, categoryData, infoAction, colorTheme, waccValue
@@ -62,7 +36,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
         orange: { bg: 'bg-orange-50', text: 'text-orange-600' },
         amber: { bg: 'bg-amber-50', text: 'text-amber-600' },
         purple: { bg: 'bg-purple-50', text: 'text-purple-600' },
-        red: { bg: 'bg-red-50', text: 'text-red-600' }, 
+        red: { bg: 'bg-red-50', text: 'text-red-600' }, // Added red theme
     }[colorTheme];
 
     const onPieEnter = (_: any, index: number) => setActiveIndex(index);
@@ -71,43 +45,73 @@ const MetricCard: React.FC<MetricCardProps> = ({
         const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, payload, value } = props;
         return (
             <g>
-                <text x={cx} y={cy - 10} dy={8} textAnchor="middle" fill="#1e293b" className="text-sm font-bold">{payload.name}</text>
-                <text x={cx} y={cy + 10} dy={8} textAnchor="middle" fill={fill} className="text-xs font-mono">{formatCurrency(value, currency)}</text>
-                <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 4} startAngle={startAngle} endAngle={endAngle} fill={fill} />
+                <text x={cx} y={cy - 10} dy={8} textAnchor="middle" fill="#1e293b" className="text-sm font-bold">
+                    {payload.name}
+                </text>
+                <text x={cx} y={cy + 10} dy={8} textAnchor="middle" fill={fill} className="text-xs font-mono">
+                    {formatCurrency(value, currency)}
+                </text>
+                <Sector
+                    cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 4}
+                    startAngle={startAngle} endAngle={endAngle} fill={fill}
+                />
             </g>
         );
     };
 
     return (
         <div className={`bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition-all group relative overflow-hidden h-[260px] flex flex-col`}>
+            {/* Header */}
             <div className="flex justify-between items-start mb-2 shrink-0 relative z-10">
                 <div className={`p-2.5 ${themeColors.bg} rounded-xl ${themeColors.text} cursor-pointer hover:scale-105 transition-transform`} onClick={infoAction}>
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
+                
                 <div className="flex bg-slate-100 p-1 rounded-lg">
-                    <button onClick={() => setMode('list')} className={`p-1.5 rounded-md transition-all ${mode === 'list' ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg></button>
-                    <button onClick={() => setMode('chart')} className={`p-1.5 rounded-md transition-all ${mode === 'chart' ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg></button>
+                    <button 
+                        onClick={() => setMode('list')}
+                        className={`p-1.5 rounded-md transition-all ${mode === 'list' ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+                    </button>
+                    <button 
+                        onClick={() => setMode('chart')}
+                        className={`p-1.5 rounded-md transition-all ${mode === 'chart' ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>
+                    </button>
                 </div>
             </div>
 
+            {/* Content Area */}
             <div className="flex-1 flex flex-col relative z-10 min-h-0">
                 {mode === 'list' ? (
                     <div className="animate-fade-in flex flex-col h-full">
                         <div>
                             <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1 opacity-80">{title}</p>
                             <div className="flex items-baseline gap-2">
-                                <span className={`text-2xl font-bold ${themeColors.text} font-mono tracking-tight`}>{colorTheme === 'purple' ? formatPercent(mainValue) : formatCurrency(mainValue, currency)}</span>
+                                <span className={`text-2xl font-bold ${themeColors.text} font-mono tracking-tight`}>
+                                    {colorTheme === 'purple' ? formatPercent(mainValue) : formatCurrency(mainValue, currency)}
+                                </span>
                                 {subValue && <span className="text-xs font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{subValue}</span>}
                             </div>
+                            {/* Display WACC info only for the PURPLE/YIELD card */}
                             {colorTheme === 'purple' && waccValue !== undefined && waccValue > 0 && (
                                 <p className="text-[10px] text-slate-400 mt-1">加权资金成本 (WACC): {formatCurrency(waccValue, currency)} / 365天</p>
                             )}
                         </div>
+                        
                         <div className="mt-auto pt-3 border-t border-slate-50 space-y-2.5 pb-3">
                             {breakdownList.map((item, idx) => (
                                 <div key={idx} className="flex justify-between items-center text-xs">
-                                    <span className="text-slate-400 flex items-center gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${item.color || 'bg-slate-300'}`}></div>{item.label}</span>
-                                    <span className="font-mono font-medium text-slate-600">{item.label.includes('WACC') ? `${formatCurrency(item.value, currency)}` : `${item.value > 0 ? '+' : ''}${formatCurrency(item.value, currency)}`}</span>
+                                    <span className="text-slate-400 flex items-center gap-1.5">
+                                        <div className={`w-1.5 h-1.5 rounded-full ${item.color || 'bg-slate-300'}`}></div>
+                                        {item.label}
+                                    </span>
+                                    {/* Special handling for WACC row */}
+                                    <span className="font-mono font-medium text-slate-600">
+                                        {item.label.includes('WACC') ? `${formatCurrency(item.value, currency)}` : `${item.value > 0 ? '+' : ''}${formatCurrency(item.value, currency)}`}
+                                    </span>
                                 </div>
                             ))}
                         </div>
@@ -117,22 +121,41 @@ const MetricCard: React.FC<MetricCardProps> = ({
                         {categoryData.length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
-                                    <Pie activeIndex={activeIndex} activeShape={renderActiveShape} data={categoryData} cx="50%" cy="50%" innerRadius={45} outerRadius={65} paddingAngle={4} dataKey="value" onMouseEnter={onPieEnter} stroke="none">
-                                        {categoryData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                                    <Pie
+                                        activeIndex={activeIndex}
+                                        activeShape={renderActiveShape}
+                                        data={categoryData}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={45}
+                                        outerRadius={65}
+                                        paddingAngle={4}
+                                        dataKey="value"
+                                        onMouseEnter={onPieEnter}
+                                        stroke="none"
+                                    >
+                                        {categoryData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        ))}
                                     </Pie>
                                 </PieChart>
                             </ResponsiveContainer>
                         ) : (
-                            <div className="text-slate-300 text-xs flex flex-col items-center gap-1"><svg className="w-8 h-8 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>暂无分类数据</div>
+                            <div className="text-slate-300 text-xs flex flex-col items-center gap-1">
+                                <svg className="w-8 h-8 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                暂无分类数据
+                            </div>
                         )}
                         <p className="absolute bottom-0 text-[10px] text-slate-300 font-bold uppercase tracking-widest pointer-events-none">By Asset Type</p>
                     </div>
                 )}
             </div>
+            
             <div className={`absolute -bottom-4 -right-4 w-24 h-24 rounded-full ${themeColors.bg} opacity-50 blur-2xl pointer-events-none`}></div>
         </div>
     );
 };
+
 
 const TIME_FILTERS: { label: string, value: TimeFilter }[] = [
     { label: '全部', value: 'all' },
@@ -142,8 +165,14 @@ const TIME_FILTERS: { label: string, value: TimeFilter }[] = [
     { label: '近1年', value: '1y' },
 ];
 
-const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
-  const [selectedCurrency, setSelectedCurrency] = useState<Currency>('CNY');
+// 日期字符串（YYYY-MM-DD）加 N 天
+const addDays = (dateStr: string, n: number): string => {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [selectedCurrency, setSelectedCurrency] = useState<Currency>('CNY');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   
   const [showCustomDate, setShowCustomDate] = useState(false);
@@ -154,9 +183,6 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
   
   const [rebateModalType, setRebateModalType] = useState<'received' | 'pending' | null>(null);
   const [infoModal, setInfoModal] = useState<{ title: string; content: React.ReactNode } | null>(null);
-  
-  const [aiInsight, setAiInsight] = useState<string | null>(null);
-  const [loadingAi, setLoadingAi] = useState(false);
 
   const themeConfig = THEMES[theme];
 
@@ -164,13 +190,20 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
 
   const currencyItems = useMemo(() => items.filter(i => (i.currency || 'CNY') === selectedCurrency), [items, selectedCurrency]);
   
+  // Calculate main stats based on time filter
   const stats = useMemo(() => {
+      // 1. 始终计算 ALL TIME stats，以获取准确的 todayEstProfit
       const allTimeStats = calculatePortfolioStats(currencyItems); 
+
       let periodStats = allTimeStats; 
+
       if (timeFilter !== 'all') {
+          // 2. 如果时间筛选激活，计算 PERIOD stats 以获取 period metrics
           const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd); 
           periodStats = calculatePeriodStats(currencyItems, start, end); 
       }
+      
+      // 3. 修正：合并数据。对于 period metrics 使用 periodStats 的结果，但强制 todayEstProfit 使用 unfiltered 的结果。
       return {
           ...periodStats, 
           todayEstProfit: allTimeStats.todayEstProfit,
@@ -178,106 +211,104 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       };
   }, [currencyItems, timeFilter, customStart, customEnd]);
 
-  // 1. Total Projected Profit Breakdown & Category Data
-  // 核心逻辑：确保分解后的三项之和严格等于 Card 2 的 Total Projected Profit
-  const { totalBreakdownList, totalCategoryData } = useMemo(() => {
-      const categoryDisplayConfig = {
-          enableSubdivision: false,
-          typeShortName: { floatingAndAccrued: '浮盈', realizedOnly: '已结', totalRebate: '已返' }
-      };
+  // --- 组合 XIRR（阶段五-4b）：全部持仓现金流的内部收益率 ---
+  const portfolioXIRR = useMemo(() => calculatePortfolioXIRR(currencyItems, rates), [currencyItems, rates]);
 
+  // --- Breakdown Data Calculation ---
+
+  // 1. Total Projected Profit Breakdown & Category Data (Corrected for Time Filter)
+  const { totalBreakdownList, totalCategoryData } = useMemo(() => {
+      // Helper function to check if a date string falls within the current filter period
       const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
       const isBetween = (dateStr: string) => {
           const d = new Date(dateStr);
+          // Only check date part, ignore time component (start/end already set hours for comparison in getTimeFilterRange)
           return d >= start && d <= end;
       };
       
       const catMap: Record<string, number> = {};
-
+      
+      // Breakdown logic uses the current profit sum structure
+      const realizedOnly = stats.realizedInterest;
       const receivedRebate = stats.receivedRebate;
-      // 🔥 核心修正：直接使用 stats.realizedInterest (不含返利)
-      const realizedOnly = stats.realizedInterest; 
-      // 🔥 浮盈/利息 = 总预估 - 已结 - 已到账返利 (确保公式闭环)
       const floatingAndAccrued = stats.projectedTotalProfit - realizedOnly - receivedRebate;
-      // 🔥 Card 2 显示的是总返利 (含未收)，这只是一个参考项，不参与上述公式的平账
-      // 但实际上 Card 2 的 Breakdown 里通常列出的是 "总返利" 或 "已收返利" 视业务而定
-      // 为了和 "总预估收益 (含在途)" 这个概念匹配，这里展示 Total Rebate 是合理的，但需要注意它包含 Pending
-      // 严谨起见，如果 projectedTotalProfit 里只加了 receivedRebate，那 Breakdown 里最好也只加 receivedRebate
-      // 但为了信息量，通常显示 Total Rebate。
-      const totalRebate = stats.totalRebate;
-
+      
       const list = [
           { label: '持仓浮盈/利息', value: floatingAndAccrued, color: 'bg-blue-400' },
           { label: '已结盈亏', value: realizedOnly, color: 'bg-emerald-400' },
-          { label: '总返利', value: totalRebate, color: 'bg-amber-400' }
+          { label: '总返利', value: stats.totalRebate, color: 'bg-amber-400' }
       ];
 
       currencyItems.forEach(item => {
-          const m = calculateItemMetrics(item);
-          let itemFloatingAndAccrued = 0; 
-          let itemRealizedOnly = 0;      
-          let itemRebate = 0;            
-
+          let p = 0; // itemPeriodTotalProfit
           if (timeFilter === 'all') {
-              // 全时段
-              if (!m.isCompleted && !m.isPending) {
-                  // 未完结项目：浮盈/利息 (修复：如果已清仓, m.baseInterest 为0)
-                  itemFloatingAndAccrued = (item.type === 'Floating' && (!item.currentQuantity || item.currentQuantity <= 0)) 
-                        ? 0 
-                        : (item.type === 'Fixed' ? m.accruedReturn : (item.currentReturn || 0));
-                  
-                  itemRebate = item.rebate;
-              } else if (m.isCompleted) {
-                  // 已完结项目：已结净利
-                  itemRealizedOnly = m.baseInterest;
-                  itemRebate = item.rebate;
+              // All Time Logic (Ensures consistency with calculatePortfolioStats)
+              const m = calculateItemMetrics(item);
+              if (!m.isCompleted && !m.isPending && item.type === 'Fixed') {
+                  p = m.accruedReturn + item.rebate + item.totalRealizedProfit;
+              } else if (!m.isCompleted && item.type === 'Floating') {
+                  p = m.profit;
               } else {
-                  // 纯交易产生的已结 (如清仓未归档)
-                  itemRealizedOnly = item.totalRealizedProfit;
-                  // 注意：如果已清仓未归档，itemFloatingAndAccrued 已经被强制为 0
+                  p = m.profit;
               }
-          } else {
-              // 时段逻辑 (简化版，仅用于分类图表)
-              const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
-              const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
-
-              if (!isCompletedInPeriod) {
-                   // 未完结：浮盈 (同样校验清仓状态)
-                   itemFloatingAndAccrued = (item.type === 'Floating' && (!item.currentQuantity || item.currentQuantity <= 0))
-                        ? 0
-                        : (item.type === 'Fixed' ? m.accruedReturn : (item.currentReturn || 0));
-              }
-              if (isCompletedInPeriod) {
-                  itemRealizedOnly = m.baseInterest;
-              }
-              // 补充：时段内的交易盈亏 (Partials)
-              if (!isCompletedInPeriod && item.transactions) {
+              
+              // Fee deduction for projection (Copied from calculatePortfolioStats)
+              const todayISO = new Date().toISOString().split('T')[0];
+              if (!m.isCompleted && item.transactions) {
                   item.transactions.forEach(tx => {
-                      if (isBetween(tx.date) && (tx.type === 'Dividend' || tx.type === 'Interest' || tx.type === 'Fee' || tx.type === 'Tax')) {
-                          // 将交易盈亏归入 "已结" 类别
-                          if (tx.type === 'Fee' || tx.type === 'Tax') itemRealizedOnly -= tx.amount;
-                          else itemRealizedOnly += tx.amount;
+                      const txDate = tx.date.split('T')[0];
+                      if (txDate > todayISO && (tx.type === 'Fee' || tx.type === 'Tax')) {
+                          p -= tx.amount;
                       }
                   });
               }
 
-              if (isBetween(item.depositDate)) {
-                  itemRebate = item.rebate;
+          } else {
+              // PERIOD LOGIC: Mirroring calculatePeriodStats in utils.ts to ensure consistency
+              const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
+              const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
+              const m = calculateItemMetrics(item);
+              
+              // 1. Accrued / Floating
+              if (item.type === 'Fixed' && !isCompletedInPeriod) {
+                  p += m.accruedReturn;
+              } else if (item.type === 'Floating' && !isCompletedInPeriod) {
+                   p += (item.currentReturn || 0) + item.totalRealizedProfit;
+              }
+              
+              // 2. Completion Net Profit
+              if (isCompletedInPeriod) {
+                  p += m.baseInterest;
+              }
+              
+              // 3. Transactions & Rebate (if within period & received)
+               if (item.transactions) {
+                  item.transactions.forEach(tx => {
+                      if (!isCompletedInPeriod && isBetween(tx.date)) {
+                          if (tx.type === 'Dividend' || tx.type === 'Interest') p += tx.amount;
+                          else if (tx.type === 'Fee' || tx.type === 'Tax') p -= tx.amount;
+                      }
+                  });
+              }
+              if (item.rebate > 0 && item.isRebateReceived && isBetween(item.depositDate)) {
+                  p += item.rebate;
               }
           }
-
-          const catName = CATEGORY_LABELS[item.category] || item.category;
-          const totalItemProfit = itemFloatingAndAccrued + itemRealizedOnly + itemRebate;
-          if (Math.abs(totalItemProfit) > 0.01) {
-              catMap[catName] = (catMap[catName] || 0) + totalItemProfit;
+          
+          if (Math.abs(p) > 0.01) {
+              const name = CATEGORY_LABELS[item.category];
+              // Use the actual profit value for summation, rely on Math.abs later for chart visualization
+              catMap[name] = (catMap[name] || 0) + p;
           }
       });
 
-      const chart = Object.entries(catMap).filter(([_, value]) => Math.abs(value) > 0.01).map(([name, value]) => ({ name, value }));
+      // Chart data is generated from the accumulated category profits (P)
+      const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
+
       return { totalBreakdownList: list, totalCategoryData: chart };
   }, [items, stats, currencyItems, timeFilter, customStart, customEnd]);
 
-  // 2. Today Profit Breakdown
+  // 2. Today Profit Breakdown (Always Today)
   const { todayBreakdownList, todayCategoryData } = useMemo(() => {
       let fixedDaily = 0;
       let floatingDaily = 0;
@@ -289,7 +320,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           else floatingDaily += daily;
 
           if (Math.abs(daily) > 0.001) {
-              const name = CATEGORY_LABELS[item.category] || item.category;
+              const name = CATEGORY_LABELS[item.category];
               catMap[name] = (catMap[name] || 0) + daily;
           }
       });
@@ -298,17 +329,17 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           { label: '固收日息', value: fixedDaily, color: 'bg-blue-400' },
           { label: '市值波动', value: floatingDaily, color: 'bg-orange-400' }
       ];
-      const chart = Object.entries(catMap).filter(([_, value]) => Math.abs(value) > 0.001).map(([name, value]) => ({ name, value }));
+      const chart = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
+
       return { todayBreakdownList: list, todayCategoryData: chart };
   }, [currencyItems]);
 
-  // 3. Realized Profit Breakdown
-  const { realizedBreakdownList, realizedCategoryData, totalRealized } = useMemo(() => {
-      let completedNetPeriod = 0; 
-      let txRealizedInPeriod = 0; 
-      let receivedRebatePeriod = 0; 
-      const realizedItemTotalMap: Record<string, number> = {};
-
+  // 3. Realized Profit Breakdown (Corrected for Time Filter)
+  const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
+      let completedNetPeriod = 0; // Net Completion Gain in Period (The '已完结项目净利' component)
+      let txRealizedInPeriod = 0; // P&L Txs in Period (The '持仓中派息/减仓' component)
+      let realizedItemTotalMap: Record<string, number> = {}; // Data for chart
+      
       const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
       const isBetween = (dateStr: string) => {
           const d = new Date(dateStr);
@@ -316,88 +347,97 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       };
 
       currencyItems.forEach(item => {
-          const m = calculateItemMetrics(item);
-          let itemCompletedNet = 0; 
-          let itemTxRealized = 0;   
-          let itemRebateReceived = 0; 
-
+          let itemRealized = 0; // Total Realized P&L for this item in the period
+          
           if (timeFilter === 'all') {
-              if (m.isCompleted) {
-                  itemCompletedNet = m.baseInterest;
-              } else {
-                  // 未完结项目的交易盈亏
-                  itemTxRealized = item.totalRealizedProfit;
-              }
-              itemRebateReceived = item.isRebateReceived ? item.rebate : 0; 
-              receivedRebatePeriod = stats.receivedRebate; 
+              const m = calculateItemMetrics(item);
+              itemRealized = m.baseInterest + item.rebate + item.totalRealizedProfit;
+              
+              // Decompose for breakdown list
+              if (m.isCompleted) completedNetPeriod += m.baseInterest;
+              txRealizedInPeriod += item.totalRealizedProfit;
+
           } else {
+              // PERIOD LOGIC: Mirroring utils.ts realizedInPeriod calculation
               const withdrawalDate = item.withdrawalDate ? new Date(item.withdrawalDate) : null;
               const isCompletedInPeriod = withdrawalDate && withdrawalDate >= start && withdrawalDate <= end;
-
+              
+              // 1. Completion Net Profit
               if (isCompletedInPeriod) {
-                  let netCompletionGain = m.baseInterest;
+                  const metrics = calculateItemMetrics(item);
+                  let netCompletionGain = metrics.baseInterest; 
                   let realizedPnlTxBeforePeriod = 0;
-                  item.transactions?.forEach(tx => {
-                      const d = new Date(tx.date);
-                      if (d < start) {
-                          if (['Dividend', 'Interest'].includes(tx.type)) realizedPnlTxBeforePeriod += Number(tx.amount) || 0;
-                          else if (['Fee', 'Tax'].includes(tx.type)) realizedPnlTxBeforePeriod -= Number(tx.amount) || 0;
-                      }
-                  });
-                  itemCompletedNet = netCompletionGain - realizedPnlTxBeforePeriod;
+
+                  if (item.transactions) {
+                      item.transactions.forEach(tx => {
+                          const d = new Date(tx.date);
+                          if (d < start) {
+                              if (tx.type === 'Dividend' || tx.type === 'Interest') realizedPnlTxBeforePeriod += tx.amount;
+                              else if (tx.type === 'Fee' || tx.type === 'Tax') realizedPnlTxBeforePeriod -= tx.amount;
+                          }
+                      });
+                  }
+                  if (item.isRebateReceived && new Date(item.depositDate) < start) {
+                      realizedPnlTxBeforePeriod += item.rebate;
+                  }
+                  
+                  const completionNetProfit = netCompletionGain - realizedPnlTxBeforePeriod;
+                  itemRealized += completionNetProfit;
+                  completedNetPeriod += completionNetProfit;
               }
 
-              // 仅统计未在期间内完结的项目的交易流水，防止重复
-              if (!isCompletedInPeriod && item.transactions) {
+              // 2. Rebate Received in Period
+              if (isBetween(item.depositDate) && item.isRebateReceived) {
+                  itemRealized += item.rebate;
+              }
+              
+              // 3. P&L Transactions (Div/Int/Fee/Tax) - only those *in* the period
+              // And only if NOT completed in period (to avoid double count from Completion Net Profit)
+              if (!isCompletedInPeriod && item.transactions) { 
                   item.transactions.forEach(tx => {
                       if (isBetween(tx.date)) {
-                          if (['Dividend', 'Interest'].includes(tx.type)) itemTxRealized += Number(tx.amount) || 0;
-                          else if (['Fee', 'Tax'].includes(tx.type)) itemTxRealized -= Number(tx.amount) || 0;
+                          if (tx.type === 'Dividend' || tx.type === 'Interest') {
+                              itemRealized += tx.amount;
+                              txRealizedInPeriod += tx.amount; // Accumulate for breakdown list
+                          } else if (tx.type === 'Fee' || tx.type === 'Tax') {
+                              itemRealized -= tx.amount;
+                              txRealizedInPeriod -= tx.amount; // Accumulate for breakdown list
+                          }
                       }
                   });
               }
-
-              if (isBetween(item.depositDate) && item.isRebateReceived) {
-                  itemRebateReceived = item.rebate;
-                  receivedRebatePeriod += itemRebateReceived; 
-              }
           }
-
-          completedNetPeriod += itemCompletedNet;
-          txRealizedInPeriod += itemTxRealized;
-
-          const catName = CATEGORY_LABELS[item.category] || item.category;
-          const totalItemRealized = itemCompletedNet + itemTxRealized + itemRebateReceived;
-          if (Math.abs(totalItemRealized) > 0.01) {
-                realizedItemTotalMap[catName] = (realizedItemTotalMap[catName] || 0) + totalItemRealized;
+          
+          if (Math.abs(itemRealized) > 0.01) {
+              const name = CATEGORY_LABELS[item.category];
+              realizedItemTotalMap[name] = (realizedItemTotalMap[name] || 0) + itemRealized;
           }
       });
-
-      const finalTotalRealized = completedNetPeriod + txRealizedInPeriod + receivedRebatePeriod;
-
+      
+      // Breakdown List Logic (uses the decomposed values calculated above)
       const list = [
-          { label: '已完结项目净利', value: completedNetPeriod, color: 'bg-slate-400' },
-          { label: '持仓中派息/减仓', value: txRealizedInPeriod, color: 'bg-emerald-400' },
-          { label: '已到账返利(额外)', value: receivedRebatePeriod, color: 'bg-amber-400' }
+          { 
+              label: '已完结项目净利', 
+              value: completedNetPeriod, 
+              color: 'bg-slate-400' 
+          },
+          { 
+              label: '持仓中派息/减仓', 
+              value: txRealizedInPeriod, 
+              color: 'bg-emerald-400' 
+          },
+          { 
+              label: '已到账返利(额外)', 
+              value: stats.receivedRebate, // This is already period-filtered by stats calculation
+              color: 'bg-amber-400' 
+          }
       ];
+      
+      // Final chart data
+      const chart = Object.entries(realizedItemTotalMap).map(([name, value]) => ({ name, value: Math.abs(value) }));
 
-      const chart = Object.entries(realizedItemTotalMap).filter(([_, value]) => Math.abs(value) > 0.01).map(([name, value]) => ({ name, value }));
-
-      return {
-          realizedBreakdownList: list,
-          realizedCategoryData: chart,
-          totalRealized: finalTotalRealized 
-      };
+      return { realizedBreakdownList: list, realizedCategoryData: chart };
   }, [currencyItems, stats, timeFilter, customStart, customEnd]);
-
-  // ... (handleAIAnalysis 和 后续 UI 代码保持不变)
-  
-  const handleAIAnalysis = async () => {
-    setLoadingAi(true);
-    const result = await getAIAnalysis(currencyItems); 
-    setAiInsight(result);
-    setLoadingAi(false);
-  };
 
   const pieDataStatus = [
     { name: '在途本金', value: stats.activePrincipal },
@@ -422,16 +462,10 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         if (!i.maturityDate) return false;
         if (i.withdrawalDate) return false;
         if (i.currentPrincipal <= 0.01) return false; 
-        
-        const today = new Date();
-        const matDate = new Date(i.maturityDate);
-        const diffTime = matDate.getTime() - today.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        // 修正：显示已到期（负数）和未来30天内的
-        return diffDays <= 30;
+        return true;
     })
     .sort((a, b) => new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime())
-    .slice(0, 50)
+    .slice(0, 5)
     .map(i => {
         const m = calculateItemMetrics(i);
         return { ...i, daysRemaining: m.daysRemaining };
@@ -443,31 +477,91 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
       else { setShowCustomDate(false); setCustomStart(''); setCustomEnd(''); }
   };
 
+  // Safe Date Formatting for Rebate Modal
   const safeFormatDate = (dateStr: string) => {
       if (!dateStr) return '-';
       const d = new Date(dateStr);
+      // 核心修复：防止非法日期导致页面白屏
       return !isNaN(d.getTime()) ? formatDate(dateStr) : '-';
   };
   
+  // =================================================================
+  // FIX: Define helper functions inside the component scope (Scope Fix)
+  // =================================================================
+
   const showTotalProfitInfo = () => setInfoModal({ title: "总预估收益 (含在途)", content: <div className="text-sm text-slate-600 space-y-2"><p>历史总回报，包含账面浮盈和已落袋资金。</p><p className="font-bold text-indigo-600">公式：浮盈 + 已结 + 返利 - 费用</p></div> });
   const showTodayProfitInfo = () => setInfoModal({ title: "今日/昨日预估收益", content: <div className="text-sm text-slate-600 space-y-2"><p>仅计算今天产生的价值变化。</p><p className="font-bold text-orange-600">公式：固收日息 + 浮动资产今日涨跌</p></div> });
   const showRealizedProfitInfo = () => setInfoModal({ title: "已落袋收益", content: <div className="text-sm text-slate-600 space-y-2"><p>真正“落袋为安”的收益。</p><p className="font-bold text-amber-600">包含：完结项目净利 + 派息 + 减仓盈利</p></div> });
-  const showCapitalAtRiskInfo = () => setInfoModal({ title: "待收回总资本 (Capital At Risk)", content: <div className="text-sm text-slate-600 space-y-2"><p>当前仍处于投资中，尚未结算或收回的全部资金敞口。</p><p className="font-bold text-red-600">公式：在途本金 + 待到账返利</p></div> });
+  
+  // Capital At Risk Info Card Action
+  const showCapitalAtRiskInfo = () => setInfoModal({
+      title: "待收回总资本 (Capital At Risk)",
+      content: <div className="text-sm text-slate-600 space-y-2">
+          <p>当前仍处于投资中，尚未结算或收回的全部资金敞口。</p>
+          <p className="font-bold text-red-600">公式：在途本金 + 待到账返利</p>
+      </div>
+  });
 
+  // 🚑 修复: Get items for rebate modal (Corrected with Time Filter)
   const rebateItems = useMemo(() => {
       if (!rebateModalType) return [];
+      
       const { start, end } = getTimeFilterRange(timeFilter, customStart, customEnd);
+
       return currencyItems.filter(i => {
+          // 1. Basic Rebate Filter
           const isRebateMatch = i.rebate > 0 && (rebateModalType === 'received' ? i.isRebateReceived : !i.isRebateReceived);
           if (!isRebateMatch) return false;
+
+          // 2. Time Filter (FIX: Added this block)
+          // If 'all', all items match (as long as they have rebate)
           if (timeFilter === 'all') return true;
+
           const d = new Date(i.depositDate);
           return d >= start && d <= end;
       }).sort((a, b) => b.rebate - a.rebate);
   }, [currencyItems, rebateModalType, timeFilter, customStart, customEnd]);
+  // =================================================================
+
 
   return (
     <div className="space-y-6 animate-fade-in pb-12 relative">
+      {/* 到期提醒：7天内到期（含已到期未取出）的持仓 */}
+      {(() => {
+          const now = new Date();
+          const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+          const soon = items
+              .filter(i => !i.withdrawalDate && i.maturityDate && i.maturityDate <= addDays(todayStr, 7))
+              .sort((a, b) => (a.maturityDate || '').localeCompare(b.maturityDate || ''));
+          if (soon.length === 0) return null;
+          return (
+              <div className="bg-amber-50 border border-amber-200 rounded-3xl p-4 md:p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                      <span className="text-amber-500">
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      </span>
+                      <h3 className="font-bold text-amber-800 text-sm">即将到期（{soon.length} 笔）</h3>
+                  </div>
+                  <div className="space-y-2">
+                      {soon.slice(0, 5).map(i => {
+                          const overdue = i.maturityDate! < todayStr;
+                          return (
+                              <div key={i.id} className="flex justify-between items-center text-sm bg-white/70 rounded-xl px-3 py-2">
+                                  <span className="font-medium text-slate-700 truncate">{i.name}</span>
+                                  <span className={`text-xs font-bold whitespace-nowrap ml-2 ${overdue ? 'text-red-500' : 'text-amber-600'}`}>
+                                      {overdue ? `已到期 ${i.maturityDate}` : `${i.maturityDate} 到期`}
+                                  </span>
+                              </div>
+                          );
+                      })}
+                      {soon.length > 5 && (
+                          <p className="text-xs text-amber-600 text-center">还有 {soon.length - 5} 笔，详见日历视图</p>
+                      )}
+                  </div>
+              </div>
+          );
+      })()}
+      {/* Controls */}
       <div className="flex flex-col gap-4 bg-white md:bg-white/80 md:backdrop-blur-md p-4 rounded-3xl shadow-sm border border-white/50 relative md:sticky md:top-2 z-20">
          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
              <div className="flex items-center gap-3 w-full md:w-auto">
@@ -495,6 +589,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
           )}
       </div>
 
+      {/* Global Net Worth Card */}
       <div className={`bg-gradient-to-br ${themeConfig.accent} p-6 md:p-8 rounded-[2rem] shadow-xl text-white relative overflow-hidden transform-gpu`}>
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
@@ -516,10 +611,14 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
         </div>
       </div>
 
+      {/* Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+        
+        {/* 1. Active Principal / Capital At Risk (New Card) */}
         <MetricCard 
             title={timeFilter === 'all' ? '待收回总资本' : '期间 WACC 本金'}
             mainValue={timeFilter === 'all' ? stats.activePrincipal + stats.pendingRebate : stats.totalInvested}
+            subValue={undefined} // Removed redundant UI element
             currency={selectedCurrency}
             colorTheme={timeFilter === 'all' ? 'red' : 'blue'}
             breakdownList={timeFilter === 'all' ? [
@@ -533,6 +632,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             themeConfig={themeConfig}
         />
 
+        {/* 2. Total Profit */}
         <MetricCard 
             title={timeFilter === 'all' ? '总预估收益 (含在途)' : '本期产生收益'}
             mainValue={stats.projectedTotalProfit}
@@ -545,6 +645,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             themeConfig={themeConfig}
         />
 
+        {/* 3. Today Profit */}
         <MetricCard 
             title="今日/昨日预估收益"
             mainValue={stats.todayEstProfit}
@@ -556,9 +657,10 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             themeConfig={themeConfig}
         />
 
+        {/* 4. Realized Profit */}
         <MetricCard 
             title={timeFilter === 'all' ? '已落袋收益' : '本期已落袋'}
-            mainValue={totalRealized}
+            mainValue={stats.realizedInterest}
             currency={selectedCurrency}
             colorTheme="amber"
             breakdownList={realizedBreakdownList}
@@ -567,6 +669,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             themeConfig={themeConfig}
         />
 
+        {/* 5. Weighted Yield (MWR) */}
         <MetricCard 
             title={timeFilter === 'all' ? '综合年化收益率' : '本期年化收益率'}
             mainValue={stats.comprehensiveYield}
@@ -576,7 +679,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                 { label: '周期净收益', value: stats.projectedTotalProfit, color: 'bg-indigo-400' },
                 { label: '资金占用基数 (WACC)', value: stats.totalCapitalWACC / 365, color: 'bg-purple-400' },
             ]}
-            categoryData={[]}
+            categoryData={[]} // Not useful here
             waccValue={stats.totalCapitalWACC} 
             infoAction={() => setInfoModal({ 
                 title: "资金加权回报率 (MWR)", 
@@ -588,41 +691,34 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             })}
             themeConfig={themeConfig}
         />
-      </div>
 
-      <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-[2rem] p-1 shadow-xl relative overflow-hidden group">
-          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
-          <div className="bg-white/10 backdrop-blur-xl rounded-[1.8rem] p-6 h-full relative z-10 border border-white/10">
-              <div className="flex justify-between items-start mb-4">
-                  <div className="flex items-center gap-3">
-                      <div className="p-2 bg-white/20 rounded-xl text-white">
-                          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                      </div>
-                      <div>
-                          <h3 className="text-lg font-bold text-white tracking-wide">AI 投资顾问</h3>
-                          <p className="text-xs text-indigo-200">基于 Gemini 2.5 Flash</p>
-                      </div>
-                  </div>
-                  <button onClick={handleAIAnalysis} disabled={loadingAi} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${loadingAi ? 'bg-white/10 text-white/50 cursor-not-allowed' : 'bg-white text-indigo-600 hover:bg-indigo-50 shadow-lg transform hover:scale-105 active:scale-95'}`}>
-                      {loadingAi ? '深度分析中...' : '生成诊断报告'}
-                      {!loadingAi && <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>}
-                  </button>
-              </div>
-              {aiInsight ? (
-                  <div className="bg-black/20 rounded-2xl p-5 animate-fade-in border border-white/5 shadow-inner">
-                      <SimpleMarkdown text={aiInsight} />
-                  </div>
-              ) : (
-                  <div className="flex flex-col items-center justify-center py-8 text-center border-2 border-dashed border-white/10 rounded-2xl bg-white/5">
-                      <svg className="w-12 h-12 text-white/20 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
-                      <p className="text-sm text-indigo-100 font-medium">点击按钮，让 AI 为您的投资组合体检</p>
-                      <p className="text-xs text-white/40 mt-1">分析流动性、风险敞口及收益优化建议</p>
-                  </div>
-              )}
-          </div>
+        {/* 6. XIRR（内部收益率）：按实际现金流日期折现的年化，更精确反映多笔出入的真实回报 */}
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition-all relative overflow-hidden h-[260px] flex flex-col">
+            <div className="flex justify-between items-start mb-2 shrink-0 relative z-10">
+                <div className="p-2.5 bg-purple-50 rounded-xl text-purple-600 cursor-pointer hover:scale-105 transition-transform" onClick={() => setInfoModal({
+                    title: "内部收益率 (XIRR)",
+                    content: <div className="text-sm text-slate-600 space-y-2">
+                        <p>XIRR 是按每笔现金流实际发生日期折现求解的年化收益率，是衡量多笔出入资金真实回报的行业标准。</p>
+                        <p className="font-bold text-purple-600">解方程: Σ 金额ᵢ / (1+r)^((日期ᵢ - 首日)/365) = 0</p>
+                        <p className="text-xs text-slate-400">投入记为负（流出），收回记为正（流入）；持有中的本金按今日可赎回计入终值。</p>
+                        {portfolioXIRR === null && <p className="text-xs text-amber-500">当前现金流不足，无法计算（至少需要一笔投入和一笔收回）。</p>}
+                    </div>
+                })}>
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+            </div>
+            <div className="text-sm font-medium text-slate-500 mb-1">组合 XIRR</div>
+            <div className="text-3xl font-bold text-slate-800 mb-4">
+                {portfolioXIRR === null ? <span className="text-slate-300">—</span> : formatPercent(portfolioXIRR)}
+            </div>
+            <div className="text-xs text-slate-400 mt-auto">
+                {portfolioXIRR === null ? '现金流不足，暂无法计算' : '按全部持仓实际现金流折现'}
+            </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+         {/* Rebate Stats */}
          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
             <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
                 <span className="w-1.5 h-6 bg-amber-400 rounded-full"></span>
@@ -653,6 +749,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
             </div>
          </div>
          
+         {/* Asset Distribution */}
          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8 overflow-hidden">
             <div className="w-full">
                 <div className="flex justify-between items-center mb-4">
@@ -684,7 +781,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                     {upcoming.length === 0 ? <div className="flex flex-col items-center justify-center h-40 text-slate-300 border-2 border-dashed border-slate-100 rounded-2xl"><p className="text-sm">无近期到期项目</p></div> : upcoming.map(item => (
                         <div key={item.id} className="flex justify-between items-center p-3.5 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md hover:border-emerald-100 transition-all group">
                             <div className="min-w-0"><p className="font-bold text-slate-700 text-sm truncate">{item.name}</p><p className="text-xs text-slate-400 mt-0.5">{item.maturityDate}</p></div>
-                            <div className="text-right whitespace-nowrap pl-4"><p className="font-bold text-slate-700 text-sm font-mono tabular-nums">{formatCurrency(item.currentPrincipal, selectedCurrency)}</p><p className={`text-xs font-bold mt-0.5 ${item.daysRemaining < 0 ? 'text-red-500' : item.daysRemaining <= 7 ? 'text-orange-500' : 'text-emerald-600'}`}>{item.daysRemaining < 0 ? `已到期 ${Math.abs(item.daysRemaining)} 天` : item.daysRemaining === 0 ? '今天到期' : `${item.daysRemaining} 天后`}</p></div>
+                            <div className="text-right whitespace-nowrap pl-4"><p className="font-bold text-slate-700 text-sm font-mono tabular-nums">{formatCurrency(item.currentPrincipal, selectedCurrency)}</p><p className={`text-xs font-bold mt-0.5 ${item.daysRemaining < 0 ? 'text-red-500' : item.daysRemaining <= 7 ? 'text-orange-500' : 'text-emerald-600'}`}>{item.daysRemaining < 0 ? `逾期 ${Math.abs(item.daysRemaining)} 天` : item.daysRemaining === 0 ? '今天到期' : `${item.daysRemaining} 天后`}</p></div>
                         </div>
                     ))}
                 </div>
@@ -692,6 +789,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
          </div>
       </div>
 
+      {/* Modals */}
       {rebateModalType && (
           <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setRebateModalType(null)}>
               <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in-up" onClick={e => e.stopPropagation()}>
@@ -699,7 +797,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {
                       <div><h3 className="text-lg font-bold text-slate-800">{rebateModalType === 'received' ? '已到账返利明细' : '待返利资产明细'}</h3><p className="text-xs text-slate-400 mt-0.5">Rebate Details</p></div>
                       <button onClick={() => setRebateModalType(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                   </div>
-                  <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-3">
+                  <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
                       {rebateItems.length === 0 ? <div className="py-10 text-center text-slate-400 text-sm flex flex-col items-center gap-2"><svg className="w-10 h-10 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>暂无相关记录</div> : rebateItems.map(item => (
                           <div key={item.id} className="flex justify-between items-center p-3 rounded-2xl bg-slate-50 border border-slate-100"><div className="min-w-0"><p className="font-bold text-slate-700 text-sm truncate">{item.name}</p><p className="text-xs text-slate-400 mt-0.5">{safeFormatDate(item.depositDate)}</p></div><div className="text-right"><p className={`font-bold font-mono text-sm ${rebateModalType === 'received' ? 'text-emerald-600' : 'text-amber-500'}`}>+{formatCurrency(item.rebate, item.currency)}</p><span className="text-[10px] text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100 shadow-sm">{item.type === 'Fixed' ? '固收' : '浮动'}</span></div></div>
                       ))}
