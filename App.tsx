@@ -62,7 +62,7 @@ const App: React.FC = () => {
   const [listProductFilter, setListProductFilter] = useState<ProductTypeFilter>('all');
   const [listCurrencyFilter, setListCurrencyFilter] = useState<CurrencyFilter>('all');
   const [listCategoryFilter, setListCategoryFilter] = useState<CategoryFilter>('all');
-  const [listSortType, setListSortType] = useState<SortType>('date-asc');
+  const [listSortType, setListSortType] = useState<SortType>('date-desc');
   const [listShowCustomDate, setListShowCustomDate] = useState(false);
   const [listCustomStart, setListCustomStart] = useState('');
   const [listCustomEnd, setListCustomEnd] = useState('');

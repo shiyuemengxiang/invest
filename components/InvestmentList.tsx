@@ -49,6 +49,7 @@ const InvestmentList: React.FC<Props> = ({
 }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const filteredItems = useMemo(() => {
     let result = items.filter(item => {
@@ -58,6 +59,12 @@ const InvestmentList: React.FC<Props> = ({
       if (productFilter !== 'all' && item.type !== productFilter) return false;
       if (currencyFilter !== 'all' && item.currency !== currencyFilter) return false;
       if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
+
+      const q = searchQuery.trim().toLowerCase();
+      if (q) {
+        const hay = `${item.name || ''} ${item.symbol || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
 
       return true;
     });
@@ -73,7 +80,7 @@ const InvestmentList: React.FC<Props> = ({
     }
     
     return result;
-  }, [items, filter, productFilter, currencyFilter, categoryFilter, showCustomDate, customStart, customEnd, sortType]);
+  }, [items, filter, productFilter, currencyFilter, categoryFilter, showCustomDate, customStart, customEnd, sortType, searchQuery]);
 
   const summaryStats = useMemo((): Record<Currency, { totalProfit: number; dailyReturn: number }> => {
       const stats: Record<Currency, { totalProfit: number; dailyReturn: number }> = {
@@ -123,7 +130,7 @@ const InvestmentList: React.FC<Props> = ({
       setTimeout(() => setIsRefreshing(false), 1000); 
   };
 
-  const isFiltersActive = filter !== 'all' || productFilter !== 'all' || currencyFilter !== 'all' || categoryFilter !== 'all' || showCustomDate;
+  const isFiltersActive = filter !== 'all' || productFilter !== 'all' || currencyFilter !== 'all' || categoryFilter !== 'all' || showCustomDate || !!searchQuery.trim();
   const isDragEnabled = sortType === 'custom' && !isFiltersActive;
 
   return (
@@ -206,6 +213,17 @@ const InvestmentList: React.FC<Props> = ({
                             <option key={key} value={key}>{label}</option>
                         ))}
                     </select>
+
+                    <div className="relative">
+                        <svg className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" /></svg>
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="搜索名称/代码"
+                            className="pl-8 pr-3 py-1.5 bg-slate-100 rounded-xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-slate-200 border-none h-[34px] w-[150px] placeholder:text-slate-400 placeholder:font-medium"
+                        />
+                    </div>
 
                     <select 
                         value={sortType}
