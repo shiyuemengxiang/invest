@@ -207,34 +207,32 @@ export default async function handler(request: any, response: any) {
 
         // 2. CN Funds (EastMoney): 6 digits
         if (/^\d{6}$/.test(symbol)) {
+            const emHeaders = {
+                'Referer': `https://fundf10.eastmoney.com/jjjz_${symbol}.html`,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            };
+            // 主源：东财官方历史净值 JSON 接口（fundgz.1234567.com.cn 已下线，返回 404 页）
             try {
-                const url = `https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`;
-                const res = await fetch(url, { headers: {
-                    'Referer': 'https://fund.eastmoney.com/',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': '*/*',
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                } });
-                const text = await res.text();
-                const match = text.match(/jsonpgz\((.*?)\)/);
-                if (match && match[1]) {
-                    const data = JSON.parse(match[1]);
-                    if (data.dwjz && parseFloat(data.dwjz) > 0) {
-                        let change: number | undefined = undefined;
-                        if (data.gszzl) change = parseFloat(data.gszzl);
-                        return { price: parseFloat(data.dwjz), change, time: data.gztime };
-                    }
+                const url = `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${symbol}&pageIndex=1&pageSize=1`;
+                const res = await fetch(url, { headers: emHeaders });
+                const json = await res.json();
+                const row = json?.Data?.LSJZList?.[0];
+                if (row && row.DWJZ && parseFloat(row.DWJZ) > 0) {
+                    const chg = row.JZZZL !== '' && row.JZZZL != null ? parseFloat(row.JZZZL) : undefined;
+                    return { price: parseFloat(row.DWJZ), change: chg !== undefined && !isNaN(chg) ? chg : undefined, time: row.FSRQ };
                 }
             } catch (e) {}
-            
-            // F10 Fallback
+
+            // 兜底：F10DataApi（必须带浏览器头，裸请求会被东财 404）
             try {
-                const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${symbol}&page=1`;
-                const res = await fetch(url);
+                const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${symbol}&page=1&per=1&sdate=&edate=`;
+                const res = await fetch(url, { headers: emHeaders });
                 const text = await res.text();
                 const navMatch = text.match(/<td>(\d{4}-\d{2}-\d{2})<\/td>\s*<td[^>]*>([\d\.]+)<\/td>/);
                 if (navMatch && navMatch[2]) {
-                    return { price: parseFloat(navMatch[2]), change: undefined, time: navMatch[1] }; 
+                    return { price: parseFloat(navMatch[2]), change: undefined, time: navMatch[1] };
                 }
             } catch (e) {}
             return null;

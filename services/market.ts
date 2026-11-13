@@ -129,39 +129,9 @@ export const marketService = {
                 return null;
             }
 
-            // B. CN Funds (EastMoney fundgz)
+            // B. CN Funds (EastMoney)：服务端 quotes 接口已覆盖（官方 lsjz JSON）；
+            // 此处仅保留 F10 经代理一条最后兜底（fundgz 已下线、原 allorigins 路径已移除）
             if (/^\d{6}$/.test(symbol)) {
-                try {
-                    // Strategy 1: fundgz via proxy
-                    const target = `https://fundgz.1234567.com.cn/js/${symbol}.js?rt=${Date.now()}`;
-                    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
-                    const json = await res.json();
-                    
-                    if (json.contents) {
-                        const match = json.contents.match(/jsonpgz\((.*?)\)/);
-                        if (match && match[1]) {
-                            const data = JSON.parse(match[1]);
-                            if (data.dwjz) {
-                                let change: number | undefined = undefined;
-                                if (data.gszzl && data.gszzl !== "") {
-                                    const parsedChange = parseFloat(data.gszzl);
-                                    if (!isNaN(parsedChange)) change = parsedChange;
-                                }
-
-                                return { 
-                                    symbol, 
-                                    data: {
-                                        price: parseFloat(data.dwjz),
-                                        change: change, // undefined if invalid
-                                        time: data.gztime
-                                    }
-                                };
-                            }
-                        }
-                    }
-                } catch (e) { console.warn(`[MarketService] EastMoney Fund (fundgz) fallback failed for ${symbol}`, e); }
-                
-                // Strategy 2: F10DataApi via proxy (Backup)
                 try {
                     const target = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${symbol}&page=1`;
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
