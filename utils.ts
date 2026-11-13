@@ -463,11 +463,11 @@ export const calculatePeriodStats = (items: Investment[], start: Date, end: Date
             }
         }
         
-        // 3. Rebate 
+        // 3. Rebate（与全时口径一致：只有已到账返利计入期间收益，未到账只计入 pendingRebate 统计）
         if (isBetween(item.depositDate)) {
             totalRebate += item.rebate;
-            itemPeriodProfit += item.rebate;
             if (item.isRebateReceived) {
+                itemPeriodProfit += item.rebate;
                 realizedInPeriod += item.rebate;
                 receivedRebate += item.rebate;
             } else {
