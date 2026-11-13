@@ -235,7 +235,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
       const floatingAndAccrued = stats.projectedTotalProfit - stats.realizedInterest;
       
       const list = [
-          { label: '持仓浮盈/利息', value: floatingAndAccrued, color: 'bg-blue-400' },
+          { label: timeFilter === 'all' ? '持仓浮盈/利息' : '固收预估利息', value: floatingAndAccrued, color: 'bg-blue-400' },
           { label: '已结盈亏', value: realizedOnly, color: 'bg-emerald-400' },
           { label: '已到账返利', value: receivedRebate, color: 'bg-amber-400' }
       ];
@@ -338,6 +338,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
   // 3. Realized Profit Breakdown (Corrected for Time Filter)
   const { realizedBreakdownList, realizedCategoryData } = useMemo(() => {
       let completedNetPeriod = 0; // Net Completion Gain in Period (The '已完结项目净利' component)
+      let rebateClawback = 0; // Rebates received before the period (counted in a prior period) offset against this period's completions
       let txRealizedInPeriod = 0; // P&L Txs in Period (The '持仓中派息/减仓' component)
       let realizedItemTotalMap: Record<string, number> = {}; // Data for chart
       
@@ -368,6 +369,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
                   const metrics = calculateItemMetrics(item);
                   let netCompletionGain = metrics.baseInterest; 
                   let realizedPnlTxBeforePeriod = 0;
+                  let rebateBeforePeriod = 0;
 
                   if (item.transactions) {
                       item.transactions.forEach(tx => {
@@ -379,8 +381,10 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
                       });
                   }
                   if (item.isRebateReceived && new Date(item.depositDate) < start) {
+                      rebateBeforePeriod = item.rebate;
                       realizedPnlTxBeforePeriod += item.rebate;
                   }
+                  rebateClawback += rebateBeforePeriod;
                   
                   const completionNetProfit = netCompletionGain - realizedPnlTxBeforePeriod;
                   itemRealized += completionNetProfit;
@@ -416,12 +420,19 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
       });
       
       // Breakdown List Logic (uses the decomposed values calculated above)
+      // 已完结项目净利 shown gross of the cross-year rebate clawback, which gets its own negative row;
+      // the rows still sum to stats.realizedInterest.
       const list = [
           { 
               label: '已完结项目净利', 
-              value: completedNetPeriod, 
+              value: completedNetPeriod + rebateClawback, 
               color: 'bg-slate-400' 
           },
+          ...(rebateClawback !== 0 ? [{ 
+              label: '跨年返利冲回', 
+              value: -rebateClawback, 
+              color: 'bg-rose-400' 
+          }] : []),
           { 
               label: '持仓中派息/减仓', 
               value: txRealizedInPeriod, 
@@ -492,7 +503,7 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
 
   const showTotalProfitInfo = () => setInfoModal({ title: "总预估收益 (含在途)", content: <div className="text-sm text-slate-600 space-y-2"><p>历史总回报，包含账面浮盈和已落袋资金。</p><p className="font-bold text-indigo-600">公式：浮盈/利息 + 已结盈亏 + 已到账返利（三者互不重叠）</p></div> });
   const showTodayProfitInfo = () => setInfoModal({ title: "今日/昨日预估收益", content: <div className="text-sm text-slate-600 space-y-2"><p>仅计算今天产生的价值变化。</p><p className="font-bold text-orange-600">公式：固收日息 + 浮动资产今日涨跌</p></div> });
-  const showRealizedProfitInfo = () => setInfoModal({ title: "已落袋收益", content: <div className="text-sm text-slate-600 space-y-2"><p>真正“落袋为安”的收益。</p><p className="font-bold text-amber-600">包含：完结项目净利 + 派息/减仓 + 已到账返利</p></div> });
+  const showRealizedProfitInfo = () => setInfoModal({ title: "已落袋收益", content: <div className="text-sm text-slate-600 space-y-2"><p>真正“落袋为安”的收益。</p><p className="font-bold text-amber-600">包含：完结项目净利 + 派息/减仓 + 已到账返利 − 跨年返利冲回（往年已计过的返利，完结当年扣回防重复）</p></div> });
   
   // Capital At Risk Info Card Action
   const showCapitalAtRiskInfo = () => setInfoModal({
