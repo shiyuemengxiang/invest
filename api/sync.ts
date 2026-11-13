@@ -51,12 +51,30 @@ async function getSessionUser(client: any, request: any): Promise<AuthedUser | n
      WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP`,
     [hashToken(token)]
   );
-  if (rows.length === 0) return null;
-  await client.query(
-    `UPDATE sessions SET expires_at = CURRENT_TIMESTAMP + ($1 || ' days')::interval WHERE token_hash = $2`,
-    [String(SESSION_DAYS), hashToken(token)]
-  ).catch(() => {});
-  return { id: rows[0].user_id, email: rows[0].email, disabled: !!rows[0].disabled };
+  if (rows.length > 0) {
+    await client.query(
+      `UPDATE sessions SET expires_at = CURRENT_TIMESTAMP + ($1 || ' days')::interval WHERE token_hash = $2`,
+      [String(SESSION_DAYS), hashToken(token)]
+    ).catch(() => {});
+    return { id: rows[0].user_id, email: rows[0].email, disabled: !!rows[0].disabled };
+  }
+  // MCP API Token（网页授权生成的长期令牌，可撤销；见 api/mcp.ts）
+  try {
+    const { rows: trows } = await client.query(
+      `SELECT t.user_id, u.email, u.disabled
+       FROM api_tokens t JOIN users u ON u.id = t.user_id
+       WHERE t.token_hash = $1 AND t.revoked_at IS NULL`,
+      [hashToken(token)]
+    );
+    if (trows.length > 0) {
+      await client.query(
+        `UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE token_hash = $1`,
+        [hashToken(token)]
+      ).catch(() => {});
+      return { id: trows[0].user_id, email: trows[0].email, disabled: !!trows[0].disabled };
+    }
+  } catch { /* api_tokens 表尚未创建时忽略 */ }
+  return null;
 }
 
 async function deleteSession(client: any, request: any): Promise<void> {
