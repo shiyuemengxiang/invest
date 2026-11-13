@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Ledger · MCP 授权</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #eef2ff; min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; color: #1e293b; }
+  .card { background: #fff; border-radius: 16px; box-shadow: 0 10px 30px rgba(30,41,59,.10); max-width: 520px; width: 100%; padding: 32px 28px; }
+  h1 { font-size: 20px; margin-bottom: 6px; }
+  .sub { color: #64748b; font-size: 13px; margin-bottom: 20px; }
+  .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+  .row .k { color: #64748b; }
+  .row .v { font-weight: 600; word-break: break-all; text-align: right; max-width: 65%; }
+  .btn { display: inline-block; background: #4f46e5; color: #fff; border: none; border-radius: 10px; padding: 12px 22px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 22px; }
+  .btn:hover { background: #4338ca; }
+  .btn:disabled { background: #a5b4fc; cursor: default; }
+  .btn.ghost { background: #eef2ff; color: #4f46e5; }
+  .btn.danger { background: #fff; color: #dc2626; border: 1px solid #fecaca; width: auto; padding: 6px 14px; font-size: 13px; margin: 0; }
+  .warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 10px; padding: 12px 14px; font-size: 13px; margin-top: 16px; line-height: 1.6; }
+  .err { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 10px; padding: 12px 14px; font-size: 14px; line-height: 1.6; }
+  .tok { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; margin-top: 12px; }
+  .tok .nm { font-weight: 700; font-size: 14px; }
+  .tok .meta { color: #64748b; font-size: 12px; margin-top: 4px; line-height: 1.7; }
+  .tok .hd { display: flex; justify-content: space-between; align-items: center; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #dcfce7; color: #166534; }
+  .badge.off { background: #f1f5f9; color: #64748b; }
+  .hidden { display: none; }
+  .center { text-align: center; color: #64748b; padding: 24px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Smart Ledger · MCP 授权</h1>
+  <p class="sub">授权后，MCP 客户端（如各类 AI 助手）可代你查询与维护这个账本。令牌可在本页随时撤销。</p>
+
+  <div id="view-loading" class="center">正在检查登录状态…</div>
+
+  <div id="view-login" class="hidden">
+    <div class="err">尚未登录，或登录已过期。</div>
+    <button class="btn" id="btn-login">打开 Smart Ledger 登录</button>
+    <p class="sub" style="margin-top:14px">在新打开的页面登录后，回到本页将自动继续（本页正在等待登录状态）。</p>
+  </div>
+
+  <div id="view-authorize" class="hidden">
+    <div class="row"><span class="k">授权账号</span><span class="v" id="az-email">—</span></div>
+    <div class="row"><span class="k">请求方</span><span class="v" id="az-app">MCP 客户端</span></div>
+    <div class="row"><span class="k">授权结果发回</span><span class="v" id="az-redir">—</span></div>
+    <div class="warn">授权将生成一个长期令牌，对方可用它读取和修改你的完整账本（与登录密码权限相同）。请只授权你信任的、运行在你自己设备上的客户端。</div>
+    <button class="btn" id="btn-authorize">授权并返回客户端</button>
+    <div class="err hidden" id="az-err" style="margin-top:14px"></div>
+  </div>
+
+  <div id="view-manage" class="hidden">
+    <div class="row"><span class="k">当前账号</span><span class="v" id="mg-email">—</span></div>
+    <div id="mg-list"></div>
+    <p class="sub" style="margin-top:18px">要连接新的 MCP 客户端，请在客户端里发起授权，它会自动打开本页。撤销令牌后，对应客户端将立即无法访问。</p>
+  </div>
+
+  <div id="view-error" class="hidden">
+    <div class="err" id="err-text">参数无效。</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var redirectUri = params.get('redirect_uri') || '';
+  var state = params.get('state') || '';
+  var appName = (params.get('name') || 'MCP 客户端').slice(0, 60);
+
+  function show(id) {
+    ['view-loading', 'view-login', 'view-authorize', 'view-manage', 'view-error'].forEach(function (v) {
+      document.getElementById(v).classList.toggle('hidden', v !== id);
+    });
+  }
+  function token() { return localStorage.getItem('smart_ledger_token'); }
+  function authHeaders() { return { 'Authorization': 'Bearer ' + token(), 'Content-Type': 'application/json' }; }
+
+  function isLocalRedirect(uri) {
+    try {
+      var u = new URL(uri);
+      return u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
+    } catch (e) { return false; }
+  }
+
+  function fmt(t) {
+    if (!t) return '从未';
+    try { return new Date(t).toLocaleString('zh-CN', { hour12: false }); } catch (e) { return String(t); }
+  }
+
+  function checkMe() {
+    if (!token()) return Promise.resolve(null);
+    return fetch('/api/mcp?action=me', { headers: authHeaders() })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
+  }
+
+  function loadManage(email) {
+    document.getElementById('mg-email').textContent = email;
+    show('view-manage');
+    fetch('/api/mcp?action=list', { headers: authHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var box = document.getElementById('mg-list');
+        var toks = (data && data.tokens) || [];
+        if (!toks.length) { box.innerHTML = '<p class="center">还没有生成过令牌。</p>'; return; }
+        box.innerHTML = '';
+        toks.forEach(function (t) {
+          var div = document.createElement('div');
+          div.className = 'tok';
+          var off = !!t.revoked_at;
+          div.innerHTML = '<div class="hd"><span class="nm"></span>' +
+            (off ? '<span class="badge off">已撤销</span>' : '<span class="badge">有效</span>') + '</div>' +
+            '<div class="meta">创建：' + fmt(t.created_at) + '<br>最近使用：' + fmt(t.last_used_at) +
+            (off ? '<br>撤销：' + fmt(t.revoked_at) : '') + '</div>';
+          div.querySelector('.nm').textContent = t.name || 'MCP';
+          if (!off) {
+            var btn = document.createElement('button');
+            btn.className = 'btn danger';
+            btn.textContent = '撤销';
+            var armed = false, armTimer = null;
+            btn.onclick = function () {
+              if (!armed) {
+                // 页内两步确认（不用原生 confirm，部分浏览器/自动化环境会拦截）
+                armed = true;
+                btn.textContent = '确认撤销？';
+                btn.style.background = '#dc2626';
+                btn.style.color = '#fff';
+                armTimer = setTimeout(function () {
+                  armed = false;
+                  btn.textContent = '撤销';
+                  btn.style.background = '';
+                  btn.style.color = '';
+                }, 4000);
+                return;
+              }
+              clearTimeout(armTimer);
+              btn.disabled = true;
+              btn.textContent = '撤销中…';
+              fetch('/api/mcp', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ action: 'revoke', id: t.id }) })
+                .then(function () { loadManage(email); })
+                .catch(function () { btn.disabled = false; btn.textContent = '撤销'; });
+            };
+            div.querySelector('.hd').appendChild(btn);
+          }
+          box.appendChild(div);
+        });
+      })
+      .catch(function () {
+        document.getElementById('mg-list').innerHTML = '<p class="center">令牌列表加载失败，请刷新重试。</p>';
+      });
+  }
+
+  function start() {
+    if (redirectUri && !isLocalRedirect(redirectUri)) {
+      document.getElementById('err-text').textContent = 'redirect_uri 无效：授权结果只允许发回本机地址（127.0.0.1 / localhost），已拒绝继续。';
+      show('view-error');
+      return;
+    }
+    checkMe().then(function (me) {
+      if (!me) {
+        show('view-login');
+        var timer = setInterval(function () {
+          checkMe().then(function (me2) {
+            if (me2) { clearInterval(timer); start(); }
+          });
+        }, 1500);
+        return;
+      }
+      if (redirectUri) {
+        document.getElementById('az-email').textContent = me.email;
+        document.getElementById('az-app').textContent = appName;
+        try { document.getElementById('az-redir').textContent = new URL(redirectUri).host; } catch (e) { document.getElementById('az-redir').textContent = redirectUri; }
+        show('view-authorize');
+      } else {
+        loadManage(me.email);
+      }
+    });
+  }
+
+  document.getElementById('btn-login').addEventListener('click', function () {
+    window.open('/', '_blank');
+  });
+
+  document.getElementById('btn-authorize').addEventListener('click', function () {
+    var btn = this;
+    var errBox = document.getElementById('az-err');
+    btn.disabled = true;
+    btn.textContent = '正在生成授权码…';
+    errBox.classList.add('hidden');
+    fetch('/api/mcp', {
+      method: 'POST', headers: authHeaders(),
+      body: JSON.stringify({ action: 'code', name: appName, redirect_uri: redirectUri })
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.j.code) throw new Error((res.j && res.j.message) || '生成授权码失败');
+        var u = new URL(redirectUri);
+        u.searchParams.set('code', res.j.code);
+        if (state) u.searchParams.set('state', state);
+        location.href = u.toString();
+      })
+      .catch(function (e) {
+        btn.disabled = false;
+        btn.textContent = '授权并返回客户端';
+        errBox.textContent = String(e.message || e);
+        errBox.classList.remove('hidden');
+      });
+  });
+
+  start();
+})();
+</script>
+</body>
+</html>

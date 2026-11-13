@@ -1,1 +1,8 @@
-{"buildCommand":"npm run build","framework":"vite","outputDirectory":"dist"}
+{
+  "buildCommand": "npm run build",
+  "framework": "vite",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/api/mcp", "destination": "/api/sync?__mcp=1" }
+  ]
+}
