@@ -228,15 +228,16 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
       
       const catMap: Record<string, number> = {};
       
-      // Breakdown logic uses the current profit sum structure
-      const realizedOnly = stats.realizedInterest;
+      // Breakdown logic: three mutually exclusive parts that sum to projectedTotalProfit
+      // realizedInterest already includes receivedRebate; split it out so rebate is shown once.
       const receivedRebate = stats.receivedRebate;
-      const floatingAndAccrued = stats.projectedTotalProfit - realizedOnly - receivedRebate;
+      const realizedOnly = stats.realizedInterest - receivedRebate;
+      const floatingAndAccrued = stats.projectedTotalProfit - stats.realizedInterest;
       
       const list = [
           { label: '持仓浮盈/利息', value: floatingAndAccrued, color: 'bg-blue-400' },
           { label: '已结盈亏', value: realizedOnly, color: 'bg-emerald-400' },
-          { label: '总返利', value: stats.totalRebate, color: 'bg-amber-400' }
+          { label: '已到账返利', value: receivedRebate, color: 'bg-amber-400' }
       ];
 
       currencyItems.forEach(item => {
@@ -489,9 +490,9 @@ const Dashboard: React.FC<Props> = ({ items, rates, theme }) => {  const [select
   // FIX: Define helper functions inside the component scope (Scope Fix)
   // =================================================================
 
-  const showTotalProfitInfo = () => setInfoModal({ title: "总预估收益 (含在途)", content: <div className="text-sm text-slate-600 space-y-2"><p>历史总回报，包含账面浮盈和已落袋资金。</p><p className="font-bold text-indigo-600">公式：浮盈 + 已结 + 返利 - 费用</p></div> });
+  const showTotalProfitInfo = () => setInfoModal({ title: "总预估收益 (含在途)", content: <div className="text-sm text-slate-600 space-y-2"><p>历史总回报，包含账面浮盈和已落袋资金。</p><p className="font-bold text-indigo-600">公式：浮盈/利息 + 已结盈亏 + 已到账返利（三者互不重叠）</p></div> });
   const showTodayProfitInfo = () => setInfoModal({ title: "今日/昨日预估收益", content: <div className="text-sm text-slate-600 space-y-2"><p>仅计算今天产生的价值变化。</p><p className="font-bold text-orange-600">公式：固收日息 + 浮动资产今日涨跌</p></div> });
-  const showRealizedProfitInfo = () => setInfoModal({ title: "已落袋收益", content: <div className="text-sm text-slate-600 space-y-2"><p>真正“落袋为安”的收益。</p><p className="font-bold text-amber-600">包含：完结项目净利 + 派息 + 减仓盈利</p></div> });
+  const showRealizedProfitInfo = () => setInfoModal({ title: "已落袋收益", content: <div className="text-sm text-slate-600 space-y-2"><p>真正“落袋为安”的收益。</p><p className="font-bold text-amber-600">包含：完结项目净利 + 派息/减仓 + 已到账返利</p></div> });
   
   // Capital At Risk Info Card Action
   const showCapitalAtRiskInfo = () => setInfoModal({
