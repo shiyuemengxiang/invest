@@ -120,12 +120,28 @@
             var btn = document.createElement('button');
             btn.className = 'btn danger';
             btn.textContent = '撤销';
+            var armed = false, armTimer = null;
             btn.onclick = function () {
-              if (!confirm('撤销后，使用该令牌的客户端将立即无法访问账本。继续？')) return;
+              if (!armed) {
+                // 页内两步确认（不用原生 confirm，部分浏览器/自动化环境会拦截）
+                armed = true;
+                btn.textContent = '确认撤销？';
+                btn.style.background = '#dc2626';
+                btn.style.color = '#fff';
+                armTimer = setTimeout(function () {
+                  armed = false;
+                  btn.textContent = '撤销';
+                  btn.style.background = '';
+                  btn.style.color = '';
+                }, 4000);
+                return;
+              }
+              clearTimeout(armTimer);
               btn.disabled = true;
+              btn.textContent = '撤销中…';
               fetch('/api/mcp', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ action: 'revoke', id: t.id }) })
                 .then(function () { loadManage(email); })
-                .catch(function () { btn.disabled = false; });
+                .catch(function () { btn.disabled = false; btn.textContent = '撤销'; });
             };
             div.querySelector('.hd').appendChild(btn);
           }
