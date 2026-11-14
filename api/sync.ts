@@ -397,6 +397,22 @@ export default async function handler(request: any, response: any) {
       });
     }
 
+    // 1.5) 未携带 baseRev 的全量上传若会丢弃云端现有记录，一律拦截：
+    //      无版本意识的写入方（如直连 API 的脚本）拿旧全量覆盖时，会静默抹掉其他端刚加的记录。
+    //      合法全量替换走 forceClear（用户二次确认），或先拉取最新数据、带 baseRev 重试。
+    if (!forceClear && stored && (baseRev === undefined || baseRev === null)
+        && Array.isArray(stored.data) && stored.data.length > 0) {
+      const payloadIds = new Set((data as any[]).map((i: any) => i && i.id).filter(Boolean));
+      const droppedCount = stored.data.filter((i: any) => i && i.id && !payloadIds.has(i.id)).length;
+      if (droppedCount > 0) {
+        return response.status(409).json({
+          error: 'CONFLICT',
+          serverRev: storedRev,
+          message: `本次上传未携带版本号且会丢弃云端 ${droppedCount} 条记录，已拦截；请先拉取最新数据并携带 baseRev 重试`
+        });
+      }
+    }
+
     // 2) 数据骤降熔断：非空骤降同样拦截（本次事故就是 123 -> 3 条 demo）
     if (!forceClear && storedCount >= CLIFF_BASELINE && data.length < storedCount * CLIFF_RATIO) {
       return response.status(422).json({
