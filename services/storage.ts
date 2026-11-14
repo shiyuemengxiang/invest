@@ -153,13 +153,16 @@ export const storageService = {
 
     // Save Data: 本地全量保存；登录用户上传云端（去 seed、防骤降、防并发覆盖）
     // 服务端 422/409 会抛 SyncCliffError / SyncConflictError，由调用方 UI 处理
-    async saveData(user: User | null, items: Investment[], opts?: { forceClear?: boolean }) {
+    // opts.baseRev 传了（含 null）就以调用方为准：App 传的是「当前内存数据实际基于的 rev」，
+    // 防止 syncDown 已把本地 rev 刷到最新、而内存数据仍是旧版本时，拿新 rev 蒙混过服务端校验整体覆盖。
+    // 返回服务端新 rev（供调用方更新 basis），失败/未登录时返回 undefined。
+    async saveData(user: User | null, items: Investment[], opts?: { forceClear?: boolean; baseRev?: number | null }): Promise<number | undefined> {
         this.saveLocalData(items);
         if (user && user.id) {
             try {
                 // 演示数据永不上传
                 const clean = this.stripSeed(items);
-                const baseRev = this.getLastRev();
+                const baseRev = (opts && 'baseRev' in opts) ? (opts.baseRev ?? null) : this.getLastRev();
                 const res = await fetch(`${API_BASE}/sync`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
@@ -184,16 +187,19 @@ export const storageService = {
                 if (!res.ok) {
                     console.error("云端同步失败:", res.status, json);
                     this._setLastSync(false);
-                    return;
+                    return undefined;
                 }
                 if (typeof json.rev === 'number') this.setLastRev(json.rev);
                 this._setLastSync(true);
+                return typeof json.rev === 'number' ? json.rev : undefined;
             } catch (e) {
                 if (e instanceof SessionExpiredError || e instanceof AccountGoneError || e instanceof SyncCliffError || e instanceof SyncConflictError) throw e;
                 console.warn("Background sync failed:", e);
                 this._setLastSync(false);
+                return undefined;
             }
         }
+        return undefined;
     },
     
     // Save Preferences: Uploads to Vercel PG if logged in, always saves to LocalStorage

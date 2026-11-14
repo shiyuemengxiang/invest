@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ExchangeRates, Investment, User, ViewState, ThemeOption, FilterType, ProductTypeFilter, CurrencyFilter, CategoryFilter, SortType } from './types';
 import Dashboard from './components/Dashboard';
 import InvestmentList from './components/InvestmentList';
@@ -15,6 +15,10 @@ import { THEMES, migrateInvestmentData } from './utils';
 
 const App: React.FC = () => {
   const [items, setItems] = useState<Investment[]>([]);
+  // 当前内存数据实际基于的云端 rev：保存时以它做乐观锁校验。
+  // 不能用 localStorage 里的最新 rev——syncDown 会先把 rev 刷到最新，
+  // 若内存数据还是旧版本（初始化竞态/自动行情刷新用了旧状态），拿新 rev 保存会蒙混过校验、整体覆盖掉其他端刚写入的新记录。
+  const itemsBasisRevRef = useRef<number | null>(null);
   const [view, setView] = useState<ViewState>('dashboard');
   // 邮件重置密码 token（URL ?reset_token=）
   const [resetToken, setResetToken] = useState<string | null>(() => {
@@ -100,6 +104,7 @@ const App: React.FC = () => {
     
     loadedItems.sort((a, b) => new Date(a.depositDate).getTime() - new Date(b.depositDate).getTime());
     migrateAndSetItems(loadedItems);
+    itemsBasisRevRef.current = storageService.getLastRev();
 
     if (currentUser) {
         // 同步最新偏好设置（昵称/头像多端一致）
@@ -116,6 +121,7 @@ const App: React.FC = () => {
             // 空云端不覆盖本地（登录/初始化时由 login() 的方向裁决负责）
             if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
                  migrateAndSetItems(cloudData);
+                 itemsBasisRevRef.current = storageService.getLastRev();
             }
             refreshSyncInfo();
         }).catch(e => {
@@ -154,14 +160,26 @@ const App: React.FC = () => {
   const saveItems = async (newItems: Investment[]) => {
       setItems(newItems);
       try {
-          await storageService.saveData(user, newItems);
+          // 以内存数据实际基于的 rev 保存：版本对不上就让服务端 409，而不是拿最新 rev 覆盖其他端的新数据
+          const newRev = await storageService.saveData(user, newItems, { baseRev: itemsBasisRevRef.current });
+          if (typeof newRev === 'number') itemsBasisRevRef.current = newRev;
       } catch (e: any) {          if (isAccountGone(e)) {
               // 已强制登出
           } else if (e?.name === 'SyncCliffError') {
               // 云端数据更多：拦截本次上传，请用户二次确认是否强制覆盖
               setCliffConflict({ stored: e.stored, incoming: e.incoming, pendingItems: newItems });
           } else if (e?.name === 'SyncConflictError') {
-              showToast('云端已有其他端更新，为防覆盖请刷新页面后再试', 'error');
+              showToast('云端已有其他端更新，已自动同步最新数据，刚才的修改未保存，请重试', 'error');
+              // 自动拉取云端最新对齐状态与 basis，免去手动刷新（此前表现为「提示冲突、一刷新就没了」）
+              if (user) {
+                  try {
+                      const cloudData = await storageService.syncDown(user.id);
+                      if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
+                          migrateAndSetItems(cloudData);
+                          itemsBasisRevRef.current = storageService.getLastRev();
+                      }
+                  } catch (_) { /* 同步失败保持现状，下次保存再试 */ }
+              }
           }
       } finally {
           refreshSyncInfo();
@@ -171,7 +189,8 @@ const App: React.FC = () => {
   const handleConfirmCliffOverwrite = async () => {
       if (!cliffConflict) return;
       try {
-          await storageService.saveData(user, cliffConflict.pendingItems, { forceClear: true });
+          const newRev = await storageService.saveData(user, cliffConflict.pendingItems, { forceClear: true });
+          if (typeof newRev === 'number') itemsBasisRevRef.current = newRev;
           showToast('已按确认覆盖云端数据', 'info');
       } catch (e: any) {
           if (!isAccountGone(e)) {
@@ -267,7 +286,10 @@ const App: React.FC = () => {
       }
       
       const freshData = storageService.getLocalData();
-      if (freshData) migrateAndSetItems(freshData);
+      if (freshData) {
+          migrateAndSetItems(freshData);
+          itemsBasisRevRef.current = storageService.getLastRev();
+      }
 
       refreshSyncInfo();
       setView('dashboard');
