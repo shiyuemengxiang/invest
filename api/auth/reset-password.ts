@@ -135,6 +135,15 @@ export default async function handler(request: any, response: any) {
     await client.query('UPDATE password_resets SET used_at = CURRENT_TIMESTAMP WHERE id = $1', [reset.id]);
     // 踢掉所有 session，强制重登
     await client.query('DELETE FROM sessions WHERE user_id = $1', [reset.user_id]).catch(() => {});
+    // 重置成功即证明邮箱归属：顺带清掉该邮箱的登录失败计数与锁定，
+    // 否则用户改完密码仍会被旧锁定挡在门外（失败计数原本永不清零时尤甚）。
+    try {
+      const { rows: urows } = await client.query('SELECT email FROM users WHERE id = $1', [reset.user_id]);
+      const em = urows[0]?.email;
+      if (em) {
+        await client.query('DELETE FROM login_attempts WHERE key = $1', [`login:${String(em).trim().toLowerCase()}`]);
+      }
+    } catch (_) { /* 清理失败不阻塞重置本身 */ }
 
     return response.status(200).json({ success: true });
   } catch (error: any) {

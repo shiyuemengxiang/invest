@@ -102,6 +102,9 @@ const BCRYPT_ROUNDS = 10;
 // 登录限流：同一邮箱连续失败 MAX_LOGIN_FAILS 次 → 锁定 LOCK_MINUTES 分钟
 const MAX_LOGIN_FAILS = 5;
 const LOCK_MINUTES = 15;
+// 失败计数过期窗口：超过该时长的旧失败不再累计（与注册限流同口径）。
+// 否则历史上错过 5 次的人计数永不清零，之后每次输错 1 次就被立即锁定，形同永久锁定。
+const FAIL_WINDOW_HOURS = 1;
 // 注册限流：同一 IP 每小时最多注册数
 const MAX_REGISTER_PER_IP_PER_HOUR = 10;
 
@@ -171,6 +174,11 @@ async function isLocked(client: any, key: string): Promise<boolean> {
 }
 
 async function recordLoginFail(client: any, key: string): Promise<boolean> {
+  // 先清掉过期窗口外的旧计数（锁已过期且计数陈旧的行视为重新开始）
+  await client.query(
+    `DELETE FROM login_attempts WHERE key = $1 AND updated_at < CURRENT_TIMESTAMP - ($2 || ' hours')::interval`,
+    [key, String(FAIL_WINDOW_HOURS)]
+  ).catch(() => {});
   await client.query(
     `INSERT INTO login_attempts (key, fails, locked_until, updated_at)
      VALUES ($1, 1, NULL, CURRENT_TIMESTAMP)
